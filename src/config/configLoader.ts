@@ -6,23 +6,29 @@ import { z } from 'zod';
 const CameraSchema = z.object({
   id: z.string(),
   label: z.string(),
+  cameraType: z.enum(['vbot', 'birddog', 'generic']).default('generic'),
   inputId: z.number(),
   viscaIp: z.string(),
-  viscaPort: z.number(),
-  cameraType: z.enum(['birddog', 'vbot', 'generic']).default('generic'),
+  viscaPort: z.number().default(52381),
+});
+
+const GraphicsSchema = z.object({
+  type: z.enum(['dsk', 'usk', 'auto']).default('dsk'),
+  dskIndex: z.number().default(0),
+  uskIndex: z.number().default(0),
+  meIndex: z.number().default(0),
+});
+
+const AtemSchema = z.object({
+  ip: z.string(),
+  defaultTransition: z.enum(['cut', 'auto']),
+  meIndex: z.number().default(0),
 });
 
 const DevicesSchema = z.object({
-  atem: z.object({
-    ip: z.string(),
-    defaultTransition: z.enum(['cut', 'auto']),
-    meIndex: z.number().default(0),
-  }),
+  atem: AtemSchema,
   cameras: z.array(CameraSchema),
-  lowerThirds: z.object({
-    type: z.string(),
-    dskIndex: z.number(),
-  }),
+  graphics: GraphicsSchema,
 });
 
 const SpeedPresetsSchema = z.object({
@@ -34,11 +40,12 @@ const SpeedPresetsSchema = z.object({
 });
 
 export type CameraConfig = z.infer<typeof CameraSchema>;
+export type GraphicsConfig = z.infer<typeof GraphicsSchema>;
 
 export interface AppConfig {
   atem: { ip: string; defaultTransition: string; meIndex: number };
   cameras: CameraConfig[];
-  lowerThirds: { type: string; dskIndex: number };
+  graphics: GraphicsConfig;
   speeds: z.infer<typeof SpeedPresetsSchema>;
 }
 
@@ -53,4 +60,13 @@ export function loadConfig(): AppConfig {
   const speeds = SpeedPresetsSchema.parse(speedsRaw);
 
   return { ...devices, speeds };
+}
+
+export function validateDevicesConfig(raw: unknown): Pick<AppConfig, 'atem' | 'cameras' | 'graphics'> {
+  return DevicesSchema.parse(raw);
+}
+
+export function saveDevicesConfig(config: Pick<AppConfig, 'atem' | 'cameras' | 'graphics'>): void {
+  const devicesPath = process.env.DEVICES_CONFIG ?? path.join(process.cwd(), 'config/devices.yaml');
+  fs.writeFileSync(devicesPath, yaml.dump({ atem: config.atem, cameras: config.cameras, graphics: config.graphics }, { lineWidth: 120 }), 'utf8');
 }

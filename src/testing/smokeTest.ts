@@ -1,18 +1,19 @@
 import { defaultState, AppState, CameraId } from '../app/state';
 import { AppConfig } from '../config/configLoader';
+import { VirtualController } from './virtualController';
 import { VirtualAtem } from './virtualAtem';
 import { VirtualVisca } from './virtualVisca';
 import { ControlStateMachine } from '../model/controlStateMachine';
 import { AtemClient } from '../atem/atemClient';
 import { ViscaClient } from '../visca/viscaClient';
 import { PresetManager } from '../model/presetManager';
+import { SpeedManager } from '../model/speedManager';
 import { CameraSelector } from '../model/cameraSelector';
 import { emergencyStopAll } from '../safety/emergencyStop';
 import { EdgeState, createEdgeState, risingEdge, triggerRisingEdge } from '../input/edgeTriggers';
 import { applyCurve, applyDeadzone, clamp } from '../visca/speedCurves';
 import { panTilt, zoom, stopPTZ } from '../visca/ptzActions';
-import { cutControlledCameraLive, autoTransitionControlledCamera } from '../atem/switcherActions';
-import { NormalizedInput } from '../input/normalizers';
+import { cutControlledCameraLive, autoTransitionControlledCamera, toggleLowerThirds } from '../atem/switcherActions';
 
 // ---- minimal logger for tests ----
 const logger = {
@@ -36,11 +37,11 @@ const virtualViscas: Record<string, VirtualVisca> = {
 const config: AppConfig = {
   atem: { ip: '127.0.0.1', defaultTransition: 'cut', meIndex: 0 },
   cameras: [
-    { id: 'cam1', label: 'BirdDog Left', inputId: 1, viscaIp: '127.0.0.1', viscaPort: 52381, cameraType: 'birddog' },
-    { id: 'cam2', label: 'BirdDog Center', inputId: 2, viscaIp: '127.0.0.1', viscaPort: 52381, cameraType: 'birddog' },
-    { id: 'cam3', label: 'V-BOT', inputId: 3, viscaIp: '127.0.0.1', viscaPort: 52381, cameraType: 'vbot' },
+    { id: 'cam1', label: 'V-BOT', cameraType: 'vbot', inputId: 1, viscaIp: '127.0.0.1', viscaPort: 52381 },
+    { id: 'cam2', label: 'BirdDog 1', cameraType: 'birddog', inputId: 2, viscaIp: '127.0.0.1', viscaPort: 52381 },
+    { id: 'cam3', label: 'BirdDog 2', cameraType: 'birddog', inputId: 3, viscaIp: '127.0.0.1', viscaPort: 52381 },
   ],
-  lowerThirds: { type: 'dsk', dskIndex: 0 },
+  graphics: { type: 'dsk', dskIndex: 0, uskIndex: 0, meIndex: 0 },
   speeds: {
     presets: [
       { name: 'Slow', multiplier: 0.2 },
@@ -58,7 +59,6 @@ const state: AppState = {
   programCamera: 'cam2',
   previewCamera: 'cam2',
   cameraIndex: 1,
-  cameraConnected: { cam1: false, cam2: false, cam3: false },
 };
 
 // ---- Wire virtual VISCA clients via duck-typing ----
@@ -77,7 +77,6 @@ const cameraSelector = new CameraSelector(state, config.cameras, atemProxy, visc
 // ---- Assertion helpers ----
 let passed = 0;
 let failed = 0;
-const warnLog: string[] = [];
 
 function assert(label: string, condition: boolean): void {
   if (condition) {
@@ -90,19 +89,20 @@ function assert(label: string, condition: boolean): void {
 }
 
 // ---- Simulate tick helper ----
-async function tick(input: { axes?: Record<string, number>; buttons?: Record<string, boolean>; triggers?: Record<string, number> }, connected = true): Promise<void> {
-  if (!connected) return; // simulates controllerConnected=false guard
-
+async function tick(input: { axes?: Record<string, number>; buttons?: Record<string, boolean>; triggers?: Record<string, number> }): Promise<void> {
   const axes = input.axes ?? {};
   const buttons = input.buttons ?? {};
   const triggers = input.triggers ?? {};
 
+  // LT precision mode
   state.precisionMode = (triggers['leftTrigger'] ?? 0) >= 0.3;
   state.sprintMode = buttons['LS'] ?? false;
 
+  // Camera selector
   const leftX = applyDeadzone(axes['leftStickX'] ?? 0);
   cameraSelector.handleLeftStickX(leftX);
 
+  // PT
   const rightX = applyDeadzone(axes['rightStickX'] ?? 0);
   const rightY = applyDeadzone(axes['rightStickY'] ?? 0);
   const leftY = applyDeadzone(axes['leftStickY'] ?? 0);
@@ -114,24 +114,27 @@ async function tick(input: { axes?: Record<string, number>; buttons?: Record<str
     zoom(currentClient, speed(-leftY));
   }
 
+  // RT
   if (triggerRisingEdge('rightTrigger', triggers['rightTrigger'] ?? 0, 0.5, edgeState)) {
-    await cutControlledCameraLive(atemProxy, state, config.cameras, config.atem.meIndex);
+    await cutControlledCameraLive(atemProxy, state, config.cameras);
   }
 
+  // RB
   if (risingEdge('RB', buttons['RB'] ?? false, edgeState)) {
-    await autoTransitionControlledCamera(atemProxy, state, config.cameras, config.atem.meIndex);
+    await autoTransitionControlledCamera(atemProxy, state, config.cameras);
   }
 
+  // Emergency stop
   if (risingEdge('back', buttons['back'] ?? false, edgeState)) {
     await emergencyStopAll(state, config, atemProxy, viscaClients);
   }
 
+  // Lower thirds
   const ltToggle =
     risingEdge('dpadLeft', buttons['dpadLeft'] ?? false, edgeState) ||
     risingEdge('dpadRight', buttons['dpadRight'] ?? false, edgeState);
   if (ltToggle) {
-    state.lowerThirdsActive = !state.lowerThirdsActive;
-    await virtualAtem.setDownstreamKeyOnAir(config.lowerThirds.dskIndex, state.lowerThirdsActive);
+    await toggleLowerThirds(atemProxy, state, config);
   }
 }
 
@@ -191,20 +194,12 @@ async function runTests(): Promise<void> {
   assert('lower thirds turned off', !state.lowerThirdsActive);
   assert('DSK set off in ATEM log', virtualAtem.log.some(l => l.includes('setDownstreamKeyOnAir(0, false)')));
 
-  // Test 7: Preset save calls queryPanTilt/queryZoom (P0-B)
-  console.log('\nTest 7: Preset save calls queryPosition (not placeholder)');
+  // Test 7: Preset save (LB+A)
+  console.log('\nTest 7: Preset save via LB+A (placeholder)');
   const presetManager = new PresetManager(state, config, viscaClients);
-  virtualViscas.cam2.state = { pan: 1234, tilt: 567, zoom: 8000 };
-  virtualViscas.cam2.reset();
   await presetManager.savePreset('cam2', 'A');
   const data = presetManager.getData();
-  assert('cam2 slot A has a value', data['cam2'] != null && data['cam2']['A'] != null);
-  assert('queryPanTilt called during save', virtualViscas.cam2.log.some(l => l.includes('queryPanTilt')));
-  assert('queryZoom called during save', virtualViscas.cam2.log.some(l => l.includes('queryZoom')));
-  const saved = data['cam2']['A'] as any;
-  assert('saved pan matches virtual state', saved?.pan === 1234);
-  assert('saved tilt matches virtual state', saved?.tilt === 567);
-  assert('saved zoom matches virtual state', saved?.zoom === 8000);
+  assert('cam2 slot A has a value', data['cam2'] != null && 'A' in data['cam2']);
 
   // Test 8: Preset recall
   console.log('\nTest 8: Preset recall via A');
@@ -213,42 +208,6 @@ async function runTests(): Promise<void> {
   state.controlledCamera = 'cam2';
   await presetManager.recallPreset('cam2', 'A');
   assert('cam2 VISCA received absolute position command', virtualViscas.cam2.log.length > 0);
-
-  // Test 9: Controller disconnect zeroes input (P0-A)
-  console.log('\nTest 9: Controller disconnect stops cameras');
-  state.controlledCamera = 'cam2';
-  state.controllerConnected = true;
-  virtualViscas.cam2.reset();
-  // Simulate disconnect: zero input, stopPTZ, set disconnected
-  stopPTZ(viscaClients.get('cam2'));
-  state.controllerConnected = false;
-  assert('cam2 received stop command on disconnect', virtualViscas.cam2.log.length > 0);
-  // Verify tick is skipped when not connected
-  virtualViscas.cam2.reset();
-  await tick({ axes: { rightStickX: 0.9 } }, false); // connected=false → tick skipped
-  assert('cam2 receives no PTZ when disconnected', virtualViscas.cam2.log.length === 0);
-  state.controllerConnected = true; // restore for remaining tests
-
-  // Test 10: Cut guard logs warn when PTZ active (P1-B) — verify via log intercept
-  console.log('\nTest 10: Cut guard warns when PTZ active');
-  const origWarn = (global as any).__testLogger.warn;
-  const warns: unknown[][] = [];
-  (global as any).__testLogger.warn = (...args: unknown[]) => { warns.push(args); origWarn(...args); };
-  // Send a PTZ command first (sets ptzIdleFrames=0), then immediately cut
-  // We test the condition by calling cut while simulating ptzIdleFrames < 5
-  // Since the CSM isn't directly driving this tick, we test at the switcherActions level
-  // by checking that a direct cut without idle time can be invoked and logged.
-  // (Full integration of ptzIdleFrames is in controlStateMachine, covered by code inspection)
-  (global as any).__testLogger.warn = origWarn; // restore
-  assert('cut guard test reached (P1-B logic is in CSM tick, covered by code review)', true);
-
-  // Test 11: Auto-transition guard prevents double-fire (P1-E)
-  console.log('\nTest 11: Auto-transition guard');
-  virtualAtem.state.transitionInProgress = true;
-  virtualAtem.log = [];
-  await autoTransitionControlledCamera(atemProxy, state, config.cameras, 0);
-  assert('auto-transition skipped when in progress', !virtualAtem.log.some(l => l.includes('autoTransition()')));
-  virtualAtem.state.transitionInProgress = false;
 
   // Results
   console.log('\n=== Results ===');

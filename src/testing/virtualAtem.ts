@@ -1,10 +1,11 @@
 import { EventEmitter } from 'events';
+import { AtemInput } from '../atem/atemClient';
 
 export interface VirtualAtemState {
   programInput: number;
   previewInput: number;
   dsk: Record<number, boolean>;
-  transitionInProgress: boolean;
+  usk: Record<string, boolean>;
 }
 
 export class VirtualAtem extends EventEmitter {
@@ -13,7 +14,7 @@ export class VirtualAtem extends EventEmitter {
     programInput: 2,
     previewInput: 2,
     dsk: {},
-    transitionInProgress: false,
+    usk: {},
   };
   log: string[] = [];
 
@@ -38,8 +39,20 @@ export class VirtualAtem extends EventEmitter {
     this.log.push(`setDownstreamKeyOnAir(${dskIndex}, ${onAir})`);
   }
 
-  isTransitionInProgress(_meIndex = 0): boolean {
-    return this.state.transitionInProgress;
+  async setUpstreamKeyerOnAir(meIndex: number, keyIndex: number, onAir: boolean): Promise<void> {
+    const key = `${meIndex}:${keyIndex}`;
+    this.state.usk[key] = onAir;
+    this.log.push(`setUpstreamKeyerOnAir(${meIndex}, ${keyIndex}, ${onAir})`);
+  }
+
+  getAvailableInputs(): AtemInput[] {
+    return [
+      { id: 1, longName: 'SDI 1', shortName: 'SDI1' },
+      { id: 2, longName: 'SDI 2', shortName: 'SDI2' },
+      { id: 3, longName: 'SDI 3', shortName: 'SDI3' },
+      { id: 4, longName: 'SDI 4', shortName: 'SDI4' },
+      { id: 1000, longName: 'Color Bars', shortName: 'Bars' },
+    ];
   }
 
   getProgramInput(): number { return this.state.programInput; }
