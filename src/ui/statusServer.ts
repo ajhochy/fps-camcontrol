@@ -336,42 +336,43 @@ function statusHtml(): string {
   .filter-btn { padding: 2px 10px; font-size: 0.75rem; background: #1a1a1a; border: 1px solid #333; color: #666; cursor: pointer; border-radius: 3px; }
   .filter-btn:hover { border-color: #555; color: #aaa; }
   .filter-btn.active { background: #003050; border-color: #0af; color: #0af; }
+  .tab-bar { display: flex; gap: 2px; margin-bottom: 0; border-bottom: 1px solid #333; }
+  .tab-btn { padding: 7px 18px; background: transparent; border: 1px solid transparent; border-bottom: none; color: #666; cursor: pointer; font-family: monospace; font-size: 0.82rem; border-radius: 4px 4px 0 0; margin-bottom: -1px; }
+  .tab-btn:hover { color: #ccc; }
+  .tab-btn.active { background: #1a1a1a; border-color: #333; color: #0af; }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+  .status-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 10px 0 12px; margin-bottom: 4px; border-bottom: 1px solid #222; }
 </style>
 </head>
 <body>
 <h1>FPS CamControl</h1>
 
-<div class="panel">
-  <h2>Live Status</h2>
+<div class="status-bar" id="status-bar">Loading&hellip;</div>
+
+<div class="tab-bar">
+  <button class="tab-btn active" onclick="switchTab('status',this)">Status</button>
+  <button class="tab-btn" onclick="switchTab('log',this)">Activity Log</button>
+  <button class="tab-btn" onclick="switchTab('config',this)">Device Config</button>
+  <button class="tab-btn" onclick="switchTab('controllers',this)">Controllers</button>
+</div>
+
+<div class="panel tab-panel active" id="tab-status">
   <div id="status-content">Loading&hellip;</div>
 </div>
 
-<div class="panel" id="controllers-panel">
-  <h2>Controllers</h2>
-  <div id="controllers-content">Loading&hellip;</div>
-</div>
-
-<div class="panel" id="device-config-panel">
+<div class="panel tab-panel" id="tab-log">
   <div class="log-meta">
-    <h2 style="margin:0">Device Config</h2>
-    <span id="config-save-status" style="font-size:0.8rem;color:#888"></span>
-  </div>
-  <div id="device-config-content">Loading&hellip;</div>
-</div>
-
-<div class="panel">
-  <div class="log-meta">
-    <h2 style="margin:0">Activity Log</h2>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+      <span style="color:#666;font-size:0.75rem;text-transform:uppercase">Filter:</span>
+      <button class="filter-btn active" data-filter="ALL" onclick="setLogFilter('ALL',this)">All</button>
+      <button class="filter-btn" data-filter="VISCA" onclick="setLogFilter('VISCA',this)">VISCA</button>
+      <button class="filter-btn" data-filter="ATEM" onclick="setLogFilter('ATEM',this)">ATEM</button>
+      <button class="filter-btn" data-filter="System" onclick="setLogFilter('System',this)">System</button>
+      <span style="width:1px;background:#333;height:16px;display:inline-block;margin:0 4px"></span>
+      <button class="filter-btn" id="filter-hide-probe" onclick="toggleHideProbe(this)">Hide Probes</button>
+    </div>
     <button class="btn-sm" onclick="clearActivityLog()">Clear</button>
-  </div>
-  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;align-items:center">
-    <span style="color:#666;font-size:0.75rem;text-transform:uppercase">Filter:</span>
-    <button class="filter-btn active" data-filter="ALL" onclick="setLogFilter('ALL',this)">All</button>
-    <button class="filter-btn" data-filter="VISCA" onclick="setLogFilter('VISCA',this)">VISCA</button>
-    <button class="filter-btn" data-filter="ATEM" onclick="setLogFilter('ATEM',this)">ATEM</button>
-    <button class="filter-btn" data-filter="System" onclick="setLogFilter('System',this)">System</button>
-    <span style="width:1px;background:#333;height:16px;display:inline-block;margin:0 4px"></span>
-    <button class="filter-btn" id="filter-hide-probe" onclick="toggleHideProbe(this)">Hide Probes</button>
   </div>
   <div class="log-wrap" id="activity-log-wrap">
     <table class="activity-table">
@@ -384,7 +385,26 @@ function statusHtml(): string {
   </div>
 </div>
 
+<div class="panel tab-panel" id="tab-config" data-editing="false">
+  <div class="log-meta">
+    <h2 style="margin:0">Device Config</h2>
+    <span id="config-save-status" style="font-size:0.8rem;color:#888"></span>
+  </div>
+  <div id="device-config-content">Loading&hellip;</div>
+</div>
+
+<div class="panel tab-panel" id="tab-controllers">
+  <div id="controllers-content">Loading&hellip;</div>
+</div>
+
 <script>
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
+  document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
+  document.getElementById('tab-' + name).classList.add('active');
+  btn.classList.add('active');
+}
+
 async function refresh() {
   try {
     const [status, config] = await Promise.all([
@@ -424,10 +444,10 @@ function renderStatus(s, c) {
   const sprint = s.sprintMode ? '<span class="badge on">SPRINT</span>' : '';
   const lt = s.lowerThirdsActive ? '<span class="badge on">LOWER THIRDS ON</span>' : '<span class="badge">Lower Thirds Off</span>';
 
+  document.getElementById('status-bar').innerHTML = program + preview + controlled + atem + ctrl;
+
   document.getElementById('status-content').innerHTML =
-    '<div class="row">' + program + preview + controlled + '</div>' +
-    '<div class="row section">' + atem + ctrl + '</div>' +
-    '<div class="row section">' + camStatus + '</div>' +
+    '<div class="row">' + camStatus + '</div>' +
     '<div class="row section">' + speedBadge + precision + sprint + lt + '</div>' +
     (s.lastPresetNotification ? '<div class="section"><span class="badge on">Preset: ' + s.lastPresetNotification + '</span></div>' : '');
 
@@ -444,7 +464,7 @@ refreshDeviceConfig();
 var deviceConfigData = null;
 
 async function refreshDeviceConfig() {
-  if (document.getElementById('device-config-panel').dataset.editing === 'true') return;
+  if (document.getElementById('tab-config').dataset.editing === 'true') return;
   try {
     var data = await fetch('/api/config').then(function(r) { return r.json(); });
     deviceConfigData = data;
@@ -490,10 +510,10 @@ function renderDeviceConfig(c) {
 
   var el = document.getElementById('device-config-content');
   el.innerHTML = html;
-  document.getElementById('device-config-panel').dataset.editing = 'false';
+  document.getElementById('tab-config').dataset.editing = 'false';
   // Mark as editing when any input changes
   el.addEventListener('input', function() {
-    document.getElementById('device-config-panel').dataset.editing = 'true';
+    document.getElementById('tab-config').dataset.editing = 'true';
   }, { once: true });
 }
 
@@ -516,7 +536,7 @@ function cameraRowHtml(cam, idx) {
 
 var newCamCounter = 0;
 function addCameraRow() {
-  document.getElementById('device-config-panel').dataset.editing = 'true';
+  document.getElementById('tab-config').dataset.editing = 'true';
   newCamCounter++;
   var idx = document.getElementById('cameras-editor').children.length;
   var blank = { id: 'cam' + (idx+1), label: 'Camera ' + (idx+1), cameraType: 'generic', viscaIp: '192.168.50.', viscaPort: 52381, inputId: idx+1 };
@@ -526,7 +546,7 @@ function addCameraRow() {
 }
 
 function removeCameraRow(id) {
-  document.getElementById('device-config-panel').dataset.editing = 'true';
+  document.getElementById('tab-config').dataset.editing = 'true';
   var el = document.getElementById(id);
   if (el) el.remove();
   // Re-label remaining rows
@@ -592,7 +612,7 @@ async function saveDeviceConfig() {
     if (j.ok) {
       statusEl.textContent = 'Saved & applied ✓';
       statusEl.style.color = '#4f4';
-      document.getElementById('device-config-panel').dataset.editing = 'false';
+      document.getElementById('tab-config').dataset.editing = 'false';
       setTimeout(function() { statusEl.textContent = ''; }, 3000);
     } else {
       statusEl.textContent = 'Error: ' + j.error;
