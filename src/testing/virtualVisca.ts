@@ -9,6 +9,11 @@ export class VirtualVisca {
   log: string[] = [];
   state: VirtualViscaState = { pan: 0, tilt: 0, zoom: 0 };
 
+  sendPayload(payload: number[]): void {
+    if (payload.length === 0) return;
+    this.log.push(`send([${payload.join(',')}])`);
+  }
+
   send(buf: Buffer): void {
     // Parse a small subset of VISCA commands for smoke testing
     const bytes = Array.from(buf);
