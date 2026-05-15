@@ -287,68 +287,427 @@ function statusHtml(): string {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>FPS CamControl</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Nunito+Sans:opsz,wght@6..12,300;6..12,400;6..12,600&display=swap" rel="stylesheet">
 <style>
-  body { font-family: monospace; background: #111; color: #eee; padding: 20px; }
-  h1 { color: #0af; margin-bottom: 10px; }
-  .panel { background: #1a1a1a; border: 1px solid #333; border-radius: 6px; padding: 16px; margin-bottom: 16px; }
-  .panel h2 { margin: 0 0 12px; color: #aaa; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px; }
-  .row { display: flex; gap: 12px; flex-wrap: wrap; }
-  .badge { padding: 4px 10px; border-radius: 4px; font-size: 0.9rem; background: #222; }
-  .badge.live { background: #c00; color: #fff; }
-  .badge.preview { background: #060; color: #fff; }
-  .badge.controlled { background: #005a9e; color: #fff; }
-  .badge.ok { background: #1a4a1a; color: #4f4; }
-  .badge.err { background: #4a1a1a; color: #f44; }
-  .badge.on { background: #665500; color: #ffa; }
-  .section { margin-top: 8px; }
-  .label { font-size: 0.75rem; color: #666; margin-bottom: 2px; }
-  table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
-  td { padding: 4px 8px; border-bottom: 1px solid #222; }
-  td:first-child { color: #888; }
-  .section-header { font-size: 0.78rem; color: #888; text-transform: uppercase; letter-spacing: 1px; margin: 14px 0 8px; border-bottom: 1px solid #333; padding-bottom: 4px; }
-  .badge.active { background: #004080; color: #7af; border: 1px solid #0af; }
-  .badge.conn-usb { background: #1a2a1a; color: #8f8; border: 1px solid #4a4; font-size: 0.75rem; }
-  .badge.conn-bt { background: #1a1a3a; color: #88f; border: 1px solid #44a; font-size: 0.75rem; }
-  .btn { padding: 3px 10px; border-radius: 3px; border: 1px solid #444; background: #222; color: #ccc; cursor: pointer; font-size: 0.8rem; font-family: monospace; }
-  .btn:hover { background: #333; }
-  .btn.listening { background: #330000; border-color: #f44; color: #f44; animation: pulse 0.8s infinite; }
-  .btn.danger { border-color: #800; color: #f44; }
-  @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:0.4 } }
-  .mapping-table td { padding: 5px 8px; }
-  .mapping-table td:first-child { color: #aaa; min-width: 160px; }
-  .mapping-table td:nth-child(2) { color: #7af; min-width: 120px; font-weight: bold; }
-  details > summary { cursor: pointer; color: #888; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
-  details > summary:hover { color: #ccc; }
-  .hex-stream { font-size: 0.75rem; color: #5a5; background: #0a0a0a; padding: 8px; border-radius: 4px; overflow-x: auto; white-space: nowrap; min-height: 2em; }
-  .cfg-input { background: #0d0d0d; border: 1px solid #333; color: #eee; padding: 3px 6px; border-radius: 3px; font-family: monospace; font-size: 0.82rem; width: 100%; box-sizing: border-box; }
-  .cfg-input:focus { outline: none; border-color: #0af; }
-  .activity-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
-  .activity-table th { text-align: left; color: #666; padding: 4px 8px; border-bottom: 1px solid #333; font-size: 0.72rem; text-transform: uppercase; position: sticky; top: 0; background: #1a1a1a; z-index: 1; }
-  .activity-table td { padding: 3px 8px; border-bottom: 1px solid #1f1f1f; vertical-align: top; }
-  .activity-table td.msg { font-family: monospace; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .row-visca { background: #0a1828; }
-  .row-atem  { background: #1e1206; }
-  .row-sys   { background: #111; color: #888; }
-  .log-wrap  { height: 320px; overflow-y: auto; }
-  .log-meta  { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-  .btn-sm    { padding: 2px 10px; font-size: 0.78rem; background: #222; border: 1px solid #444; color: #ccc; cursor: pointer; border-radius: 3px; }
-  .btn-sm:hover { background: #333; }
-  .filter-btn { padding: 2px 10px; font-size: 0.75rem; background: #1a1a1a; border: 1px solid #333; color: #666; cursor: pointer; border-radius: 3px; }
-  .filter-btn:hover { border-color: #555; color: #aaa; }
-  .filter-btn.active { background: #003050; border-color: #0af; color: #0af; }
-  .tab-bar { display: flex; gap: 2px; margin-bottom: 0; border-bottom: 1px solid #333; }
-  .tab-btn { padding: 7px 18px; background: transparent; border: 1px solid transparent; border-bottom: none; color: #666; cursor: pointer; font-family: monospace; font-size: 0.82rem; border-radius: 4px 4px 0 0; margin-bottom: -1px; }
-  .tab-btn:hover { color: #ccc; }
-  .tab-btn.active { background: #1a1a1a; border-color: #333; color: #0af; }
+  :root {
+    --bg:        oklch(0.11 0.008 235);
+    --surface:   oklch(0.155 0.008 235);
+    --surface-2: oklch(0.205 0.009 235);
+    --border:    oklch(0.27 0.010 235);
+    --text:      oklch(0.88 0.006 235);
+    --text-2:    oklch(0.52 0.012 235);
+    --amber:     oklch(0.76 0.14 73);
+    --blue:      oklch(0.66 0.13 240);
+    --live-bg:   oklch(0.28 0.16 22);
+    --live-text: oklch(0.90 0.08 20);
+    --pvw-bg:    oklch(0.24 0.13 145);
+    --pvw-text:  oklch(0.82 0.10 140);
+    --ok-bg:     oklch(0.22 0.09 145);
+    --ok-text:   oklch(0.72 0.12 140);
+    --err-bg:    oklch(0.24 0.13 22);
+    --err-text:  oklch(0.78 0.14 20);
+    --warn-bg:   oklch(0.26 0.11 73);
+    --warn-text: oklch(0.85 0.13 73);
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  body {
+    font-family: 'Nunito Sans', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    margin: 0;
+    padding: 0 24px 40px;
+    font-size: 0.875rem;
+    line-height: 1.5;
+  }
+
+  /* Header */
+  .app-header {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    padding: 16px 0 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .app-title {
+    font-family: 'Rajdhani', sans-serif;
+    font-weight: 700;
+    font-size: 1.4rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text);
+    margin: 0;
+  }
+  .app-title span { color: var(--amber); }
+  .app-subtitle {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 0.72rem;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-2);
+  }
+
+  /* Status bar — hardware indicator strip */
+  .status-bar {
+    display: flex;
+    gap: 3px;
+    flex-wrap: wrap;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .s-tile {
+    display: flex;
+    flex-direction: column;
+    padding: 5px 12px 6px;
+    border: 1px solid transparent;
+    border-radius: 2px;
+    min-width: 100px;
+  }
+  .s-tile__label {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 0.58rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    opacity: 0.65;
+    line-height: 1;
+    margin-bottom: 3px;
+  }
+  .s-tile__value {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 0.82rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    line-height: 1.2;
+  }
+  .s-tile--live    { background: var(--live-bg);  border-color: oklch(0.40 0.18 22);   color: var(--live-text); }
+  .s-tile--pvw     { background: var(--pvw-bg);   border-color: oklch(0.36 0.14 145);  color: var(--pvw-text); }
+  .s-tile--ctrl    { background: oklch(0.22 0.10 240); border-color: oklch(0.36 0.14 240); color: oklch(0.82 0.10 240); }
+  .s-tile--ok      { background: var(--ok-bg);    border-color: oklch(0.34 0.10 145);  color: var(--ok-text); }
+  .s-tile--err     { background: var(--err-bg);   border-color: oklch(0.38 0.14 22);   color: var(--err-text); }
+  .s-tile--neutral { background: var(--surface);  border-color: var(--border);          color: var(--text); }
+
+  /* Tab bar */
+  .tab-bar {
+    display: flex;
+    gap: 1px;
+    padding-top: 10px;
+    margin-bottom: 0;
+  }
+  .tab-btn {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 0.76rem;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    padding: 8px 22px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-bottom: none;
+    color: var(--text-2);
+    cursor: pointer;
+    border-radius: 2px 2px 0 0;
+    margin-bottom: -1px;
+    transition: color 0.1s;
+  }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active {
+    background: var(--surface);
+    border-color: var(--border);
+    color: var(--amber);
+    box-shadow: inset 0 2px 0 var(--amber);
+  }
+
+  /* Panels */
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-top: none;
+    border-radius: 0 2px 2px 2px;
+    padding: 20px 24px;
+  }
+  .panel h2 {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-2);
+    margin: 0 0 16px;
+  }
   .tab-panel { display: none; }
   .tab-panel.active { display: block; }
-  .status-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 10px 0 12px; margin-bottom: 4px; border-bottom: 1px solid #222; }
+
+  /* Camera status grid */
+  .cam-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .cam-card {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .cam-card__header { display: flex; align-items: center; gap: 8px; }
+  .cam-card__led {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .cam-card__name {
+    font-family: 'Rajdhani', sans-serif;
+    font-weight: 600;
+    font-size: 0.88rem;
+    letter-spacing: 0.04em;
+  }
+  .cam-card__status {
+    font-size: 0.68rem;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    padding-left: 16px;
+  }
+  .cam-card--ok .cam-card__led    { background: var(--ok-text); box-shadow: 0 0 5px var(--ok-text); }
+  .cam-card--ok .cam-card__status { color: var(--ok-text); }
+  .cam-card--err .cam-card__led   { background: var(--err-text); box-shadow: 0 0 5px var(--err-text); }
+  .cam-card--err .cam-card__status{ color: var(--err-text); }
+
+  /* Mode chips */
+  .mode-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
+  .mode-chip {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 3px 10px;
+    border-radius: 2px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--text-2);
+  }
+  .mode-chip--on    { background: var(--warn-bg); border-color: oklch(0.38 0.12 73); color: var(--warn-text); }
+  .mode-chip--speed { background: var(--surface-2); border-color: var(--blue); color: var(--blue); }
+
+  /* Section headers */
+  .section-header {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 0.66rem;
+    font-weight: 600;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--amber);
+    margin: 20px 0 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .section-header:first-child { margin-top: 0; }
+
+  /* Tables */
+  table { border-collapse: collapse; width: 100%; font-size: 0.84rem; }
+  td { padding: 5px 8px; border-bottom: 1px solid var(--border); }
+  td:first-child {
+    color: var(--text-2);
+    font-family: 'Rajdhani', sans-serif;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+  }
+
+  /* Forms */
+  .cfg-input {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 5px 8px;
+    border-radius: 2px;
+    font-family: 'Nunito Sans', sans-serif;
+    font-size: 0.82rem;
+    width: 100%;
+    outline: none;
+    transition: border-color 0.1s;
+  }
+  .cfg-input:focus { border-color: var(--amber); }
+
+  /* Buttons */
+  .btn {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 0.76rem;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    padding: 6px 16px;
+    border-radius: 2px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text);
+    cursor: pointer;
+    transition: border-color 0.1s, color 0.1s;
+  }
+  .btn:hover { border-color: var(--amber); color: var(--amber); }
+  .btn.listening { border-color: var(--err-text); color: var(--err-text); animation: pulse 0.8s infinite; }
+  .btn.danger { border-color: oklch(0.50 0.16 22); color: var(--err-text); }
+  .btn-sm {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    padding: 3px 10px;
+    border-radius: 2px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text-2);
+    cursor: pointer;
+    transition: border-color 0.1s, color 0.1s;
+  }
+  .btn-sm:hover { border-color: var(--amber); color: var(--amber); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  /* Activity log */
+  .log-meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .filter-bar { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+  .filter-label {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 0.66rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-2);
+    margin-right: 4px;
+  }
+  .filter-sep { width: 1px; height: 14px; background: var(--border); margin: 0 3px; }
+  .filter-btn {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    padding: 3px 10px;
+    border-radius: 2px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-2);
+    cursor: pointer;
+    transition: border-color 0.1s, color 0.1s;
+  }
+  .filter-btn:hover { color: var(--text); border-color: oklch(0.40 0.010 235); }
+  .filter-btn.active { background: oklch(0.20 0.10 240); border-color: var(--blue); color: var(--blue); }
+
+  .log-wrap {
+    height: 440px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 2px;
+  }
+  .log-wrap::-webkit-scrollbar { width: 6px; }
+  .log-wrap::-webkit-scrollbar-track { background: var(--bg); }
+  .log-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  .activity-table { width: 100%; border-collapse: collapse; font-size: 0.77rem; }
+  .activity-table th {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 0.63rem;
+    font-weight: 600;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    text-align: left;
+    color: var(--text-2);
+    padding: 7px 8px;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: var(--surface);
+    z-index: 1;
+  }
+  .activity-table td { padding: 3px 8px; border-bottom: 1px solid oklch(0.155 0.008 235); vertical-align: top; }
+  .activity-table td.msg {
+    font-family: ui-monospace, 'Cascadia Code', monospace;
+    max-width: 280px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.73rem;
+  }
+  .row-visca { background: oklch(0.155 0.014 240); }
+  .row-atem  { background: oklch(0.155 0.010 73); }
+  .row-sys   { background: var(--surface); color: var(--text-2); }
+
+  /* Controller mapping */
+  .mapping-table td { padding: 5px 8px; }
+  .mapping-table td:first-child { color: var(--text); min-width: 180px; font-family: 'Nunito Sans', sans-serif; font-size: 0.84rem; }
+  .mapping-table td:nth-child(2) { color: var(--amber); min-width: 130px; font-family: 'Rajdhani', sans-serif; font-weight: 600; letter-spacing: 0.05em; }
+
+  /* Controller list badges */
+  .badge {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    padding: 3px 10px;
+    border-radius: 2px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    display: inline-block;
+  }
+  .badge.active-ctrl { background: oklch(0.22 0.10 240); border-color: var(--blue); color: var(--blue); }
+  .badge.conn-usb { background: var(--ok-bg); border-color: oklch(0.34 0.10 145); color: var(--ok-text); }
+  .badge.conn-bt  { background: oklch(0.22 0.10 260); border-color: oklch(0.36 0.12 260); color: oklch(0.78 0.12 260); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+  /* Misc */
+  .hex-stream {
+    font-family: ui-monospace, monospace;
+    font-size: 0.71rem;
+    color: oklch(0.60 0.10 145);
+    background: var(--bg);
+    padding: 10px 12px;
+    border-radius: 2px;
+    border: 1px solid var(--border);
+    overflow-x: auto;
+    white-space: nowrap;
+    min-height: 2.5em;
+  }
+  details > summary {
+    cursor: pointer;
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-2);
+    margin-bottom: 8px;
+    user-select: none;
+  }
+  details > summary:hover { color: var(--text); }
+  .cam-row {
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 12px;
+    margin-bottom: 8px;
+    background: var(--surface-2);
+  }
 </style>
 </head>
 <body>
-<h1>FPS CamControl</h1>
+<header class="app-header">
+  <h1 class="app-title"><span>FPS</span> CamControl</h1>
+  <span class="app-subtitle">Production Camera Controller</span>
+</header>
 
-<div class="status-bar" id="status-bar">Loading&hellip;</div>
+<div class="status-bar" id="status-bar"></div>
 
 <div class="tab-bar">
   <button class="tab-btn active" onclick="switchTab('status',this)">Status</button>
@@ -358,21 +717,21 @@ function statusHtml(): string {
 </div>
 
 <div class="panel tab-panel active" id="tab-status">
-  <div id="status-content">Loading&hellip;</div>
+  <div id="status-content"></div>
 </div>
 
 <div class="panel tab-panel" id="tab-log">
   <div class="log-meta">
-    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-      <span style="color:#666;font-size:0.75rem;text-transform:uppercase">Filter:</span>
+    <div class="filter-bar">
+      <span class="filter-label">Filter</span>
       <button class="filter-btn active" data-filter="ALL" onclick="setLogFilter('ALL',this)">All</button>
       <button class="filter-btn" data-filter="VISCA" onclick="setLogFilter('VISCA',this)">VISCA</button>
       <button class="filter-btn" data-filter="ATEM" onclick="setLogFilter('ATEM',this)">ATEM</button>
       <button class="filter-btn" data-filter="System" onclick="setLogFilter('System',this)">System</button>
-      <span style="width:1px;background:#333;height:16px;display:inline-block;margin:0 4px"></span>
+      <div class="filter-sep"></div>
       <button class="filter-btn" id="filter-hide-probe" onclick="toggleHideProbe(this)">Hide Probes</button>
     </div>
-    <button class="btn-sm" onclick="clearActivityLog()">Clear</button>
+    <button class="btn-sm" onclick="clearActivityLog()">Clear Log</button>
   </div>
   <div class="log-wrap" id="activity-log-wrap">
     <table class="activity-table">
@@ -388,7 +747,7 @@ function statusHtml(): string {
 <div class="panel tab-panel" id="tab-config" data-editing="false">
   <div class="log-meta">
     <h2 style="margin:0">Device Config</h2>
-    <span id="config-save-status" style="font-size:0.8rem;color:#888"></span>
+    <span id="config-save-status" style="font-size:0.78rem;color:var(--text-2)"></span>
   </div>
   <div id="device-config-content">Loading&hellip;</div>
 </div>
@@ -421,36 +780,45 @@ function cam(id, label) {
   return '<span class="badge">' + (label || id) + '</span>';
 }
 
+function tile(label, value, cls) {
+  return '<div class="s-tile s-tile--' + cls + '"><span class="s-tile__label">' + label + '</span><span class="s-tile__value">' + esc(value) + '</span></div>';
+}
+
 function renderStatus(s, c) {
   const cams = c.cameras || [];
   const camLabel = id => (cams.find(x => x.id === id) || {}).label || id;
 
-  const controlled = '<span class="badge controlled">CONTROLLED: ' + camLabel(s.controlledCamera) + '</span>';
-  const program = '<span class="badge live">PGM: ' + camLabel(s.programCamera) + '</span>';
-  const preview = '<span class="badge preview">PVW: ' + camLabel(s.previewCamera) + '</span>';
-  const atem = '<span class="badge ' + (s.atemConnected ? 'ok' : 'err') + '">ATEM ' + (s.atemConnected ? 'OK' : 'DISCONNECTED') + '</span>';
-  const ctrlLabel = s.activeControllerProfile ? s.activeControllerProfile : 'Controller';
-  const ctrl = '<span class="badge ' + (s.controllerConnected ? 'ok' : 'err') + '">' + esc(ctrlLabel) + (s.controllerConnected ? ' CONNECTED' : ' NOT CONNECTED') + '</span>';
-
-  const camStatus = cams.map(cam => {
-    const ok = s.cameraConnected && s.cameraConnected[cam.id];
-    return '<span class="badge ' + (ok ? 'ok' : 'err') + '">' + cam.label + ' ' + (ok ? 'OK' : 'DISCONNECTED') + '</span>';
-  }).join(' ');
+  document.getElementById('status-bar').innerHTML =
+    tile('Program',    camLabel(s.programCamera),    'live') +
+    tile('Preview',    camLabel(s.previewCamera),    'pvw') +
+    tile('Controlled', camLabel(s.controlledCamera), 'ctrl') +
+    tile('ATEM',       s.atemConnected ? 'Connected' : 'Disconnected', s.atemConnected ? 'ok' : 'err') +
+    tile('Controller', s.controllerConnected ? (s.activeControllerProfile || 'Connected') : 'Not Connected', s.controllerConnected ? 'ok' : 'err');
 
   const speed = c.speeds && c.speeds.presets && c.speeds.presets[s.speedPreset]
     ? c.speeds.presets[s.speedPreset].name : 'Unknown';
-  const speedBadge = '<span class="badge">Speed: ' + speed + '</span>';
-  const precision = s.precisionMode ? '<span class="badge on">PRECISION</span>' : '';
-  const sprint = s.sprintMode ? '<span class="badge on">SPRINT</span>' : '';
-  const lt = s.lowerThirdsActive ? '<span class="badge on">LOWER THIRDS ON</span>' : '<span class="badge">Lower Thirds Off</span>';
 
-  document.getElementById('status-bar').innerHTML = program + preview + controlled + atem + ctrl;
+  let camGrid = '<div class="cam-grid">';
+  for (var i = 0; i < cams.length; i++) {
+    const cam = cams[i];
+    const ok = s.cameraConnected && s.cameraConnected[cam.id];
+    camGrid +=
+      '<div class="cam-card cam-card--' + (ok ? 'ok' : 'err') + '">' +
+        '<div class="cam-card__header"><span class="cam-card__led"></span><span class="cam-card__name">' + esc(cam.label) + '</span></div>' +
+        '<span class="cam-card__status">' + (ok ? 'Connected' : 'Disconnected') + '</span>' +
+      '</div>';
+  }
+  camGrid += '</div>';
 
-  document.getElementById('status-content').innerHTML =
-    '<div class="row">' + camStatus + '</div>' +
-    '<div class="row section">' + speedBadge + precision + sprint + lt + '</div>' +
-    (s.lastPresetNotification ? '<div class="section"><span class="badge on">Preset: ' + s.lastPresetNotification + '</span></div>' : '');
+  const modes = [
+    '<span class="mode-chip mode-chip--speed">Speed: ' + esc(speed) + '</span>',
+    s.precisionMode ? '<span class="mode-chip mode-chip--on">Precision</span>' : '',
+    s.sprintMode    ? '<span class="mode-chip mode-chip--on">Sprint</span>' : '',
+    s.lowerThirdsActive ? '<span class="mode-chip mode-chip--on">Lower Thirds</span>' : '',
+    s.lastPresetNotification ? '<span class="mode-chip mode-chip--on">Preset: ' + esc(s.lastPresetNotification) + '</span>' : '',
+  ].filter(Boolean).join('');
 
+  document.getElementById('status-content').innerHTML = camGrid + '<div class="mode-row">' + modes + '</div>';
 }
 
 setInterval(refresh, 1000);
@@ -676,12 +1044,12 @@ function renderControllers(controllers, active, mappings) {
       var isActive = active.connected && active.profileName === c.profileName;
       var connType = c.connectionType || 'usb';
       var connBadge = connType === 'bluetooth'
-        ? '<span class="badge conn-bt">&#x1F535; Bluetooth</span>'
-        : '<span class="badge conn-usb">&#x1F50C; USB</span>';
-      html += '<div style="display:flex;align-items:center;gap:10px">';
-      html += '<span class="badge' + (isActive ? ' active' : '') + '">' + esc(c.label) + '</span>';
+        ? '<span class="badge conn-bt">BT</span>'
+        : '<span class="badge conn-usb">USB</span>';
+      html += '<div style="display:flex;align-items:center;gap:8px;padding:6px 0">';
+      html += '<span class="badge' + (isActive ? ' active-ctrl' : '') + '">' + esc(c.label) + '</span>';
       html += connBadge;
-      if (isActive) html += '<span style="color:#7af;font-size:0.8rem">&#9679; Active</span>';
+      if (isActive) html += '<span style="color:var(--amber);font-family:\'Rajdhani\',sans-serif;font-size:0.72rem;font-weight:600;letter-spacing:0.08em;text-transform:uppercase">Active</span>';
       html += '</div>';
     }
     html += '</div>';
