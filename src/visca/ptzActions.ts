@@ -1,25 +1,32 @@
 import { ViscaClient } from './viscaClient';
 
-// Convert -1..1 speed to VISCA speed byte (0x01..0x18 for 1..24)
-function toViscaSpeed(normalized: number): number {
-  return Math.max(1, Math.min(24, Math.round(Math.abs(normalized) * 24)));
+// Pan speed: VISCA spec 0x01–0x18 (1–24)
+function toPanSpeed(normalized: number): number {
+  return Math.max(1, Math.min(0x18, Math.round(Math.abs(normalized) * 0x18)));
+}
+
+// Tilt speed: VISCA spec 0x01–0x14 (1–20)
+function toTiltSpeed(normalized: number): number {
+  return Math.max(1, Math.min(0x14, Math.round(Math.abs(normalized) * 0x14)));
 }
 
 export function panTilt(
   client: ViscaClient,
-  panSpeed: number,  // -1 to 1
-  tiltSpeed: number  // -1 to 1
+  panSpeed: number,  // -1 to 1, positive = right
+  tiltSpeed: number  // -1 to 1, positive = up
 ): void {
-  const panByte = toViscaSpeed(panSpeed);
-  const tiltByte = toViscaSpeed(tiltSpeed);
+  const panByte = toPanSpeed(panSpeed);
+  const tiltByte = toTiltSpeed(tiltSpeed);
 
+  // Pan: right=0x02, left=0x01, stop=0x03
   let panDir: number;
-  if (Math.abs(panSpeed) < 0.02) panDir = 0x03; // stop
-  else panDir = panSpeed > 0 ? 0x02 : 0x01;     // right : left
+  if (Math.abs(panSpeed) < 0.02) panDir = 0x03;
+  else panDir = panSpeed > 0 ? 0x02 : 0x01;
 
+  // Tilt: up=0x01, down=0x02, stop=0x03 (per VISCA spec)
   let tiltDir: number;
-  if (Math.abs(tiltSpeed) < 0.02) tiltDir = 0x03; // stop
-  else tiltDir = tiltSpeed > 0 ? 0x02 : 0x01;     // up : down (VISCA tilt up = 0x01 but varies; use up=0x01)
+  if (Math.abs(tiltSpeed) < 0.02) tiltDir = 0x03;
+  else tiltDir = tiltSpeed > 0 ? 0x01 : 0x02;
 
   client.sendPayload([0x81, 0x01, 0x06, 0x01, panByte, tiltByte, panDir, tiltDir, 0xFF]);
 }
