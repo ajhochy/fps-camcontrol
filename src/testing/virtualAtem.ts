@@ -4,6 +4,7 @@ export interface VirtualAtemState {
   programInput: number;
   previewInput: number;
   dsk: Record<number, boolean>;
+  transitionInProgress: boolean;
 }
 
 export class VirtualAtem extends EventEmitter {
@@ -12,6 +13,7 @@ export class VirtualAtem extends EventEmitter {
     programInput: 2,
     previewInput: 2,
     dsk: {},
+    transitionInProgress: false,
   };
   log: string[] = [];
 
@@ -34,6 +36,10 @@ export class VirtualAtem extends EventEmitter {
   async setDownstreamKeyOnAir(dskIndex: number, onAir: boolean): Promise<void> {
     this.state.dsk[dskIndex] = onAir;
     this.log.push(`setDownstreamKeyOnAir(${dskIndex}, ${onAir})`);
+  }
+
+  isTransitionInProgress(_meIndex = 0): boolean {
+    return this.state.transitionInProgress;
   }
 
   getProgramInput(): number { return this.state.programInput; }

@@ -34,6 +34,11 @@ export class AtemClient extends EventEmitter {
     this.atem.on('error', (err: unknown) => {
       logger.error({ err, ip: this.ip }, 'ATEM error');
     });
+
+    // Forward stateChanged so callers can react to hardware panel changes
+    this.atem.on('stateChanged', (state: unknown, pathToChange: string[]) => {
+      this.emit('stateChanged', state, pathToChange);
+    });
   }
 
   async connect(): Promise<void> {
@@ -66,6 +71,12 @@ export class AtemClient extends EventEmitter {
 
   getPreviewInput(meIndex = 0): number | undefined {
     return this.atem.state?.video?.mixEffects?.[meIndex]?.previewInput;
+  }
+
+  // Returns true if a mix effects transition is currently in progress (position > 0 and < 10000).
+  isTransitionInProgress(meIndex = 0): boolean {
+    const pos = this.atem.state?.video?.mixEffects?.[meIndex]?.transitionPosition;
+    return typeof pos === 'number' && pos > 0 && pos < 10000;
   }
 
   async changePreviewInput(inputId: number, meIndex = 0): Promise<void> {

@@ -9,12 +9,14 @@ const CameraSchema = z.object({
   inputId: z.number(),
   viscaIp: z.string(),
   viscaPort: z.number(),
+  cameraType: z.enum(['birddog', 'vbot', 'generic']).default('generic'),
 });
 
 const DevicesSchema = z.object({
   atem: z.object({
     ip: z.string(),
     defaultTransition: z.enum(['cut', 'auto']),
+    meIndex: z.number().default(0),
   }),
   cameras: z.array(CameraSchema),
   lowerThirds: z.object({
@@ -34,7 +36,7 @@ const SpeedPresetsSchema = z.object({
 export type CameraConfig = z.infer<typeof CameraSchema>;
 
 export interface AppConfig {
-  atem: { ip: string; defaultTransition: string };
+  atem: { ip: string; defaultTransition: string; meIndex: number };
   cameras: CameraConfig[];
   lowerThirds: { type: string; dskIndex: number };
   speeds: z.infer<typeof SpeedPresetsSchema>;

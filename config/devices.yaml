@@ -1,6 +1,7 @@
 atem:
   ip: "192.168.1.50"
   defaultTransition: "cut"
+  meIndex: 0
 
 cameras:
   - id: cam1
@@ -8,16 +9,19 @@ cameras:
     inputId: 1
     viscaIp: "192.168.1.101"
     viscaPort: 52381
+    cameraType: birddog
   - id: cam2
     label: "BirdDog Center"
     inputId: 2
     viscaIp: "192.168.1.102"
     viscaPort: 52381
+    cameraType: birddog
   - id: cam3
     label: "V-BOT"
     inputId: 3
     viscaIp: "192.168.1.103"
     viscaPort: 52381
+    cameraType: vbot
 
 lowerThirds:
   type: "dsk"

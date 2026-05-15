@@ -1,5 +1,11 @@
-export type CameraId = 'cam1' | 'cam2' | 'cam3';
+export type CameraId = string;
 export type PresetSlot = 'A' | 'B' | 'X' | 'Y';
+
+export interface PresetSaveProgress {
+  cameraId: string;
+  slot: PresetSlot;
+  framesHeld: number;
+}
 
 export interface AppState {
   controlledCamera: CameraId;
@@ -11,9 +17,10 @@ export interface AppState {
   sprintMode: boolean;
   lowerThirdsActive: boolean;
   atemConnected: boolean;
-  cameraConnected: Record<CameraId, boolean>;
+  cameraConnected: Record<string, boolean>;
   controllerConnected: boolean;
   lastPresetNotification: string | null;
+  presetSaveProgress: PresetSaveProgress | null;
 }
 
 export const defaultState: AppState = {
@@ -26,7 +33,8 @@ export const defaultState: AppState = {
   sprintMode: false,
   lowerThirdsActive: false,
   atemConnected: false,
-  cameraConnected: { cam1: false, cam2: false, cam3: false },
+  cameraConnected: {},
   controllerConnected: false,
   lastPresetNotification: null,
+  presetSaveProgress: null,
 };

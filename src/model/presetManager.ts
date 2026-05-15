@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { AppState, CameraId, PresetSlot } from '../app/state';
 import { CameraConfig, AppConfig } from '../config/configLoader';
 import { ViscaClient } from '../visca/viscaClient';
-import { gotoAbsolutePosition, PTZPosition, inquirePanTilt, inquireZoom } from '../visca/ptzActions';
+import { gotoAbsolutePosition, queryPosition, PTZPosition } from '../visca/ptzActions';
 import { logger } from '../index';
 
 const PTZPositionSchema = z.object({
@@ -31,13 +31,13 @@ export class PresetManager {
 
   private loadPresets(): PresetData {
     try {
-      const raw = JSON.parse(fs.readFileSync(this.presetsFile, 'utf8'));
-      return PresetsDataSchema.parse(raw);
-    } catch (err) {
-      if (err instanceof z.ZodError) {
-        logger.warn({ err: err.message }, 'presets.json failed Zod validation, using empty presets');
+      return JSON.parse(fs.readFileSync(this.presetsFile, 'utf8'));
+    } catch {
+      const empty: PresetData = {};
+      for (const cam of this.config.cameras) {
+        empty[cam.id] = { A: null, B: null, X: null, Y: null };
       }
-      return { cam1: { A: null, B: null, X: null, Y: null }, cam2: { A: null, B: null, X: null, Y: null }, cam3: { A: null, B: null, X: null, Y: null } };
+      return empty;
     }
   }
 
@@ -60,24 +60,23 @@ export class PresetManager {
 
   async savePreset(cameraId: CameraId, slot: PresetSlot): Promise<void> {
     const client = this.viscaClients.get(cameraId);
-    if (!client) {
-      logger.warn({ cameraId, slot }, 'no VISCA client for camera, cannot save preset');
-      return;
-    }
+    if (!client) throw new Error(`No VISCA client for camera ${cameraId}`);
+
+    let pos: PTZPosition;
     try {
-      const [ptResult, zoomVal] = await Promise.all([
-        inquirePanTilt(client),
-        inquireZoom(client),
-      ]);
-      if (!this.data[cameraId]) this.data[cameraId] = { A: null, B: null, X: null, Y: null };
-      this.data[cameraId][slot] = { pan: ptResult.pan, tilt: ptResult.tilt, zoom: zoomVal };
-      this.savePresets();
-      this.state.lastPresetNotification = `Saved ${cameraId} → ${slot}`;
-      logger.info({ cameraId, slot, position: this.data[cameraId][slot] }, 'preset saved');
+      pos = await queryPosition(client);
     } catch (err) {
-      logger.error({ err, cameraId, slot }, 'preset save failed: could not query camera position');
-      throw err;
+      const msg = 'Save failed — could not read camera position';
+      this.state.lastPresetNotification = msg;
+      logger.error({ err, cameraId, slot }, msg);
+      throw new Error(msg);
     }
+
+    if (!this.data[cameraId]) this.data[cameraId] = { A: null, B: null, X: null, Y: null };
+    this.data[cameraId][slot] = pos;
+    this.savePresets();
+    this.state.lastPresetNotification = `Saved ${cameraId} → ${slot}`;
+    logger.info({ cameraId, slot, pos }, 'preset saved');
   }
 
   clearPreset(cameraId: CameraId, slot: PresetSlot): void {

@@ -46,6 +46,25 @@ export class GamepadDevice extends EventEmitter {
     this.connected = false;
   }
 
+  // Trigger haptic rumble for durationMs. Sends Xbox One USB HID output report.
+  // Silently ignores errors if the controller doesn't support rumble.
+  rumble(durationMs: number): void {
+    if (!this.device) return;
+    try {
+      // Xbox One/Series USB HID output report 0x09 for vibration
+      // Format: [reportId, 0x00, 0x00, enable, leftMotor, rightMotor, leftTrigger, rightTrigger, duration, loop, repeat]
+      this.device.write([0x00, 0x09, 0x00, 0x00, 0x09, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0x00]);
+      setTimeout(() => {
+        if (!this.device) return;
+        try {
+          this.device.write([0x00, 0x09, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+        } catch { /* ignore */ }
+      }, durationMs);
+    } catch (err) {
+      logger.debug({ err }, 'rumble not supported on this controller');
+    }
+  }
+
   private scheduleReconnect(): void {
     if (this.device) {
       try { this.device.close(); } catch { /* ignore */ }
