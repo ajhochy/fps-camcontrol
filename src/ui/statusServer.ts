@@ -190,6 +190,20 @@ export function createStatusServer(
     }
   });
 
+  app.post('/api/reconnect/atem', (_req, res) => {
+    atem.disconnect();
+    atem.connect().catch(err => logger.warn({ err }, 'manual ATEM reconnect failed'));
+    res.json({ ok: true });
+  });
+
+  app.post('/api/reconnect/camera/:id', (req, res) => {
+    const client = viscaClients.get(req.params.id as CameraId);
+    if (!client) { res.status(404).json({ error: 'unknown camera' }); return; }
+    client.close();
+    client.connect();
+    res.json({ ok: true });
+  });
+
   app.get('/api/activity', (_req, res) => {
     res.json({ entries: activityLog.getAll() });
   });
@@ -444,7 +458,7 @@ function renderDeviceConfig(c) {
   // ATEM
   html += '<div class="section-header">ATEM Switcher</div>';
   html += '<table style="width:100%;margin-bottom:8px"><tbody>';
-  html += '<tr><td style="color:#888;width:140px">IP Address</td><td><input class="cfg-input" id="atem-ip" value="' + esc(c.atem.ip) + '"></td></tr>';
+  html += '<tr><td style="color:#888;width:140px">IP Address</td><td style="display:flex;gap:6px"><input class="cfg-input" id="atem-ip" value="' + esc(c.atem.ip) + '" style="flex:1"><button class="btn-sm" onclick="reconnectAtem(this)">Reconnect</button></td></tr>';
   html += '<tr><td style="color:#888">Transition</td><td><select class="cfg-input" id="atem-transition"><option value="cut"' + (c.atem.defaultTransition==='cut'?' selected':'') + '>Cut</option><option value="auto"' + (c.atem.defaultTransition==='auto'?' selected':'') + '>Auto</option></select></td></tr>';
   html += '<tr><td style="color:#888">M/E Index</td><td><input class="cfg-input" id="atem-me" type="number" min="0" max="3" value="' + c.atem.meIndex + '"></td></tr>';
   html += '</tbody></table>';
@@ -494,7 +508,7 @@ function cameraRowHtml(cam, idx) {
     '<tr><td style="color:#888;width:110px">ID</td><td><input class="cfg-input" name="cam-id" value="' + esc(cam.id) + '"></td></tr>' +
     '<tr><td style="color:#888">Label</td><td><input class="cfg-input" name="cam-label" value="' + esc(cam.label) + '"></td></tr>' +
     '<tr><td style="color:#888">Type</td><td><select class="cfg-input" name="cam-type"><option value="generic"' + (cam.cameraType==='generic'?' selected':'') + '>generic</option><option value="birddog"' + (cam.cameraType==='birddog'?' selected':'') + '>birddog</option><option value="vbot"' + (cam.cameraType==='vbot'?' selected':'') + '>vbot</option></select></td></tr>' +
-    '<tr><td style="color:#888">VISCA IP</td><td><input class="cfg-input" name="cam-ip" value="' + esc(cam.viscaIp) + '"></td></tr>' +
+    '<tr><td style="color:#888">VISCA IP</td><td style="display:flex;gap:6px"><input class="cfg-input" name="cam-ip" value="' + esc(cam.viscaIp) + '" style="flex:1"><button class="btn-sm" data-rowid="' + id + '" onclick="reconnectCamera(this.dataset.rowid)">Reconnect</button></td></tr>' +
     '<tr><td style="color:#888">VISCA Port</td><td><input class="cfg-input" name="cam-port" type="number" min="1" max="65535" value="' + cam.viscaPort + '"></td></tr>' +
     '<tr><td style="color:#888">ATEM Input</td><td><input class="cfg-input" name="cam-input" type="number" min="1" value="' + cam.inputId + '"></td></tr>' +
     '</tbody></table></div>';
@@ -521,6 +535,23 @@ function removeCameraRow(id) {
     var hdr = rows[i].querySelector('span');
     if (hdr) hdr.textContent = 'Camera ' + (i+1);
   }
+}
+
+function reconnectAtem(btn) {
+  btn.disabled = true;
+  btn.textContent = '...';
+  fetch('/api/reconnect/atem', { method: 'POST' }).then(function() {
+    btn.textContent = 'Reconnect';
+    btn.disabled = false;
+  });
+}
+
+function reconnectCamera(id) {
+  var btn = document.querySelector('[data-rowid="' + id + '"]');
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+  fetch('/api/reconnect/camera/' + encodeURIComponent(id), { method: 'POST' }).then(function() {
+    if (btn) { btn.textContent = 'Reconnect'; btn.disabled = false; }
+  });
 }
 
 async function saveDeviceConfig() {
