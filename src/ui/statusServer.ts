@@ -666,6 +666,14 @@ function statusHtml(): string {
   .badge.conn-usb { background: var(--ok-bg); border-color: oklch(0.34 0.10 145); color: var(--ok-text); }
   .badge.conn-bt  { background: oklch(0.22 0.10 260); border-color: oklch(0.36 0.12 260); color: oklch(0.78 0.12 260); }
   .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .ctrl-active-tag {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--amber);
+  }
 
   /* Misc */
   .hex-stream {
@@ -1049,7 +1057,7 @@ function renderControllers(controllers, active, mappings) {
       html += '<div style="display:flex;align-items:center;gap:8px;padding:6px 0">';
       html += '<span class="badge' + (isActive ? ' active-ctrl' : '') + '">' + esc(c.label) + '</span>';
       html += connBadge;
-      if (isActive) html += '<span style="color:var(--amber);font-family:\'Rajdhani\',sans-serif;font-size:0.72rem;font-weight:600;letter-spacing:0.08em;text-transform:uppercase">Active</span>';
+      if (isActive) html += '<span class="ctrl-active-tag">Active</span>';
       html += '</div>';
     }
     html += '</div>';
