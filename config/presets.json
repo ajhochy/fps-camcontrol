@@ -1,0 +1,24 @@
+{
+  "cam1": {
+    "A": null,
+    "B": null,
+    "X": null,
+    "Y": null
+  },
+  "cam2": {
+    "A": {
+      "pan": 0,
+      "tilt": 0,
+      "zoom": 0
+    },
+    "B": null,
+    "X": null,
+    "Y": null
+  },
+  "cam3": {
+    "A": null,
+    "B": null,
+    "X": null,
+    "Y": null
+  }
+}

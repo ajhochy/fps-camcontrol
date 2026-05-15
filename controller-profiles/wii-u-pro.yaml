@@ -1,0 +1,26 @@
+name: Wii U Pro Controller
+vendorIds: [0x057E]
+productIds: [0x0330]
+axes:
+  leftStickX:   { byte: 0, type: int16, range: [-32768, 32767] }
+  leftStickY:   { byte: 2, type: int16, range: [-32768, 32767] }
+  rightStickX:  { byte: 4, type: int16, range: [-32768, 32767] }
+  rightStickY:  { byte: 6, type: int16, range: [-32768, 32767] }
+  # ZL/ZR are digital on Wii U Pro
+  leftTrigger:  { byte: 8, type: uint8, range: [0, 1] }
+  rightTrigger: { byte: 9, type: uint8, range: [0, 1] }
+buttons:
+  A:         { byte: 10, bit: 0 }
+  B:         { byte: 10, bit: 1 }
+  X:         { byte: 10, bit: 2 }
+  Y:         { byte: 10, bit: 3 }
+  LB:        { byte: 10, bit: 4 }
+  RB:        { byte: 10, bit: 5 }
+  LS:        { byte: 10, bit: 6 }
+  RS:        { byte: 10, bit: 7 }
+  dpadUp:    { byte: 11, bit: 0 }
+  dpadDown:  { byte: 11, bit: 1 }
+  dpadLeft:  { byte: 11, bit: 2 }
+  dpadRight: { byte: 11, bit: 3 }
+  back:      { byte: 11, bit: 4 }
+  start:     { byte: 11, bit: 5 }

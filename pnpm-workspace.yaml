@@ -1,0 +1,3 @@
+allowBuilds:
+  '@julusian/freetype2': set this to true or false
+  node-hid: set this to true or false

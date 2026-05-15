@@ -1,0 +1,67 @@
+import HID from 'node-hid';
+import { EventEmitter } from 'events';
+import { logger } from '../index';
+
+export class GamepadDevice extends EventEmitter {
+  private device: HID.HID | null = null;
+  private reconnectTimer: NodeJS.Timeout | null = null;
+  private vendorId: number;
+  private productId: number;
+  connected = false;
+
+  constructor(vendorId: number, productId: number) {
+    super();
+    this.vendorId = vendorId;
+    this.productId = productId;
+  }
+
+  open(): void {
+    try {
+      this.device = new HID.HID(this.vendorId, this.productId);
+      this.connected = true;
+      this.emit('connected');
+      logger.info({ vendorId: this.vendorId, productId: this.productId }, 'gamepad connected');
+      this.device.on('data', (data: Buffer) => {
+        this.emit('data', data);
+      });
+      this.device.on('error', (err: Error) => {
+        logger.warn({ err }, 'gamepad error, scheduling reconnect');
+        this.scheduleReconnect();
+      });
+    } catch (err) {
+      logger.warn({ err }, 'gamepad open failed, scheduling reconnect');
+      this.scheduleReconnect();
+    }
+  }
+
+  close(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    if (this.device) {
+      try { this.device.close(); } catch { /* ignore */ }
+      this.device = null;
+    }
+    this.connected = false;
+  }
+
+  private scheduleReconnect(): void {
+    if (this.device) {
+      try { this.device.close(); } catch { /* ignore */ }
+      this.device = null;
+    }
+    this.connected = false;
+    this.emit('disconnected');
+    if (!this.reconnectTimer) {
+      this.reconnectTimer = setTimeout(() => {
+        this.reconnectTimer = null;
+        this.open();
+      }, 2000);
+    }
+  }
+}
+
+export function listHIDDevices(): HID.Device[] {
+  return HID.devices();
+}

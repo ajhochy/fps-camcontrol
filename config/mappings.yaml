@@ -1,0 +1,24 @@
+# Logical input → action mapping reference
+# This file is documentation; actual dispatch is in src/model/controlStateMachine.ts
+mappings:
+  rightStickX: pan
+  rightStickY: tilt
+  leftStickY: zoom
+  leftStickX_flick: cameraSelector
+  rightTrigger: cutLive
+  RB: autoTransition
+  leftTrigger_hold: precisionMode
+  LS_hold: sprintMode
+  A: recallPresetA
+  B: recallPresetB
+  X: recallPresetX
+  Y: recallPresetY
+  LB_A: savePresetA
+  LB_B: savePresetB
+  LB_X: savePresetX
+  LB_Y: savePresetY
+  dpadUp: speedUp
+  dpadDown: speedDown
+  dpadLeft: toggleLowerThirds
+  dpadRight: toggleLowerThirds
+  back: emergencyStop

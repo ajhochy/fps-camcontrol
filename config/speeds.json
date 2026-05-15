@@ -1,0 +1,8 @@
+{
+  "presets": [
+    { "name": "Slow",   "multiplier": 0.2 },
+    { "name": "Normal", "multiplier": 0.5 },
+    { "name": "Fast",   "multiplier": 1.0 }
+  ],
+  "activePreset": 1
+}
