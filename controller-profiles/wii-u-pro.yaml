@@ -1,26 +1,68 @@
-name: Wii U Pro Controller
-vendorIds: [0x057E]
-productIds: [0x0330]
+# Wii U Pro Controller (USB, macOS)
+# vendorId: 0x057E (Nintendo), productId: 0x0330
+#
+# KEY DIFFERENCES from a typical gamepad:
+# 1. Stick axes are UNSIGNED uint16 (0-65535), centered at ~32768 (NOT signed int16)
+# 2. ZL/ZR triggers are DIGITAL (single bit), not analog
+# 3. Button logic is ACTIVE-LOW (bit=0 means pressed, bit=1 means released)
+#    This is the opposite of most controllers.
+# 4. Report ID byte at position 0 (node-hid on macOS)
+#
+# Button byte layout (active-low: 0=pressed):
+# Byte 9:  [dpadRight][dpadDown][dpadLeft][dpadUp][+/start][---][RS][LS]
+# Byte 10: [ZR][X][A][Y][B][ZL][RB][LB]
+# Byte 11: [---][minus/back][---][---][Home][---][charging][---]
+#
+# Sources: WiiUBrew.org Pro Controller page, Nintendo HID descriptor analysis
+# Confidence: MEDIUM-HIGH - byte layout from WiiUBrew; active-low logic confirmed.
+# Stick signedness (uint16 vs int16) is MEDIUM confidence — not definitively documented.
+name: "Wii U Pro Controller"
+vendorIds:
+  - 0x057E
+productIds:
+  - 0x0330
+reportId:
+  byte: 0    # node-hid includes report ID as first byte on macOS
+
+# Sticks use unsigned uint16 centered at ~32768
+# The normalizer must treat these as unsigned (range 0-65535, center 32768)
 axes:
-  leftStickX:   { byte: 0, type: int16, range: [-32768, 32767] }
-  leftStickY:   { byte: 2, type: int16, range: [-32768, 32767] }
-  rightStickX:  { byte: 4, type: int16, range: [-32768, 32767] }
-  rightStickY:  { byte: 6, type: int16, range: [-32768, 32767] }
-  # ZL/ZR are digital on Wii U Pro
-  leftTrigger:  { byte: 8, type: uint8, range: [0, 1] }
-  rightTrigger: { byte: 9, type: uint8, range: [0, 1] }
+  leftStickX:   { byte: 1, type: uint16le, range: [0, 65535] }
+  leftStickY:   { byte: 3, type: uint16le, range: [0, 65535] }
+  rightStickX:  { byte: 5, type: uint16le, range: [0, 65535] }
+  rightStickY:  { byte: 7, type: uint16le, range: [0, 65535] }
+  # ZL/ZR are digital buttons stored in the button bytes, not here as axes.
+  # They appear as boolean buttons below.
+
+# Active-low button layout (0=pressed, 1=released)
+# The normalizer inverts these: button is True when bit=0
 buttons:
-  A:         { byte: 10, bit: 0 }
-  B:         { byte: 10, bit: 1 }
-  X:         { byte: 10, bit: 2 }
-  Y:         { byte: 10, bit: 3 }
-  LB:        { byte: 10, bit: 4 }
-  RB:        { byte: 10, bit: 5 }
-  LS:        { byte: 10, bit: 6 }
-  RS:        { byte: 10, bit: 7 }
-  dpadUp:    { byte: 11, bit: 0 }
-  dpadDown:  { byte: 11, bit: 1 }
-  dpadLeft:  { byte: 11, bit: 2 }
-  dpadRight: { byte: 11, bit: 3 }
-  back:      { byte: 11, bit: 4 }
-  start:     { byte: 11, bit: 5 }
+  dpadRight: { byte: 9,  bit: 0, activeLow: true }
+  dpadDown:  { byte: 9,  bit: 1, activeLow: true }
+  dpadLeft:  { byte: 9,  bit: 2, activeLow: true }
+  dpadUp:    { byte: 9,  bit: 3, activeLow: true }
+  start:     { byte: 9,  bit: 4, activeLow: true }
+  RS:        { byte: 9,  bit: 6, activeLow: true }
+  LS:        { byte: 9,  bit: 7, activeLow: true }
+  ZR:        { byte: 10, bit: 0, activeLow: true }   # Right trigger (digital)
+  X:         { byte: 10, bit: 1, activeLow: true }
+  A:         { byte: 10, bit: 2, activeLow: true }
+  Y:         { byte: 10, bit: 3, activeLow: true }
+  B:         { byte: 10, bit: 4, activeLow: true }
+  ZL:        { byte: 10, bit: 5, activeLow: true }   # Left trigger (digital)
+  RB:        { byte: 10, bit: 6, activeLow: true }
+  LB:        { byte: 10, bit: 7, activeLow: true }
+  back:      { byte: 11, bit: 1, activeLow: true }   # minus button
+
+# TRIGGER ALIASES for compatibility with the control system:
+# ZL and ZR appear as buttons above. The control state machine expects
+# leftTrigger/rightTrigger as axes. Map them in config/mappings.yaml:
+#   precisionMode: ZL
+#   takeLive: ZR
+#
+# CORRECTION NOTES:
+# Original profile incorrectly used:
+# - signed int16 for sticks (corrected to uint16, range 0-65535)
+# - same byte layout as Xbox (corrected to actual Wii U Pro layout)
+# - analog trigger bytes (corrected: ZL/ZR are digital buttons)
+# - no report ID offset (corrected: +1 for report ID byte)

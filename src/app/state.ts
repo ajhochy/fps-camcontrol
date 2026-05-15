@@ -13,6 +13,7 @@ export interface AppState {
   atemConnected: boolean;
   cameraConnected: Record<CameraId, boolean>;
   controllerConnected: boolean;
+  activeControllerProfile: string | null;
   lastPresetNotification: string | null;
 }
 
@@ -28,5 +29,6 @@ export const defaultState: AppState = {
   atemConnected: false,
   cameraConnected: { cam1: false, cam2: false, cam3: false },
   controllerConnected: false,
+  activeControllerProfile: null,
   lastPresetNotification: null,
 };

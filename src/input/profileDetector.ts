@@ -6,13 +6,14 @@ import { logger } from '../index';
 
 export interface AxisDef {
   byte: number;
-  type: 'int16' | 'uint8';
+  type: 'int16' | 'int16le' | 'uint8' | 'uint16le';
   range: [number, number];
 }
 
 export interface ButtonDef {
   byte: number;
   bit: number;
+  activeLow?: boolean;
 }
 
 export interface ControllerProfile {
