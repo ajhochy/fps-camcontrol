@@ -528,7 +528,7 @@ function exportMappings() {
   for (var k = 0; k < keys.length; k++) {
     lines.push(keys[k] + ': ' + mappings[keys[k]]);
   }
-  var blob = new Blob([lines.join('\n')], {type:'text/yaml'});
+  var blob = new Blob([lines.join('\\n')], {type:'text/yaml'});
   var a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = 'controller-mappings.yaml';
