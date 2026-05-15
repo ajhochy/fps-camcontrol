@@ -355,7 +355,7 @@ function renderControllers(controllers, active, mappings) {
     html += '<tr>';
     html += '<td>' + label + '</td>';
     html += '<td id="map-val-' + action + '">' + esc(assignment) + '</td>';
-    html += '<td><button class="btn' + (isListening ? ' listening' : '') + '" onclick="startRemap(\'' + action + '\')">' + (isListening ? 'Listening…' : 'Remap') + '</button></td>';
+    html += '<td><button class="btn' + (isListening ? ' listening' : '') + '" data-action="' + action + '" onclick="startRemap(this.dataset.action)">' + (isListening ? 'Listening…' : 'Remap') + '</button></td>';
     html += '</tr>';
   }
   html += '</tbody></table>';
