@@ -14,7 +14,6 @@ import { loadProfiles, findConnectedController } from './input/profileDetector';
 import { GamepadDevice } from './input/gamepad';
 import { normalizeHIDReport } from './input/normalizers';
 import { ControlStateMachine } from './model/controlStateMachine';
-import { PresetManager } from './model/presetManager';
 import { startControllerLoop } from './app/controllerLoop';
 import { createStatusServer, startStatusServer } from './ui/statusServer';
 import { startWatchdog } from './safety/watchdog';
@@ -53,7 +52,6 @@ async function main() {
   const profiles = loadProfiles(profilesDir);
   const found = findConnectedController(profiles);
 
-  const presetManager = new PresetManager(state, config, viscaClients);
   const machine = new ControlStateMachine(state, config, atem, viscaClients);
 
   if (found) {
@@ -112,7 +110,7 @@ async function main() {
   startWatchdog(state, atem, viscaClients);
 
   // Step 10: Status UI
-  const app = createStatusServer(state, config, presetManager);
+  const app = createStatusServer(state, config, machine.getPresetManager());
   const port = parseInt(process.env.STATUS_PORT ?? '8080', 10);
   startStatusServer(app, port);
 

@@ -89,11 +89,22 @@ export function gotoAbsolutePosition(
   client.send(viscaIpPacket(zPayload));
 }
 
-export function queryPosition(client: ViscaClient): void {
-  // Pan/Tilt inquiry
-  const ptPayload = [0x81, 0x09, 0x06, 0x12, 0xFF];
-  client.send(viscaIpPacket(ptPayload));
-  // Zoom inquiry
-  const zPayload = [0x81, 0x09, 0x04, 0x47, 0xFF];
-  client.send(viscaIpPacket(zPayload));
+function toSigned16(val: number): number {
+  return val > 0x7FFF ? val - 0x10000 : val;
+}
+
+export async function inquirePanTilt(client: ViscaClient): Promise<{ pan: number; tilt: number }> {
+  const payload = [0x81, 0x09, 0x06, 0x12, 0xFF];
+  const response = await client.inquire(payload);
+  // response: [0x90, 0x50, p1, p2, p3, p4, t1, t2, t3, t4, 0xFF]
+  const pan = toSigned16(((response[2] & 0xF) << 12) | ((response[3] & 0xF) << 8) | ((response[4] & 0xF) << 4) | (response[5] & 0xF));
+  const tilt = toSigned16(((response[6] & 0xF) << 12) | ((response[7] & 0xF) << 8) | ((response[8] & 0xF) << 4) | (response[9] & 0xF));
+  return { pan, tilt };
+}
+
+export async function inquireZoom(client: ViscaClient): Promise<number> {
+  const payload = [0x81, 0x09, 0x04, 0x47, 0xFF];
+  const response = await client.inquire(payload);
+  // response: [0x90, 0x50, z1, z2, z3, z4, 0xFF]
+  return ((response[2] & 0xF) << 12) | ((response[3] & 0xF) << 8) | ((response[4] & 0xF) << 4) | (response[5] & 0xF);
 }

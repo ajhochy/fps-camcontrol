@@ -1,15 +1,20 @@
 import fs from 'fs';
+import { z } from 'zod';
 import { AppState, CameraId, PresetSlot } from '../app/state';
 import { CameraConfig, AppConfig } from '../config/configLoader';
 import { ViscaClient } from '../visca/viscaClient';
-import { gotoAbsolutePosition, PTZPosition } from '../visca/ptzActions';
+import { gotoAbsolutePosition, PTZPosition, inquirePanTilt, inquireZoom } from '../visca/ptzActions';
 import { logger } from '../index';
 
-interface PresetData {
-  [cameraId: string]: {
-    [slot: string]: PTZPosition | null;
-  };
-}
+const PTZPositionSchema = z.object({
+  pan: z.number(),
+  tilt: z.number(),
+  zoom: z.number(),
+}).nullable();
+
+const PresetsDataSchema = z.record(z.string(), z.record(z.string(), PTZPositionSchema));
+
+type PresetData = z.infer<typeof PresetsDataSchema>;
 
 export class PresetManager {
   private presetsFile: string;
@@ -26,8 +31,12 @@ export class PresetManager {
 
   private loadPresets(): PresetData {
     try {
-      return JSON.parse(fs.readFileSync(this.presetsFile, 'utf8'));
-    } catch {
+      const raw = JSON.parse(fs.readFileSync(this.presetsFile, 'utf8'));
+      return PresetsDataSchema.parse(raw);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        logger.warn({ err: err.message }, 'presets.json failed Zod validation, using empty presets');
+      }
       return { cam1: { A: null, B: null, X: null, Y: null }, cam2: { A: null, B: null, X: null, Y: null }, cam3: { A: null, B: null, X: null, Y: null } };
     }
   }
@@ -50,15 +59,33 @@ export class PresetManager {
   }
 
   async savePreset(cameraId: CameraId, slot: PresetSlot): Promise<void> {
-    // We can't reliably read back position from UDP without full response parsing.
-    // For now, save a dummy position that the user must edit or implement query parsing.
-    // In a full implementation, send VISCA inquiries and parse the responses.
-    logger.warn({ cameraId, slot }, 'preset save: position query not yet implemented; saving placeholder');
-    if (!this.data[cameraId]) this.data[cameraId] = { A: null, B: null, X: null, Y: null };
-    this.data[cameraId][slot] = { pan: 0, tilt: 0, zoom: 0 };
-    this.savePresets();
-    this.state.lastPresetNotification = `Saved ${cameraId} → ${slot}`;
-    logger.info({ cameraId, slot }, 'preset saved (placeholder)');
+    const client = this.viscaClients.get(cameraId);
+    if (!client) {
+      logger.warn({ cameraId, slot }, 'no VISCA client for camera, cannot save preset');
+      return;
+    }
+    try {
+      const [ptResult, zoomVal] = await Promise.all([
+        inquirePanTilt(client),
+        inquireZoom(client),
+      ]);
+      if (!this.data[cameraId]) this.data[cameraId] = { A: null, B: null, X: null, Y: null };
+      this.data[cameraId][slot] = { pan: ptResult.pan, tilt: ptResult.tilt, zoom: zoomVal };
+      this.savePresets();
+      this.state.lastPresetNotification = `Saved ${cameraId} → ${slot}`;
+      logger.info({ cameraId, slot, position: this.data[cameraId][slot] }, 'preset saved');
+    } catch (err) {
+      logger.error({ err, cameraId, slot }, 'preset save failed: could not query camera position');
+      throw err;
+    }
+  }
+
+  clearPreset(cameraId: CameraId, slot: PresetSlot): void {
+    if (this.data[cameraId]) {
+      this.data[cameraId][slot] = null;
+      this.savePresets();
+      logger.info({ cameraId, slot }, 'preset cleared');
+    }
   }
 
   getData(): PresetData {

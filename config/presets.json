@@ -6,11 +6,7 @@
     "Y": null
   },
   "cam2": {
-    "A": {
-      "pan": 0,
-      "tilt": 0,
-      "zoom": 0
-    },
+    "A": null,
     "B": null,
     "X": null,
     "Y": null
