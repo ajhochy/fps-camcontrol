@@ -896,6 +896,7 @@ function appendActivityEntry(entry) {
     '<td>' + esc(entry.targetName) + '</td>' +
     '<td>' + esc(entry.targetIp) + '</td>';
   tr.style.display = rowVisible(tr) ? '' : 'none';
+  if (entry.ts > lastSeenTs) lastSeenTs = entry.ts;
   tbody.appendChild(tr);
   while (tbody.rows.length > 500) tbody.deleteRow(0);
   if (activityAutoScroll) {
@@ -911,30 +912,35 @@ function initActivityLog() {
       activityAutoScroll = wrap.scrollTop + wrap.clientHeight >= wrap.scrollHeight - 10;
     });
   }
+  connectActivityWs();
+}
 
+var lastSeenTs = 0;
+var activityReconnectTimer = null;
+
+function connectActivityWs() {
+  if (activityReconnectTimer) { clearTimeout(activityReconnectTimer); activityReconnectTimer = null; }
   var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   activityWs = new WebSocket(proto + '//' + location.host + '/ws/activity');
 
   activityWs.onmessage = function(evt) {
     var msg = JSON.parse(evt.data);
     if (msg.type === 'snapshot') {
-      var tbody = document.getElementById('activity-log-body');
-      if (tbody) tbody.innerHTML = '';
-      for (var i = 0; i < msg.entries.length; i++) appendActivityEntry(msg.entries[i]);
+      for (var i = 0; i < msg.entries.length; i++) {
+        if (msg.entries[i].ts > lastSeenTs) appendActivityEntry(msg.entries[i]);
+      }
     } else if (msg.type === 'entry') {
       appendActivityEntry(msg.entry);
     }
   };
 
+  activityWs.onclose = function() {
+    activityWs = null;
+    activityReconnectTimer = setTimeout(connectActivityWs, 3000);
+  };
+
   activityWs.onerror = function() {
-    setTimeout(function pollActivity() {
-      fetch('/api/activity').then(function(r) { return r.json(); }).then(function(data) {
-        var tbody = document.getElementById('activity-log-body');
-        if (tbody) tbody.innerHTML = '';
-        for (var i = 0; i < data.entries.length; i++) appendActivityEntry(data.entries[i]);
-        setTimeout(pollActivity, 2000);
-      }).catch(function() { setTimeout(pollActivity, 2000); });
-    }, 2000);
+    // onclose will fire after onerror and handle reconnect
   };
 }
 
