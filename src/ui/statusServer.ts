@@ -309,7 +309,7 @@ function statusHtml(): string {
   .cfg-input { background: #0d0d0d; border: 1px solid #333; color: #eee; padding: 3px 6px; border-radius: 3px; font-family: monospace; font-size: 0.82rem; width: 100%; box-sizing: border-box; }
   .cfg-input:focus { outline: none; border-color: #0af; }
   .activity-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
-  .activity-table th { text-align: left; color: #666; padding: 4px 8px; border-bottom: 1px solid #333; font-size: 0.72rem; text-transform: uppercase; }
+  .activity-table th { text-align: left; color: #666; padding: 4px 8px; border-bottom: 1px solid #333; font-size: 0.72rem; text-transform: uppercase; position: sticky; top: 0; background: #1a1a1a; z-index: 1; }
   .activity-table td { padding: 3px 8px; border-bottom: 1px solid #1f1f1f; vertical-align: top; }
   .activity-table td.msg { font-family: monospace; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .row-visca { background: #0a1828; }
@@ -319,6 +319,9 @@ function statusHtml(): string {
   .log-meta  { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
   .btn-sm    { padding: 2px 10px; font-size: 0.78rem; background: #222; border: 1px solid #444; color: #ccc; cursor: pointer; border-radius: 3px; }
   .btn-sm:hover { background: #333; }
+  .filter-btn { padding: 2px 10px; font-size: 0.75rem; background: #1a1a1a; border: 1px solid #333; color: #666; cursor: pointer; border-radius: 3px; }
+  .filter-btn:hover { border-color: #555; color: #aaa; }
+  .filter-btn.active { background: #003050; border-color: #0af; color: #0af; }
 </style>
 </head>
 <body>
@@ -346,6 +349,15 @@ function statusHtml(): string {
   <div class="log-meta">
     <h2 style="margin:0">Activity Log</h2>
     <button class="btn-sm" onclick="clearActivityLog()">Clear</button>
+  </div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;align-items:center">
+    <span style="color:#666;font-size:0.75rem;text-transform:uppercase">Filter:</span>
+    <button class="filter-btn active" data-filter="ALL" onclick="setLogFilter('ALL',this)">All</button>
+    <button class="filter-btn" data-filter="VISCA" onclick="setLogFilter('VISCA',this)">VISCA</button>
+    <button class="filter-btn" data-filter="ATEM" onclick="setLogFilter('ATEM',this)">ATEM</button>
+    <button class="filter-btn" data-filter="System" onclick="setLogFilter('System',this)">System</button>
+    <span style="width:1px;background:#333;height:16px;display:inline-block;margin:0 4px"></span>
+    <button class="filter-btn" id="filter-hide-probe" onclick="toggleHideProbe(this)">Hide Probes</button>
   </div>
   <div class="log-wrap" id="activity-log-wrap">
     <table class="activity-table">
@@ -383,7 +395,8 @@ function renderStatus(s, c) {
   const program = '<span class="badge live">PGM: ' + camLabel(s.programCamera) + '</span>';
   const preview = '<span class="badge preview">PVW: ' + camLabel(s.previewCamera) + '</span>';
   const atem = '<span class="badge ' + (s.atemConnected ? 'ok' : 'err') + '">ATEM ' + (s.atemConnected ? 'OK' : 'DISCONNECTED') + '</span>';
-  const ctrl = '<span class="badge ' + (s.controllerConnected ? 'ok' : 'err') + '">CONTROLLER ' + (s.controllerConnected ? 'OK' : 'DISCONNECTED') + '</span>';
+  const ctrlLabel = s.activeControllerProfile ? s.activeControllerProfile : 'Controller';
+  const ctrl = '<span class="badge ' + (s.controllerConnected ? 'ok' : 'err') + '">' + esc(ctrlLabel) + (s.controllerConnected ? ' CONNECTED' : ' NOT CONNECTED') + '</span>';
 
   const camStatus = cams.map(cam => {
     const ok = s.cameraConnected && s.cameraConnected[cam.id];
@@ -818,6 +831,41 @@ function exportMappings() {
 // ---- Activity Log ----
 var activityWs = null;
 var activityAutoScroll = true;
+var logFilter = 'ALL';
+var hideProbes = false;
+
+function setLogFilter(f, btn) {
+  logFilter = f;
+  var btns = document.querySelectorAll('.filter-btn[data-filter]');
+  for (var i = 0; i < btns.length; i++) btns[i].classList.remove('active');
+  btn.classList.add('active');
+  applyLogFilter();
+}
+
+function toggleHideProbe(btn) {
+  hideProbes = !hideProbes;
+  btn.classList.toggle('active', hideProbes);
+  applyLogFilter();
+}
+
+function rowVisible(tr) {
+  var proto = tr.dataset.proto;
+  var isProbe = tr.dataset.probe === '1';
+  if (hideProbes && isProbe) return false;
+  if (logFilter !== 'ALL' && proto !== logFilter) return false;
+  return true;
+}
+
+function applyLogFilter() {
+  var rows = document.getElementById('activity-log-body').rows;
+  for (var i = 0; i < rows.length; i++) {
+    rows[i].style.display = rowVisible(rows[i]) ? '' : 'none';
+  }
+  if (activityAutoScroll) {
+    var wrap = document.getElementById('activity-log-wrap');
+    if (wrap) wrap.scrollTop = wrap.scrollHeight;
+  }
+}
 
 function fmtTime(ts) {
   var d = new Date(ts);
@@ -835,6 +883,8 @@ function appendActivityEntry(entry) {
   if (!tbody) return;
   var tr = document.createElement('tr');
   tr.className = activityRowClass(entry.protocol);
+  tr.dataset.proto = entry.protocol;
+  tr.dataset.probe = (entry.device === 'unknown' && entry.input === '—') ? '1' : '0';
   var msg = entry.message || '—';
   tr.innerHTML =
     '<td>' + fmtTime(entry.ts) + '</td>' +
@@ -845,6 +895,7 @@ function appendActivityEntry(entry) {
     '<td class="msg" title="' + esc(msg) + '">' + esc(msg) + '</td>' +
     '<td>' + esc(entry.targetName) + '</td>' +
     '<td>' + esc(entry.targetIp) + '</td>';
+  tr.style.display = rowVisible(tr) ? '' : 'none';
   tbody.appendChild(tr);
   while (tbody.rows.length > 500) tbody.deleteRow(0);
   if (activityAutoScroll) {
