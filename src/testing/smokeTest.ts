@@ -13,7 +13,7 @@ import { emergencyStopAll } from '../safety/emergencyStop';
 import { EdgeState, createEdgeState, risingEdge, triggerRisingEdge } from '../input/edgeTriggers';
 import { applyCurve, applyDeadzone, clamp } from '../visca/speedCurves';
 import { panTilt, zoom, stopPTZ } from '../visca/ptzActions';
-import { cutControlledCameraLive, autoTransitionControlledCamera } from '../atem/switcherActions';
+import { cutControlledCameraLive, autoTransitionControlledCamera, toggleLowerThirds } from '../atem/switcherActions';
 
 // ---- minimal logger for tests ----
 const logger = {
@@ -35,13 +35,13 @@ const virtualViscas: Record<string, VirtualVisca> = {
 };
 
 const config: AppConfig = {
-  atem: { ip: '127.0.0.1', defaultTransition: 'cut' },
+  atem: { ip: '127.0.0.1', defaultTransition: 'cut', meIndex: 0 },
   cameras: [
-    { id: 'cam1', label: 'BirdDog Left', inputId: 1, viscaIp: '127.0.0.1', viscaPort: 52381 },
-    { id: 'cam2', label: 'BirdDog Center', inputId: 2, viscaIp: '127.0.0.1', viscaPort: 52381 },
-    { id: 'cam3', label: 'V-BOT', inputId: 3, viscaIp: '127.0.0.1', viscaPort: 52381 },
+    { id: 'cam1', label: 'V-BOT', cameraType: 'vbot', inputId: 1, viscaIp: '127.0.0.1', viscaPort: 52381 },
+    { id: 'cam2', label: 'BirdDog 1', cameraType: 'birddog', inputId: 2, viscaIp: '127.0.0.1', viscaPort: 52381 },
+    { id: 'cam3', label: 'BirdDog 2', cameraType: 'birddog', inputId: 3, viscaIp: '127.0.0.1', viscaPort: 52381 },
   ],
-  lowerThirds: { type: 'dsk', dskIndex: 0 },
+  graphics: { type: 'dsk', dskIndex: 0, uskIndex: 0, meIndex: 0 },
   speeds: {
     presets: [
       { name: 'Slow', multiplier: 0.2 },
@@ -134,8 +134,7 @@ async function tick(input: { axes?: Record<string, number>; buttons?: Record<str
     risingEdge('dpadLeft', buttons['dpadLeft'] ?? false, edgeState) ||
     risingEdge('dpadRight', buttons['dpadRight'] ?? false, edgeState);
   if (ltToggle) {
-    state.lowerThirdsActive = !state.lowerThirdsActive;
-    await virtualAtem.setDownstreamKeyOnAir(config.lowerThirds.dskIndex, state.lowerThirdsActive);
+    await toggleLowerThirds(atemProxy, state, config);
   }
 }
 

@@ -7,7 +7,7 @@ import { EdgeState, createEdgeState, risingEdge, triggerRisingEdge } from '../in
 import { CameraSelector } from './cameraSelector';
 import { PresetManager } from './presetManager';
 import { SpeedManager } from './speedManager';
-import { cutControlledCameraLive, autoTransitionControlledCamera } from '../atem/switcherActions';
+import { cutControlledCameraLive, autoTransitionControlledCamera, toggleLowerThirds } from '../atem/switcherActions';
 import { panTilt, zoom, stopPTZ } from '../visca/ptzActions';
 import { applyCurve, applyDeadzone, clamp } from '../visca/speedCurves';
 import { emergencyStopAll } from '../safety/emergencyStop';
@@ -107,9 +107,7 @@ export class ControlStateMachine {
       risingEdge('dpadLeft', input.buttons['dpadLeft'] ?? false, this.edgeState) ||
       risingEdge('dpadRight', input.buttons['dpadRight'] ?? false, this.edgeState);
     if (ltToggle) {
-      const newState = !this.state.lowerThirdsActive;
-      this.state.lowerThirdsActive = newState;
-      this.atem.setDownstreamKeyOnAir(this.config.lowerThirds.dskIndex, newState).catch(err => {
+      toggleLowerThirds(this.atem, this.state, this.config).catch(err => {
         logger.error({ err }, 'lower thirds toggle error');
       });
     }

@@ -5,6 +5,12 @@ import { logger } from '../index';
 const BACKOFF_INITIAL = 1000;
 const BACKOFF_MAX = 30000;
 
+export interface AtemInput {
+  id: number;
+  longName: string;
+  shortName: string;
+}
+
 export class AtemClient extends EventEmitter {
   private atem: Atem;
   private ip: string;
@@ -68,6 +74,16 @@ export class AtemClient extends EventEmitter {
     return this.atem.state?.video?.mixEffects?.[meIndex]?.previewInput;
   }
 
+  getAvailableInputs(): AtemInput[] {
+    const inputs = (this.atem.state as any)?.settings?.inputs;
+    if (!inputs) return [];
+    return Object.entries(inputs).map(([id, info]: [string, any]) => ({
+      id: Number(id),
+      longName: info.longName ?? `Input ${id}`,
+      shortName: info.shortName ?? String(id),
+    }));
+  }
+
   async changePreviewInput(inputId: number, meIndex = 0): Promise<void> {
     if (!this.connected) { logger.warn('ATEM not connected, dropping changePreviewInput'); return; }
     await this.atem.changePreviewInput(inputId, meIndex);
@@ -86,6 +102,12 @@ export class AtemClient extends EventEmitter {
   async setDownstreamKeyOnAir(dskIndex: number, onAir: boolean): Promise<void> {
     if (!this.connected) { logger.warn('ATEM not connected, dropping setDownstreamKeyOnAir'); return; }
     await this.atem.setDownstreamKeyOnAir(onAir, dskIndex);
+  }
+
+  async setUpstreamKeyerOnAir(meIndex: number, keyIndex: number, onAir: boolean): Promise<void> {
+    if (!this.connected) { logger.warn('ATEM not connected, dropping setUpstreamKeyerOnAir'); return; }
+    // atem-connection v3: setUpstreamKeyerOnAir(meIndex, keyIndex, onAir)
+    await (this.atem as any).setUpstreamKeyerOnAir(meIndex, keyIndex, onAir);
   }
 
   disconnect(): void {

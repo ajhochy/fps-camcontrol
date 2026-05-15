@@ -37,7 +37,7 @@ async function main() {
   // Step 2: Connect to cameras (non-blocking)
   const viscaClients = new Map<CameraId, ViscaClient>();
   for (const cam of config.cameras) {
-    const client = new ViscaClient(cam.id, cam.viscaIp, cam.viscaPort);
+    const client = new ViscaClient(cam.id, cam.viscaIp, cam.viscaPort, cam.cameraType);
     client.on('connected', () => {
       state.cameraConnected[cam.id as CameraId] = true;
     });
@@ -112,7 +112,7 @@ async function main() {
   startWatchdog(state, atem, viscaClients);
 
   // Step 10: Status UI
-  const app = createStatusServer(state, config, presetManager);
+  const app = createStatusServer(state, config, presetManager, atem);
   const port = parseInt(process.env.STATUS_PORT ?? '8080', 10);
   startStatusServer(app, port);
 

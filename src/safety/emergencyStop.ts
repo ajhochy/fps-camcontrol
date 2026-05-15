@@ -2,6 +2,7 @@ import { AppState, CameraId } from '../app/state';
 import { AppConfig } from '../config/configLoader';
 import { AtemClient } from '../atem/atemClient';
 import { ViscaClient } from '../visca/viscaClient';
+import { toggleLowerThirds } from '../atem/switcherActions';
 import { stopPTZ } from '../visca/ptzActions';
 import { logger } from '../index';
 
@@ -16,9 +17,7 @@ export async function emergencyStopAll(
     stopPTZ(client);
   }
   if (state.lowerThirdsActive) {
-    await atem.setDownstreamKeyOnAir(config.lowerThirds.dskIndex, false);
-    state.lowerThirdsActive = false;
+    await toggleLowerThirds(atem, state, config, false);
   }
-  // Does NOT change program or preview
   logger.warn('EMERGENCY STOP complete');
 }

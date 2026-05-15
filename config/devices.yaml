@@ -1,24 +1,32 @@
 atem:
-  ip: "192.168.1.50"
+  ip: "192.168.50.10"
   defaultTransition: "cut"
+  meIndex: 0
 
 cameras:
   - id: cam1
-    label: "BirdDog Left"
-    inputId: 1
-    viscaIp: "192.168.1.101"
-    viscaPort: 52381
-  - id: cam2
-    label: "BirdDog Center"
-    inputId: 2
-    viscaIp: "192.168.1.102"
-    viscaPort: 52381
-  - id: cam3
     label: "V-BOT"
-    inputId: 3
-    viscaIp: "192.168.1.103"
+    cameraType: "vbot"
+    inputId: 1
+    viscaIp: "192.168.50.15"
     viscaPort: 52381
 
-lowerThirds:
-  type: "dsk"
+  - id: cam2
+    label: "BirdDog 1"
+    cameraType: "birddog"
+    inputId: 2
+    viscaIp: "192.168.50.16"
+    viscaPort: 52381
+
+  - id: cam3
+    label: "BirdDog 2"
+    cameraType: "birddog"
+    inputId: 3
+    viscaIp: "192.168.50.17"
+    viscaPort: 52381
+
+graphics:
+  type: "auto"
   dskIndex: 0
+  uskIndex: 0
+  meIndex: 0
