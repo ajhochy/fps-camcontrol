@@ -18,6 +18,7 @@ import { PresetManager } from './model/presetManager';
 import { startControllerLoop } from './app/controllerLoop';
 import { eventBus } from './app/eventBus';
 import { createStatusServer, startStatusServer } from './ui/statusServer';
+import { ActivityLog } from './app/activityLog';
 import { startWatchdog } from './safety/watchdog';
 import { CalibrationWizard } from './input/calibrationWizard';
 
@@ -26,9 +27,11 @@ async function main() {
 
   const config = loadConfig();
   const state: AppState = { ...defaultState };
+  const activityLog = new ActivityLog();
 
   // Step 1: Connect to ATEM
   const atem = new AtemClient(config.atem.ip);
+  atem.setActivityLog(activityLog);
   try {
     await atem.connect();
   } catch (err) {
@@ -39,6 +42,7 @@ async function main() {
   const viscaClients = new Map<CameraId, ViscaClient>();
   for (const cam of config.cameras) {
     const client = new ViscaClient(cam.id, cam.viscaIp, cam.viscaPort, cam.cameraType);
+    client.setActivityLog(activityLog, cam.label);
     client.on('connected', () => {
       state.cameraConnected[cam.id as CameraId] = true;
     });
@@ -55,7 +59,7 @@ async function main() {
   const found = findConnectedController(profiles);
 
   const presetManager = new PresetManager(state, config, viscaClients);
-  const machine = new ControlStateMachine(state, config, atem, viscaClients);
+  const machine = new ControlStateMachine(state, config, atem, viscaClients, activityLog);
 
   if (found) {
     logger.info({ profile: found.profile.name, connectionType: found.connectionType }, 'controller profile loaded');
@@ -116,9 +120,9 @@ async function main() {
   startWatchdog(state, atem, viscaClients);
 
   // Step 10: Status UI
-  const app = createStatusServer(state, config, presetManager);
+  const app = createStatusServer(state, config, presetManager, activityLog);
   const port = parseInt(process.env.STATUS_PORT ?? '8080', 10);
-  startStatusServer(app, port);
+  startStatusServer(app, activityLog, port);
 
   logger.info({ controlledCamera: state.controlledCamera }, 'FPS CamControl running');
 

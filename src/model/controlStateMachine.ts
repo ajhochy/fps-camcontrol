@@ -11,10 +11,28 @@ import { cutControlledCameraLive, autoTransitionControlledCamera, toggleLowerThi
 import { panTilt, zoom, stopPTZ } from '../visca/ptzActions';
 import { applyCurve, applyDeadzone, clamp } from '../visca/speedCurves';
 import { emergencyStopAll } from '../safety/emergencyStop';
+import { ActivityLog } from '../app/activityLog';
 import { logger } from '../index';
 
 const RT_THRESHOLD = 0.5;
 const LT_THRESHOLD = 0.3;
+
+const INPUT_LABELS: Record<string, string> = {
+  rightStick: 'Right Stick',
+  leftStickY: 'Left Stick Y',
+  leftStickX: 'Left Stick X',
+  rightTrigger: 'Right Trigger',
+  RB: 'RB Button',
+  A: 'A Button',
+  B: 'B Button',
+  X: 'X Button',
+  Y: 'Y Button',
+  dpadUp: 'D-pad Up',
+  dpadDown: 'D-pad Down',
+  dpadLeft: 'D-pad Left',
+  dpadRight: 'D-pad Right',
+  back: 'Back Button',
+};
 
 export class ControlStateMachine {
   private edgeState: EdgeState = createEdgeState();
@@ -22,13 +40,18 @@ export class ControlStateMachine {
   private cameraSelector: CameraSelector;
   private presetManager: PresetManager;
   private speedManager: SpeedManager;
+  private wasMovingPT = false;
+  private wasMovingZoom = false;
+  private activityLog: ActivityLog | null;
 
   constructor(
     private state: AppState,
     private config: AppConfig,
     private atem: AtemClient,
-    private viscaClients: Map<CameraId, ViscaClient>
+    private viscaClients: Map<CameraId, ViscaClient>,
+    activityLog: ActivityLog | null = null
   ) {
+    this.activityLog = activityLog;
     this.cameraSelector = new CameraSelector(state, config.cameras, atem, viscaClients);
     this.presetManager = new PresetManager(state, config, viscaClients);
     this.speedManager = new SpeedManager(state, config);
@@ -42,27 +65,59 @@ export class ControlStateMachine {
     const input = this.lastInput;
     if (!input) return;
 
-    // Update modal states
+    const device = this.state.activeControllerProfile ?? 'Unknown';
+
     this.state.precisionMode = (input.triggers['leftTrigger'] ?? 0) >= LT_THRESHOLD;
     this.state.sprintMode = input.buttons['LS'] ?? false;
 
     // Camera selector — left stick X flick
     const leftX = applyDeadzone(input.axes['leftStickX'] ?? 0);
+    const prevCamera = this.state.controlledCamera;
     this.cameraSelector.handleLeftStickX(leftX);
+    if (this.state.controlledCamera !== prevCamera) {
+      const camLabel = this.config.cameras.find(c => c.id === this.state.controlledCamera)?.label ?? this.state.controlledCamera;
+      this.activityLog?.setContext(device, INPUT_LABELS['leftStickX'], `Cam → ${camLabel}`);
+      this.activityLog?.addSystemEntry(`Cam → ${camLabel}`, '—');
+    }
 
     // PTZ — right stick + left stick Y
     const rightX = applyDeadzone(input.axes['rightStickX'] ?? 0);
     const rightY = applyDeadzone(input.axes['rightStickY'] ?? 0);
     const leftY = applyDeadzone(input.axes['leftStickY'] ?? 0);
+    const movingPT = rightX !== 0 || rightY !== 0;
+    const movingZoom = leftY !== 0;
 
     const currentClient = this.viscaClients.get(this.state.controlledCamera);
     if (currentClient) {
-      panTilt(currentClient, this.getEffectiveSpeed(rightX), this.getEffectiveSpeed(-rightY));
-      zoom(currentClient, this.getEffectiveSpeed(-leftY));
+      if (movingPT && !this.wasMovingPT) {
+        this.activityLog?.setContext(device, INPUT_LABELS['rightStick'], 'Pan/Tilt Start');
+      }
+      if (!movingPT && this.wasMovingPT) {
+        this.activityLog?.setContext(device, INPUT_LABELS['rightStick'], 'Pan/Tilt Stop');
+        stopPTZ(currentClient);
+      }
+      if (movingPT) {
+        panTilt(currentClient, this.getEffectiveSpeed(rightX), this.getEffectiveSpeed(-rightY));
+      }
+
+      if (movingZoom && !this.wasMovingZoom) {
+        this.activityLog?.setContext(device, INPUT_LABELS['leftStickY'], 'Zoom Start');
+      }
+      if (!movingZoom && this.wasMovingZoom) {
+        this.activityLog?.setContext(device, INPUT_LABELS['leftStickY'], 'Zoom Stop');
+        zoom(currentClient, 0);
+      }
+      if (movingZoom) {
+        zoom(currentClient, this.getEffectiveSpeed(-leftY));
+      }
     }
+
+    this.wasMovingPT = movingPT;
+    this.wasMovingZoom = movingZoom;
 
     // RT — cut live (rising edge on trigger crossing threshold)
     if (triggerRisingEdge('rightTrigger', input.triggers['rightTrigger'] ?? 0, RT_THRESHOLD, this.edgeState)) {
+      this.activityLog?.setContext(device, INPUT_LABELS['rightTrigger'], 'Cut Live');
       cutControlledCameraLive(this.atem, this.state, this.config.cameras).catch(err => {
         logger.error({ err }, 'cut live error');
       });
@@ -70,23 +125,24 @@ export class ControlStateMachine {
 
     // RB — auto transition
     if (risingEdge('RB', input.buttons['RB'] ?? false, this.edgeState)) {
+      this.activityLog?.setContext(device, INPUT_LABELS['RB'], 'Auto Transition');
       autoTransitionControlledCamera(this.atem, this.state, this.config.cameras).catch(err => {
         logger.error({ err }, 'auto transition error');
       });
     }
 
-    // LB modifier — preset save
+    // LB modifier — preset save/recall
     const lbHeld = input.buttons['LB'] ?? false;
-
-    // Preset recall / save — A/B/X/Y
     for (const slot of ['A', 'B', 'X', 'Y'] as PresetSlot[]) {
       const pressed = risingEdge(slot, input.buttons[slot] ?? false, this.edgeState);
       if (pressed) {
         if (lbHeld) {
+          this.activityLog?.setContext(device, `LB + ${slot}`, `Preset ${slot} Save`);
           this.presetManager.savePreset(this.state.controlledCamera, slot).catch(err => {
             logger.error({ err }, 'preset save error');
           });
         } else {
+          this.activityLog?.setContext(device, `${slot} ${INPUT_LABELS[slot]}`, `Preset ${slot} Recall`);
           this.presetManager.recallPreset(this.state.controlledCamera, slot).catch(err => {
             logger.error({ err }, 'preset recall error');
           });
@@ -97,9 +153,15 @@ export class ControlStateMachine {
     // Speed presets — D-pad up/down
     if (risingEdge('dpadUp', input.buttons['dpadUp'] ?? false, this.edgeState)) {
       this.speedManager.increment();
+      const name = this.config.speeds.presets[this.state.speedPreset]?.name ?? String(this.state.speedPreset);
+      this.activityLog?.setContext(device, INPUT_LABELS['dpadUp'], 'Speed Up');
+      this.activityLog?.addSystemEntry('Speed Up', `Speed → ${name}`);
     }
     if (risingEdge('dpadDown', input.buttons['dpadDown'] ?? false, this.edgeState)) {
       this.speedManager.decrement();
+      const name = this.config.speeds.presets[this.state.speedPreset]?.name ?? String(this.state.speedPreset);
+      this.activityLog?.setContext(device, INPUT_LABELS['dpadDown'], 'Speed Down');
+      this.activityLog?.addSystemEntry('Speed Down', `Speed → ${name}`);
     }
 
     // Lower thirds — D-pad left or right
@@ -107,6 +169,8 @@ export class ControlStateMachine {
       risingEdge('dpadLeft', input.buttons['dpadLeft'] ?? false, this.edgeState) ||
       risingEdge('dpadRight', input.buttons['dpadRight'] ?? false, this.edgeState);
     if (ltToggle) {
+      const newState = !this.state.lowerThirdsActive;
+      this.activityLog?.setContext(device, 'D-pad Left/Right', `Lower Thirds ${newState ? 'ON' : 'OFF'}`);
       toggleLowerThirds(this.atem, this.state, this.config).catch(err => {
         logger.error({ err }, 'lower thirds toggle error');
       });
@@ -114,6 +178,8 @@ export class ControlStateMachine {
 
     // Emergency stop — back button
     if (risingEdge('back', input.buttons['back'] ?? false, this.edgeState)) {
+      this.activityLog?.setContext(device, INPUT_LABELS['back'], 'Emergency Stop');
+      this.activityLog?.addSystemEntry('Emergency Stop', 'All cameras stopped, PTZ halted');
       emergencyStopAll(this.state, this.config, this.atem, this.viscaClients).catch(err => {
         logger.error({ err }, 'emergency stop error');
       });

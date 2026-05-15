@@ -5,6 +5,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { AppState } from '../app/state';
 import { AppConfig, MappingConfig, saveMappings } from '../config/configLoader';
 import { PresetManager } from '../model/presetManager';
+import { ActivityLog } from '../app/activityLog';
 import { loadProfiles, detectConnectionType } from '../input/profileDetector';
 import { eventBus } from '../app/eventBus';
 import { logger } from '../index';
@@ -12,7 +13,8 @@ import { logger } from '../index';
 export function createStatusServer(
   state: AppState,
   config: AppConfig,
-  presetManager: PresetManager
+  presetManager: PresetManager,
+  activityLog: ActivityLog
 ): express.Express {
   const app = express();
   app.use(express.json());
@@ -112,6 +114,15 @@ export function createStatusServer(
     res.json({ ok: true, message: 'Controller switching requires restart' });
   });
 
+  app.get('/api/activity', (_req, res) => {
+    res.json({ entries: activityLog.getAll() });
+  });
+
+  app.delete('/api/activity', (_req, res) => {
+    activityLog.clear();
+    res.json({ ok: true });
+  });
+
   app.get('/', (_req, res) => {
     res.send(statusHtml());
   });
@@ -121,6 +132,7 @@ export function createStatusServer(
 
 export function startStatusServer(
   app: express.Express,
+  activityLog: ActivityLog,
   port = 8080
 ): http.Server {
   const server = http.createServer(app);
@@ -149,6 +161,24 @@ export function startStatusServer(
     });
 
     for (const ws of clients) {
+      if (ws.readyState === WebSocket.OPEN) ws.send(payload);
+    }
+  });
+
+  const activityClients = new Set<WebSocket>();
+  const wssActivity = new WebSocketServer({ server, path: '/ws/activity' });
+
+  wssActivity.on('connection', (ws) => {
+    activityClients.add(ws);
+    ws.on('close', () => activityClients.delete(ws));
+    ws.on('error', () => activityClients.delete(ws));
+    const current = activityLog.getAll();
+    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'snapshot', entries: current }));
+  });
+
+  activityLog.on('entry', (entry) => {
+    const payload = JSON.stringify({ type: 'entry', entry });
+    for (const ws of activityClients) {
       if (ws.readyState === WebSocket.OPEN) ws.send(payload);
     }
   });
@@ -200,6 +230,17 @@ function statusHtml(): string {
   details > summary { cursor: pointer; color: #888; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
   details > summary:hover { color: #ccc; }
   .hex-stream { font-size: 0.75rem; color: #5a5; background: #0a0a0a; padding: 8px; border-radius: 4px; overflow-x: auto; white-space: nowrap; min-height: 2em; }
+  .activity-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+  .activity-table th { text-align: left; color: #666; padding: 4px 8px; border-bottom: 1px solid #333; font-size: 0.72rem; text-transform: uppercase; }
+  .activity-table td { padding: 3px 8px; border-bottom: 1px solid #1f1f1f; vertical-align: top; }
+  .activity-table td.msg { font-family: monospace; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row-visca { background: #0a1828; }
+  .row-atem  { background: #1e1206; }
+  .row-sys   { background: #111; color: #888; }
+  .log-wrap  { height: 320px; overflow-y: auto; }
+  .log-meta  { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .btn-sm    { padding: 2px 10px; font-size: 0.78rem; background: #222; border: 1px solid #444; color: #ccc; cursor: pointer; border-radius: 3px; }
+  .btn-sm:hover { background: #333; }
 </style>
 </head>
 <body>
@@ -218,6 +259,22 @@ function statusHtml(): string {
 <div class="panel">
   <h2>Camera Config</h2>
   <div id="config-content">Loading&hellip;</div>
+</div>
+
+<div class="panel">
+  <div class="log-meta">
+    <h2 style="margin:0">Activity Log</h2>
+    <button class="btn-sm" onclick="clearActivityLog()">Clear</button>
+  </div>
+  <div class="log-wrap" id="activity-log-wrap">
+    <table class="activity-table">
+      <thead><tr>
+        <th>Time</th><th>Device</th><th>Input</th><th>Command</th>
+        <th>Proto</th><th>Message</th><th>Target</th><th>IP</th>
+      </tr></thead>
+      <tbody id="activity-log-body"></tbody>
+    </table>
+  </div>
 </div>
 
 <script>
@@ -534,6 +591,87 @@ function exportMappings() {
   a.download = 'controller-mappings.yaml';
   a.click();
 }
+
+// ---- Activity Log ----
+var activityWs = null;
+var activityAutoScroll = true;
+
+function fmtTime(ts) {
+  var d = new Date(ts);
+  return d.toLocaleTimeString('en-US', { hour12: false }) + '.' + String(d.getMilliseconds()).padStart(3, '0');
+}
+
+function activityRowClass(proto) {
+  if (proto === 'VISCA') return 'row-visca';
+  if (proto === 'ATEM') return 'row-atem';
+  return 'row-sys';
+}
+
+function appendActivityEntry(entry) {
+  var tbody = document.getElementById('activity-log-body');
+  if (!tbody) return;
+  var tr = document.createElement('tr');
+  tr.className = activityRowClass(entry.protocol);
+  var msg = entry.message || '—';
+  tr.innerHTML =
+    '<td>' + fmtTime(entry.ts) + '</td>' +
+    '<td>' + esc(entry.device) + '</td>' +
+    '<td>' + esc(entry.input) + '</td>' +
+    '<td>' + esc(entry.command) + '</td>' +
+    '<td>' + esc(entry.protocol) + '</td>' +
+    '<td class="msg" title="' + esc(msg) + '">' + esc(msg) + '</td>' +
+    '<td>' + esc(entry.targetName) + '</td>' +
+    '<td>' + esc(entry.targetIp) + '</td>';
+  tbody.appendChild(tr);
+  while (tbody.rows.length > 500) tbody.deleteRow(0);
+  if (activityAutoScroll) {
+    var wrap = document.getElementById('activity-log-wrap');
+    if (wrap) wrap.scrollTop = wrap.scrollHeight;
+  }
+}
+
+function initActivityLog() {
+  var wrap = document.getElementById('activity-log-wrap');
+  if (wrap) {
+    wrap.addEventListener('scroll', function() {
+      activityAutoScroll = wrap.scrollTop + wrap.clientHeight >= wrap.scrollHeight - 10;
+    });
+  }
+
+  var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  activityWs = new WebSocket(proto + '//' + location.host + '/ws/activity');
+
+  activityWs.onmessage = function(evt) {
+    var msg = JSON.parse(evt.data);
+    if (msg.type === 'snapshot') {
+      var tbody = document.getElementById('activity-log-body');
+      if (tbody) tbody.innerHTML = '';
+      for (var i = 0; i < msg.entries.length; i++) appendActivityEntry(msg.entries[i]);
+    } else if (msg.type === 'entry') {
+      appendActivityEntry(msg.entry);
+    }
+  };
+
+  activityWs.onerror = function() {
+    setTimeout(function pollActivity() {
+      fetch('/api/activity').then(function(r) { return r.json(); }).then(function(data) {
+        var tbody = document.getElementById('activity-log-body');
+        if (tbody) tbody.innerHTML = '';
+        for (var i = 0; i < data.entries.length; i++) appendActivityEntry(data.entries[i]);
+        setTimeout(pollActivity, 2000);
+      }).catch(function() { setTimeout(pollActivity, 2000); });
+    }, 2000);
+  };
+}
+
+function clearActivityLog() {
+  fetch('/api/activity', { method: 'DELETE' }).then(function() {
+    var tbody = document.getElementById('activity-log-body');
+    if (tbody) tbody.innerHTML = '';
+  });
+}
+
+initActivityLog();
 </script>
 </body>
 </html>`;

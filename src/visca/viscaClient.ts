@@ -21,6 +21,8 @@ export class ViscaClient extends EventEmitter {
   private port: number;
   private cameraId: string;
   private cameraType: string;
+  label = '';
+  private activityLog: import('../app/activityLog').ActivityLog | null = null;
   private backoff = BACKOFF_INITIAL;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private seqNum = 0;
@@ -35,6 +37,11 @@ export class ViscaClient extends EventEmitter {
     this.ip = ip;
     this.port = port;
     this.cameraType = cameraType;
+  }
+
+  setActivityLog(log: import('../app/activityLog').ActivityLog, label: string): void {
+    this.activityLog = log;
+    this.label = label;
   }
 
   connect(): void {
@@ -110,7 +117,17 @@ export class ViscaClient extends EventEmitter {
     const seqB1 = (this.seqNum >> 16) & 0xFF;
     const seqB2 = (this.seqNum >> 8) & 0xFF;
     const seqB3 = this.seqNum & 0xFF;
-    this.send(Buffer.from([0x01, 0x00, lenHi, lenLo, seqB0, seqB1, seqB2, seqB3, ...payload]));
+    const packet = Buffer.from([0x01, 0x00, lenHi, lenLo, seqB0, seqB1, seqB2, seqB3, ...payload]);
+    if (this.activityLog) {
+      const hex = payload.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ');
+      this.activityLog.addEntry({
+        protocol: 'VISCA',
+        message: hex,
+        targetName: this.label || this.cameraId,
+        targetIp: this.ip,
+      });
+    }
+    this.send(packet);
   }
 
   queryPanTilt(): Promise<{ pan: number; tilt: number }> {

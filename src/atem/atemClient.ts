@@ -17,6 +17,7 @@ export class AtemClient extends EventEmitter {
   private backoff = BACKOFF_INITIAL;
   private reconnectTimer: NodeJS.Timeout | null = null;
   connected = false;
+  private activityLog: import('../app/activityLog').ActivityLog | null = null;
 
   constructor(ip: string) {
     super();
@@ -40,6 +41,10 @@ export class AtemClient extends EventEmitter {
     this.atem.on('error', (err: unknown) => {
       logger.error({ err, ip: this.ip }, 'ATEM error');
     });
+  }
+
+  setActivityLog(log: import('../app/activityLog').ActivityLog): void {
+    this.activityLog = log;
   }
 
   async connect(): Promise<void> {
@@ -86,27 +91,56 @@ export class AtemClient extends EventEmitter {
 
   async changePreviewInput(inputId: number, meIndex = 0): Promise<void> {
     if (!this.connected) { logger.warn('ATEM not connected, dropping changePreviewInput'); return; }
+    this.activityLog?.addEntry({
+      protocol: 'ATEM',
+      message: `changePreviewInput(inputId=${inputId}, me=${meIndex})`,
+      targetName: 'ATEM Switcher',
+      targetIp: this.ip,
+    });
     await this.atem.changePreviewInput(inputId, meIndex);
   }
 
   async cut(meIndex = 0): Promise<void> {
     if (!this.connected) { logger.warn('ATEM not connected, dropping cut'); return; }
+    this.activityLog?.addEntry({
+      protocol: 'ATEM',
+      message: `cut(me=${meIndex})`,
+      targetName: 'ATEM Switcher',
+      targetIp: this.ip,
+    });
     await this.atem.cut(meIndex);
   }
 
   async autoTransition(meIndex = 0): Promise<void> {
     if (!this.connected) { logger.warn('ATEM not connected, dropping autoTransition'); return; }
+    this.activityLog?.addEntry({
+      protocol: 'ATEM',
+      message: `autoTransition(me=${meIndex})`,
+      targetName: 'ATEM Switcher',
+      targetIp: this.ip,
+    });
     await this.atem.autoTransition(meIndex);
   }
 
   async setDownstreamKeyOnAir(dskIndex: number, onAir: boolean): Promise<void> {
     if (!this.connected) { logger.warn('ATEM not connected, dropping setDownstreamKeyOnAir'); return; }
+    this.activityLog?.addEntry({
+      protocol: 'ATEM',
+      message: `setDownstreamKeyOnAir(dsk=${dskIndex}, onAir=${onAir})`,
+      targetName: 'ATEM Switcher',
+      targetIp: this.ip,
+    });
     await this.atem.setDownstreamKeyOnAir(onAir, dskIndex);
   }
 
   async setUpstreamKeyerOnAir(meIndex: number, keyIndex: number, onAir: boolean): Promise<void> {
     if (!this.connected) { logger.warn('ATEM not connected, dropping setUpstreamKeyerOnAir'); return; }
-    // atem-connection v3: setUpstreamKeyerOnAir(meIndex, keyIndex, onAir)
+    this.activityLog?.addEntry({
+      protocol: 'ATEM',
+      message: `setUpstreamKeyerOnAir(me=${meIndex}, key=${keyIndex}, onAir=${onAir})`,
+      targetName: 'ATEM Switcher',
+      targetIp: this.ip,
+    });
     await (this.atem as any).setUpstreamKeyerOnAir(meIndex, keyIndex, onAir);
   }
 
