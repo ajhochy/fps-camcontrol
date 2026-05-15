@@ -16,6 +16,7 @@ import { normalizeHIDReport } from './input/normalizers';
 import { ControlStateMachine } from './model/controlStateMachine';
 import { PresetManager } from './model/presetManager';
 import { startControllerLoop } from './app/controllerLoop';
+import { eventBus } from './app/eventBus';
 import { createStatusServer, startStatusServer } from './ui/statusServer';
 import { startWatchdog } from './safety/watchdog';
 import { CalibrationWizard } from './input/calibrationWizard';
@@ -57,7 +58,9 @@ async function main() {
   const machine = new ControlStateMachine(state, config, atem, viscaClients);
 
   if (found) {
-    logger.info({ profile: found.profile.name }, 'controller profile loaded');
+    logger.info({ profile: found.profile.name, connectionType: found.connectionType }, 'controller profile loaded');
+    state.activeControllerProfile = found.profile.name;
+    state.activeConnectionType = found.connectionType;
     const gamepad = new GamepadDevice(found.device.vendorId, found.device.productId);
 
     gamepad.on('connected', () => {
@@ -71,6 +74,7 @@ async function main() {
     gamepad.on('data', (data: Buffer) => {
       const input = normalizeHIDReport(data, found.profile);
       machine.updateInput(input);
+      eventBus.emit('controllerData', { type: 'rawHidData', raw: data, normalized: input });
     });
     gamepad.open();
   } else {

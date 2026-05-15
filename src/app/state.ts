@@ -19,6 +19,8 @@ export interface AppState {
   atemConnected: boolean;
   cameraConnected: Record<string, boolean>;
   controllerConnected: boolean;
+  activeControllerProfile: string | null;
+  activeConnectionType: 'usb' | 'bluetooth' | null;
   lastPresetNotification: string | null;
   presetSaveProgress: PresetSaveProgress | null;
 }
@@ -35,6 +37,8 @@ export const defaultState: AppState = {
   atemConnected: false,
   cameraConnected: {},
   controllerConnected: false,
+  activeControllerProfile: null,
+  activeConnectionType: null,
   lastPresetNotification: null,
   presetSaveProgress: null,
 };

@@ -1,0 +1,65 @@
+# Xbox Controller (macOS, Bluetooth)
+# Applies to Xbox One S, Series X/S connected via Bluetooth directly to macOS
+# (NOT the Xbox Wireless Adapter — that uses GIP protocol over USB, not HID)
+#
+# BYTE LAYOUT NOTE:
+# Based on research and SDL2 gamecontrollerdb, the Xbox Bluetooth HID report
+# on macOS appears to use the SAME byte layout as USB HID mode for stick/trigger/button data.
+# The report ID at byte 0 is still present.
+#
+# UNCERTAINTY: The Bluetooth report format has not been verified on real hardware.
+# Use the Raw HID Debug panel at http://localhost:8080 to capture actual bytes
+# and compare against this profile. If buttons/sticks don't respond, try the USB profile.
+#
+# KNOWN BLUETOOTH PRODUCT IDs:
+#   0x02E0 — Xbox One (original) Bluetooth
+#   0x0B20 — Xbox Series X/S Bluetooth
+#   0x0B22 — Xbox Series X/S Bluetooth (alternate firmware)
+#
+# Sources: SDL2 gamecontrollerdb.txt (platform=Mac OS X entries),
+#          node-hid Bluetooth path detection, community reports
+# Confidence: MEDIUM — byte layout assumed same as USB; verify with hardware
+name: "Xbox Controller (Bluetooth)"
+connectionType: bluetooth
+vendorIds:
+  - 0x045E
+productIds:
+  - 0x02E0   # Xbox One (original) Bluetooth
+  - 0x0B20   # Xbox Series X/S Bluetooth
+  - 0x0B22   # Xbox Series X/S Bluetooth (alternate)
+  - 0x02FD   # Xbox One S may also appear under this ID over BT on some macOS versions
+  - 0x0B12   # Xbox Series X/S (may appear same PID over BT on newer firmware)
+
+reportId:
+  byte: 0
+
+axes:
+  leftStickX:   { byte: 1,  type: int16le, range: [-32768, 32767] }
+  leftStickY:   { byte: 3,  type: int16le, range: [-32768, 32767] }
+  rightStickX:  { byte: 5,  type: int16le, range: [-32768, 32767] }
+  rightStickY:  { byte: 7,  type: int16le, range: [-32768, 32767] }
+  leftTrigger:  { byte: 9,  type: uint8,   range: [0, 255] }
+  rightTrigger: { byte: 10, type: uint8,   range: [0, 255] }
+
+buttons:
+  A:         { byte: 11, bit: 0 }
+  B:         { byte: 11, bit: 1 }
+  X:         { byte: 11, bit: 2 }
+  Y:         { byte: 11, bit: 3 }
+  LB:        { byte: 11, bit: 4 }
+  RB:        { byte: 11, bit: 5 }
+  LS:        { byte: 11, bit: 6 }
+  RS:        { byte: 11, bit: 7 }
+  dpadUp:    { byte: 12, bit: 0 }
+  dpadDown:  { byte: 12, bit: 1 }
+  dpadLeft:  { byte: 12, bit: 2 }
+  dpadRight: { byte: 12, bit: 3 }
+  back:      { byte: 12, bit: 4 }
+  start:     { byte: 12, bit: 5 }
+
+# HAT SWITCH NOTE:
+# Some reports suggest Xbox controllers over Bluetooth use a hat switch for the d-pad
+# instead of individual bits. If d-pad input is not registering, the controller may be
+# using hat switch encoding. The Raw HID Debug panel will show which byte changes when
+# you press d-pad buttons. Hat switch values: up=0, upRight=1, right=2, downRight=3,
+# down=4, downLeft=5, left=6, upLeft=7, center=8 (packed in lower nibble of byte 12).

@@ -13,6 +13,12 @@ function readInt16LE(buf: Buffer, offset: number): number {
   return val >= 0x8000 ? val - 0x10000 : val;
 }
 
+function readUint16LE(buf: Buffer, offset: number): number {
+  const lo = buf[offset] ?? 0;
+  const hi = buf[offset + 1] ?? 0;
+  return (hi << 8) | lo;
+}
+
 function readUint8(buf: Buffer, offset: number): number {
   return buf[offset] ?? 0;
 }
@@ -36,8 +42,10 @@ export function normalizeHIDReport(buf: Buffer, profile: ControllerProfile): Nor
 
   for (const [name, def] of Object.entries(profile.axes)) {
     let raw: number;
-    if (def.type === 'int16') {
+    if (def.type === 'int16' || def.type === 'int16le') {
       raw = readInt16LE(buf, def.byte);
+    } else if (def.type === 'uint16le') {
+      raw = readUint16LE(buf, def.byte);
     } else {
       raw = readUint8(buf, def.byte);
     }
@@ -51,7 +59,8 @@ export function normalizeHIDReport(buf: Buffer, profile: ControllerProfile): Nor
 
   for (const [name, def] of Object.entries(profile.buttons)) {
     const byte = buf[def.byte] ?? 0;
-    buttons[name] = Boolean(byte & (1 << def.bit));
+    const bit = Boolean(byte & (1 << def.bit));
+    buttons[name] = def.activeLow ? !bit : bit;
   }
 
   return { axes, buttons, triggers };

@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events';
 import { CameraId, PresetSlot } from './state';
+import { NormalizedInput } from '../input/normalizers';
 
 export type AppEvent =
   | { type: 'stateChanged' }
@@ -10,7 +11,8 @@ export type AppEvent =
   | { type: 'presetSaved'; cameraId: CameraId; slot: PresetSlot }
   | { type: 'emergencyStop' }
   | { type: 'speedChanged'; presetIndex: number }
-  | { type: 'lowerThirdsToggled'; active: boolean };
+  | { type: 'lowerThirdsToggled'; active: boolean }
+  | { type: 'rawHidData'; raw: Buffer; normalized: NormalizedInput };
 
 class TypedEventBus extends EventEmitter {
   emit(event: string, data?: AppEvent): boolean {

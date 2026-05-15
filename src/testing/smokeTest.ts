@@ -50,6 +50,25 @@ const config: AppConfig = {
     ],
     activePreset: 1,
   },
+  mappings: {
+    panTilt: 'rightStick',
+    zoom: 'leftStickY',
+    cameraSelectLeft: 'leftStickLeft',
+    cameraSelectRight: 'leftStickRight',
+    takeLive: 'rightTrigger',
+    autoTransition: 'RB',
+    precisionMode: 'leftTrigger',
+    sprintMode: 'LS',
+    presetA: 'A',
+    presetB: 'B',
+    presetX: 'X',
+    presetY: 'Y',
+    presetSave: 'LB',
+    speedUp: 'dpadUp',
+    speedDown: 'dpadDown',
+    lowerThirds: 'dpadLeft',
+    emergencyStop: 'back',
+  },
 };
 
 // ---- Build state ----
@@ -208,6 +227,37 @@ async function runTests(): Promise<void> {
   state.controlledCamera = 'cam2';
   await presetManager.recallPreset('cam2', 'A');
   assert('cam2 VISCA received absolute position command', virtualViscas.cam2.log.length > 0);
+
+  // Test 9: /api/controllers endpoint returns valid JSON
+  console.log('\nTest 9: /api/controllers endpoint');
+  await new Promise<void>((resolve) => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { createStatusServer } = require('../ui/statusServer');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const http = require('http');
+    const testApp = createStatusServer(state, config, presetManager);
+    const testServer = testApp.listen(18080, '127.0.0.1', () => {
+      const req = http.get('http://127.0.0.1:18080/api/controllers', (res: any) => {
+        let body = '';
+        res.on('data', (chunk: any) => { body += chunk; });
+        res.on('end', () => {
+          // Accept 200 (HID enumeration succeeded) or 500 (HID unavailable in test env)
+          assert('/api/controllers returns JSON response', res.statusCode === 200 || res.statusCode === 500);
+          let parsed: unknown = null;
+          try { parsed = JSON.parse(body); } catch (_) {}
+          assert('/api/controllers body is valid JSON', parsed !== null);
+          if (res.statusCode === 200) {
+            assert('/api/controllers returns array on 200', Array.isArray(parsed));
+          }
+          testServer.close(() => resolve());
+        });
+      });
+      req.on('error', (_e: Error) => {
+        assert('/api/controllers reachable', false);
+        testServer.close(() => resolve());
+      });
+    });
+  });
 
   // Results
   console.log('\n=== Results ===');
