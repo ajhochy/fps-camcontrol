@@ -195,20 +195,32 @@ async function runTests(): Promise<void> {
   assert('lower thirds turned off', !state.lowerThirdsActive);
   assert('DSK set off in ATEM log', virtualAtem.log.some(l => l.includes('setDownstreamKeyOnAir(0, false)')));
 
-  // Test 7: Preset save (LB+A)
-  console.log('\nTest 7: Preset save via LB+A (placeholder)');
+  // Test 7: Preset save — queries real camera position via VISCA inquiry
+  console.log('\nTest 7: Preset save via LB+A — queries real VISCA position');
+  virtualViscas.cam2.state = { pan: 1234, tilt: -500, zoom: 8192 };
+  virtualViscas.cam2.reset();
+  state.controlledCamera = 'cam2';
   const presetManager = new PresetManager(state, config, viscaClients);
   await presetManager.savePreset('cam2', 'A');
   const data = presetManager.getData();
-  assert('cam2 slot A has a value', data['cam2'] != null && 'A' in data['cam2']);
+  assert('cam2 slot A has position data', data['cam2']?.['A'] !== null);
+  assert('cam2 slot A pan = 1234', (data['cam2']?.['A'] as any)?.pan === 1234);
+  assert('cam2 slot A tilt = -500', (data['cam2']?.['A'] as any)?.tilt === -500);
+  assert('cam2 slot A zoom = 8192', (data['cam2']?.['A'] as any)?.zoom === 8192);
+  assert('VirtualVisca received pan/tilt inquiry', virtualViscas.cam2.log.some(l => l.includes('inquire(')));
 
   // Test 8: Preset recall
   console.log('\nTest 8: Preset recall via A');
   virtualViscas.cam2.reset();
-  (presetManager as any).data['cam2']['A'] = { pan: 1000, tilt: 500, zoom: 8000 };
   state.controlledCamera = 'cam2';
   await presetManager.recallPreset('cam2', 'A');
   assert('cam2 VISCA received absolute position command', virtualViscas.cam2.log.length > 0);
+
+  // Test 9: Preset clear
+  console.log('\nTest 9: Preset clear');
+  presetManager.clearPreset('cam2', 'A');
+  const dataAfterClear = presetManager.getData();
+  assert('cam2 slot A is null after clear', dataAfterClear['cam2']?.['A'] === null);
 
   // Results
   console.log('\n=== Results ===');

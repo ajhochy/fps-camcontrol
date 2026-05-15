@@ -38,6 +38,10 @@ export class ControlStateMachine {
     this.lastInput = input;
   }
 
+  getPresetManager(): PresetManager {
+    return this.presetManager;
+  }
+
   tick(): void {
     const input = this.lastInput;
     if (!input) return;
