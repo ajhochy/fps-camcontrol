@@ -5,7 +5,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { AppState } from '../app/state';
 import { AppConfig, MappingConfig, saveMappings } from '../config/configLoader';
 import { PresetManager } from '../model/presetManager';
-import { loadProfiles } from '../input/profileDetector';
+import { loadProfiles, detectConnectionType } from '../input/profileDetector';
 import { eventBus } from '../app/eventBus';
 import { logger } from '../index';
 
@@ -40,7 +40,8 @@ export function createStatusServer(
     try {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const HID = require('node-hid');
-      const devices: { vendorId: number; productId: number; product?: string; usagePage?: number; usage?: number; path?: string }[] = HID.devices();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const devices: any[] = HID.devices();
       const profilesDir = process.env.PROFILES_DIR ?? path.join(process.cwd(), 'controller-profiles');
       const profiles = loadProfiles(profilesDir);
 
@@ -65,6 +66,7 @@ export function createStatusServer(
             vendorId: dev.vendorId,
             productId: dev.productId,
             connected: true,
+            connectionType: detectConnectionType(dev),
           };
         });
 
@@ -185,6 +187,8 @@ function statusHtml(): string {
   td:first-child { color: #888; }
   .section-header { font-size: 0.78rem; color: #888; text-transform: uppercase; letter-spacing: 1px; margin: 14px 0 8px; border-bottom: 1px solid #333; padding-bottom: 4px; }
   .badge.active { background: #004080; color: #7af; border: 1px solid #0af; }
+  .badge.conn-usb { background: #1a2a1a; color: #8f8; border: 1px solid #4a4; font-size: 0.75rem; }
+  .badge.conn-bt { background: #1a1a3a; color: #88f; border: 1px solid #44a; font-size: 0.75rem; }
   .btn { padding: 3px 10px; border-radius: 3px; border: 1px solid #444; background: #222; color: #ccc; cursor: pointer; font-size: 0.8rem; font-family: monospace; }
   .btn:hover { background: #333; }
   .btn.listening { background: #330000; border-color: #f44; color: #f44; animation: pulse 0.8s infinite; }
@@ -325,8 +329,13 @@ function renderControllers(controllers, active, mappings) {
     for (var ci = 0; ci < controllers.length; ci++) {
       var c = controllers[ci];
       var isActive = active.connected && active.profileName === c.profileName;
+      var connType = c.connectionType || 'usb';
+      var connBadge = connType === 'bluetooth'
+        ? '<span class="badge conn-bt">&#x1F535; Bluetooth</span>'
+        : '<span class="badge conn-usb">&#x1F50C; USB</span>';
       html += '<div style="display:flex;align-items:center;gap:10px">';
       html += '<span class="badge' + (isActive ? ' active' : '') + '">' + esc(c.label) + '</span>';
+      html += connBadge;
       html += '<span style="color:#666;font-size:0.8rem">' + esc(c.profileName) + '</span>';
       if (isActive) html += '<span style="color:#7af;font-size:0.8rem">&#9679; Active</span>';
       html += '</div>';

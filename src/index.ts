@@ -58,8 +58,9 @@ async function main() {
   const machine = new ControlStateMachine(state, config, atem, viscaClients);
 
   if (found) {
-    logger.info({ profile: found.profile.name }, 'controller profile loaded');
+    logger.info({ profile: found.profile.name, connectionType: found.connectionType }, 'controller profile loaded');
     state.activeControllerProfile = found.profile.name;
+    state.activeConnectionType = found.connectionType;
     const gamepad = new GamepadDevice(found.device.vendorId, found.device.productId);
 
     gamepad.on('connected', () => {

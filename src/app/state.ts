@@ -14,6 +14,7 @@ export interface AppState {
   cameraConnected: Record<CameraId, boolean>;
   controllerConnected: boolean;
   activeControllerProfile: string | null;
+  activeConnectionType: 'usb' | 'bluetooth' | null;
   lastPresetNotification: string | null;
 }
 
@@ -30,5 +31,6 @@ export const defaultState: AppState = {
   cameraConnected: { cam1: false, cam2: false, cam3: false },
   controllerConnected: false,
   activeControllerProfile: null,
+  activeConnectionType: null,
   lastPresetNotification: null,
 };

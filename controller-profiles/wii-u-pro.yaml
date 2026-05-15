@@ -17,6 +17,7 @@
 # Confidence: MEDIUM-HIGH - byte layout from WiiUBrew; active-low logic confirmed.
 # Stick signedness (uint16 vs int16) is MEDIUM confidence — not definitively documented.
 name: "Wii U Pro Controller"
+connectionType: any
 vendorIds:
   - 0x057E
 productIds:

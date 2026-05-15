@@ -17,6 +17,7 @@
 # Sources: SDL2 gamecontrollerdb.txt, node-hid macOS behavior, xpad driver analysis
 # Confidence: MEDIUM - byte offsets corrected from original; verify with real hardware.
 name: "Xbox Controller"
+connectionType: usb
 vendorIds:
   - 0x045E
 productIds:
