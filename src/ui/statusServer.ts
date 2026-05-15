@@ -25,7 +25,7 @@ export function createStatusServer(
     res.json({
       cameras: config.cameras,
       atem: config.atem,
-      lowerThirds: config.lowerThirds,
+      graphics: config.graphics,
       speeds: config.speeds,
     });
   });

@@ -6,21 +6,30 @@ import { z } from 'zod';
 const CameraSchema = z.object({
   id: z.string(),
   label: z.string(),
+  cameraType: z.enum(['vbot', 'birddog', 'generic']).default('generic'),
   inputId: z.number(),
   viscaIp: z.string(),
-  viscaPort: z.number(),
+  viscaPort: z.number().default(52381),
+});
+
+const GraphicsSchema = z.object({
+  type: z.enum(['dsk', 'usk', 'auto']).default('dsk'),
+  dskIndex: z.number().default(0),
+  uskIndex: z.number().default(0),
+  meIndex: z.number().default(0),
+});
+
+const AtemSchema = z.object({
+  ip: z.string(),
+  defaultTransition: z.enum(['cut', 'auto']),
+  meIndex: z.number().default(0),
 });
 
 const DevicesSchema = z.object({
-  atem: z.object({
-    ip: z.string(),
-    defaultTransition: z.enum(['cut', 'auto']),
-  }),
+  atem: AtemSchema,
   cameras: z.array(CameraSchema),
-  lowerThirds: z.object({
-    type: z.string(),
-    dskIndex: z.number(),
-  }),
+  graphics: GraphicsSchema.optional(),
+  lowerThirds: z.object({ type: z.string(), dskIndex: z.number() }).optional(),
 });
 
 const SpeedPresetsSchema = z.object({
@@ -52,12 +61,13 @@ const MappingSchema = z.object({
 });
 
 export type CameraConfig = z.infer<typeof CameraSchema>;
+export type GraphicsConfig = z.infer<typeof GraphicsSchema>;
 export type MappingConfig = z.infer<typeof MappingSchema>;
 
 export interface AppConfig {
-  atem: { ip: string; defaultTransition: string };
+  atem: { ip: string; defaultTransition: string; meIndex: number };
   cameras: CameraConfig[];
-  lowerThirds: { type: string; dskIndex: number };
+  graphics: GraphicsConfig;
   speeds: z.infer<typeof SpeedPresetsSchema>;
   mappings: MappingConfig;
 }
@@ -70,6 +80,11 @@ export function loadConfig(): AppConfig {
   const devicesRaw = yaml.load(fs.readFileSync(devicesPath, 'utf8'));
   const devices = DevicesSchema.parse(devicesRaw);
 
+  // Normalize graphics: support legacy lowerThirds key
+  const graphics = GraphicsSchema.parse(
+    devices.graphics ?? { type: devices.lowerThirds?.type ?? 'dsk', dskIndex: devices.lowerThirds?.dskIndex ?? 0 }
+  );
+
   const speedsRaw = JSON.parse(fs.readFileSync(speedsPath, 'utf8'));
   const speeds = SpeedPresetsSchema.parse(speedsRaw);
 
@@ -81,12 +96,24 @@ export function loadConfig(): AppConfig {
     mappings = MappingSchema.parse({});
   }
 
-  return { ...devices, speeds, mappings };
+  return { atem: devices.atem, cameras: devices.cameras, graphics, speeds, mappings };
+}
+
+export function validateDevicesConfig(raw: unknown): Pick<AppConfig, 'atem' | 'cameras' | 'graphics'> {
+  const devices = DevicesSchema.parse(raw);
+  const graphics = GraphicsSchema.parse(
+    devices.graphics ?? { type: devices.lowerThirds?.type ?? 'dsk', dskIndex: devices.lowerThirds?.dskIndex ?? 0 }
+  );
+  return { atem: devices.atem, cameras: devices.cameras, graphics };
+}
+
+export function saveDevicesConfig(config: Pick<AppConfig, 'atem' | 'cameras' | 'graphics'>): void {
+  const devicesPath = process.env.DEVICES_CONFIG ?? path.join(process.cwd(), 'config/devices.yaml');
+  fs.writeFileSync(devicesPath, yaml.dump({ atem: config.atem, cameras: config.cameras, graphics: config.graphics }, { lineWidth: 120 }), 'utf8');
 }
 
 export function saveMappings(mappings: MappingConfig): void {
   const mappingsPath = process.env.MAPPINGS_FILE ?? path.join(process.cwd(), 'config/mappings.yaml');
   const header = '# Controller button mappings - managed by FPS CamControl UI\n';
-  const content = header + yaml.dump(mappings);
-  fs.writeFileSync(mappingsPath, content, 'utf8');
+  fs.writeFileSync(mappingsPath, header + yaml.dump(mappings), 'utf8');
 }

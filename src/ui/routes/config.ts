@@ -24,7 +24,7 @@ const AtemUpdateSchema = z.object({
 
 function persistDevices(config: AppConfig): void {
   const devicesPath = process.env.DEVICES_CONFIG ?? path.join(process.cwd(), 'config/devices.yaml');
-  const raw = { atem: config.atem, cameras: config.cameras, lowerThirds: config.lowerThirds };
+  const raw = { atem: config.atem, cameras: config.cameras, graphics: config.graphics };
   fs.writeFileSync(devicesPath, yaml.dump(raw));
 }
 
@@ -40,7 +40,7 @@ export function createConfigRouter(config: AppConfig): Router {
     res.json({
       cameras: config.cameras,
       atem: config.atem,
-      lowerThirds: config.lowerThirds,
+      graphics: config.graphics,
       speeds: config.speeds,
     });
   });

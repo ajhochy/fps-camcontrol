@@ -5,6 +5,8 @@ import { logger } from '../index';
 const BACKOFF_INITIAL = 1000;
 const BACKOFF_MAX = 30000;
 
+const IF_CLEAR = Buffer.from([0x81, 0x01, 0x00, 0x01, 0xff]);
+
 function parseNibbles4(b1: number, b2: number, b3: number, b4: number): number {
   return ((b1 & 0x0F) << 12) | ((b2 & 0x0F) << 8) | ((b3 & 0x0F) << 4) | (b4 & 0x0F);
 }
@@ -18,18 +20,21 @@ export class ViscaClient extends EventEmitter {
   private ip: string;
   private port: number;
   private cameraId: string;
+  private cameraType: string;
   private backoff = BACKOFF_INITIAL;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private seqNum = 0;
   private pendingPanTilt: ((result: { pan: number; tilt: number }) => void) | null = null;
   private pendingZoom: ((result: { zoom: number }) => void) | null = null;
+  private pendingProbe: ((reachable: boolean) => void) | null = null;
   connected = false;
 
-  constructor(cameraId: string, ip: string, port: number) {
+  constructor(cameraId: string, ip: string, port: number, cameraType = 'generic') {
     super();
     this.cameraId = cameraId;
     this.ip = ip;
     this.port = port;
+    this.cameraType = cameraType;
   }
 
   connect(): void {
@@ -60,6 +65,17 @@ export class ViscaClient extends EventEmitter {
       this.backoff = BACKOFF_INITIAL;
       logger.info({ cameraId: this.cameraId, ip: this.ip, port: this.port }, 'VISCA camera connected');
       this.emit('connected');
+      if (this.cameraType === 'vbot') {
+        this.sendIfClear();
+      }
+    });
+  }
+
+  private sendIfClear(): void {
+    if (!this.socket) return;
+    this.socket.send(IF_CLEAR, 0, IF_CLEAR.length, this.port, this.ip, (err) => {
+      if (err) logger.warn({ err, cameraId: this.cameraId }, 'IF_CLEAR send error');
+      else logger.info({ cameraId: this.cameraId }, 'sent VISCA IF_CLEAR');
     });
   }
 
@@ -68,15 +84,17 @@ export class ViscaClient extends EventEmitter {
     const payload = msg.slice(8);
     if (payload[0] !== 0x90 || payload[1] !== 0x50) return;
 
-    // Pan/tilt inquiry response: 90 50 0p 0q 0r 0s 0t 0u 0v 0w FF (11 bytes)
-    if (payload.length >= 11 && payload[10] === 0xFF && this.pendingPanTilt) {
+    if (this.pendingProbe) {
+      const cb = this.pendingProbe;
+      this.pendingProbe = null;
+      cb(true);
+    } else if (payload.length >= 11 && payload[10] === 0xFF && this.pendingPanTilt) {
       const pan = parseNibbles4(payload[2], payload[3], payload[4], payload[5]);
       const tilt = toSigned16(parseNibbles4(payload[6], payload[7], payload[8], payload[9]));
       const cb = this.pendingPanTilt;
       this.pendingPanTilt = null;
       cb({ pan, tilt });
     } else if (payload.length >= 7 && payload[6] === 0xFF && this.pendingZoom) {
-      // Zoom inquiry response: 90 50 0p 0q 0r 0s FF (7 bytes)
       const zoom = parseNibbles4(payload[2], payload[3], payload[4], payload[5]);
       const cb = this.pendingZoom;
       this.pendingZoom = null;
@@ -106,6 +124,21 @@ export class ViscaClient extends EventEmitter {
     return new Promise((resolve) => {
       this.pendingZoom = resolve;
       this.sendPayload([0x81, 0x09, 0x04, 0x47, 0xFF]);
+    });
+  }
+
+  async probe(timeoutMs = 2000): Promise<boolean> {
+    if (!this.connected) return false;
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.pendingProbe = null;
+        resolve(false);
+      }, timeoutMs);
+      this.pendingProbe = (reachable) => {
+        clearTimeout(timer);
+        resolve(reachable);
+      };
+      this.sendPayload([0x81, 0x09, 0x04, 0x00, 0xFF]);
     });
   }
 
