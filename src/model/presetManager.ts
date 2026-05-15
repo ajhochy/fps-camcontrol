@@ -2,7 +2,7 @@ import fs from 'fs';
 import { AppState, CameraId, PresetSlot } from '../app/state';
 import { CameraConfig, AppConfig } from '../config/configLoader';
 import { ViscaClient } from '../visca/viscaClient';
-import { gotoAbsolutePosition, PTZPosition } from '../visca/ptzActions';
+import { gotoAbsolutePosition, queryPositionAsync, PTZPosition } from '../visca/ptzActions';
 import { logger } from '../index';
 
 interface PresetData {
@@ -28,7 +28,12 @@ export class PresetManager {
     try {
       return JSON.parse(fs.readFileSync(this.presetsFile, 'utf8'));
     } catch {
-      return { cam1: { A: null, B: null, X: null, Y: null }, cam2: { A: null, B: null, X: null, Y: null }, cam3: { A: null, B: null, X: null, Y: null } };
+      // Build empty preset store dynamically from configured cameras
+      const empty: PresetData = {};
+      for (const cam of this.config.cameras) {
+        empty[cam.id] = { A: null, B: null, X: null, Y: null };
+      }
+      return empty;
     }
   }
 
@@ -50,15 +55,24 @@ export class PresetManager {
   }
 
   async savePreset(cameraId: CameraId, slot: PresetSlot): Promise<void> {
-    // We can't reliably read back position from UDP without full response parsing.
-    // For now, save a dummy position that the user must edit or implement query parsing.
-    // In a full implementation, send VISCA inquiries and parse the responses.
-    logger.warn({ cameraId, slot }, 'preset save: position query not yet implemented; saving placeholder');
+    const client = this.viscaClients.get(cameraId);
+    if (!client) throw new Error(`No VISCA client for camera ${cameraId}`);
+
+    let pos: PTZPosition;
+    try {
+      pos = await queryPositionAsync(client);
+    } catch (err) {
+      const msg = 'Save failed — could not read camera position';
+      this.state.lastPresetNotification = msg;
+      logger.error({ err, cameraId, slot }, msg);
+      throw new Error(msg);
+    }
+
     if (!this.data[cameraId]) this.data[cameraId] = { A: null, B: null, X: null, Y: null };
-    this.data[cameraId][slot] = { pan: 0, tilt: 0, zoom: 0 };
+    this.data[cameraId][slot] = pos;
     this.savePresets();
     this.state.lastPresetNotification = `Saved ${cameraId} → ${slot}`;
-    logger.info({ cameraId, slot }, 'preset saved (placeholder)');
+    logger.info({ cameraId, slot, pos }, 'preset saved');
   }
 
   getData(): PresetData {

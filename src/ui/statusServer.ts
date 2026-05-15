@@ -1,8 +1,21 @@
 import express from 'express';
+import os from 'os';
 import { AppState } from '../app/state';
 import { AppConfig } from '../config/configLoader';
 import { PresetManager } from '../model/presetManager';
 import { logger } from '../index';
+
+function getLanIp(): string {
+  const ifaces = os.networkInterfaces();
+  for (const name of Object.keys(ifaces)) {
+    for (const iface of ifaces[name] ?? []) {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        return iface.address;
+      }
+    }
+  }
+  return 'localhost';
+}
 
 export function createStatusServer(
   state: AppState,
@@ -40,8 +53,10 @@ export function startStatusServer(
   app: express.Express,
   port = 8080
 ): void {
-  app.listen(port, '127.0.0.1', () => {
+  app.listen(port, '0.0.0.0', () => {
+    const lanIp = getLanIp();
     logger.info({ port }, 'status UI running');
+    logger.info(`Status UI: http://${lanIp}:${port}`);
   });
 }
 
@@ -65,11 +80,13 @@ function statusHtml(): string {
   .badge.ok { background: #1a4a1a; color: #4f4; }
   .badge.err { background: #4a1a1a; color: #f44; }
   .badge.on { background: #665500; color: #ffa; }
+  .badge.warn { background: #553300; color: #fa8; }
   .section { margin-top: 8px; }
   .label { font-size: 0.75rem; color: #666; margin-bottom: 2px; }
   table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
   td { padding: 4px 8px; border-bottom: 1px solid #222; }
   td:first-child { color: #888; }
+  .countdown { font-size: 1rem; letter-spacing: 2px; }
 </style>
 </head>
 <body>
@@ -98,10 +115,6 @@ async function refresh() {
   }
 }
 
-function cam(id, label) {
-  return '<span class="badge">' + (label || id) + '</span>';
-}
-
 function renderStatus(s, c) {
   const cams = c.cameras || [];
   const camLabel = id => (cams.find(x => x.id === id) || {}).label || id;
@@ -124,17 +137,28 @@ function renderStatus(s, c) {
   const sprint = s.sprintMode ? '<span class="badge on">SPRINT</span>' : '';
   const lt = s.lowerThirdsActive ? '<span class="badge on">LOWER THIRDS ON</span>' : '<span class="badge">Lower Thirds Off</span>';
 
+  // Preset save countdown (P3-D)
+  let presetHold = '';
+  if (s.presetSaveProgress) {
+    const p = s.presetSaveProgress;
+    const pct = Math.min(100, Math.round((p.framesHeld / 120) * 100));
+    const secs = ((120 - p.framesHeld) / 60).toFixed(1);
+    const bar = '█'.repeat(Math.floor(pct / 10)) + '░'.repeat(10 - Math.floor(pct / 10));
+    presetHold = '<div class="section"><span class="badge warn countdown">Hold to save ' + p.slot + '... ' + secs + 's [' + bar + '] (release to cancel)</span></div>';
+  }
+
   document.getElementById('status-content').innerHTML =
     '<div class="row">' + program + preview + controlled + '</div>' +
     '<div class="row section">' + atem + ctrl + '</div>' +
     '<div class="row section">' + camStatus + '</div>' +
     '<div class="row section">' + speedBadge + precision + sprint + lt + '</div>' +
-    (s.lastPresetNotification ? '<div class="section"><span class="badge on">Preset: ' + s.lastPresetNotification + '</span></div>' : '');
+    (s.lastPresetNotification ? '<div class="section"><span class="badge on">Preset: ' + s.lastPresetNotification + '</span></div>' : '') +
+    presetHold;
 
   document.getElementById('config-content').innerHTML =
     '<table>' +
     cams.map(cam =>
-      '<tr><td>' + cam.id + '</td><td>' + cam.label + '</td><td>' + cam.viscaIp + ':' + cam.viscaPort + '</td><td>Input ' + cam.inputId + '</td></tr>'
+      '<tr><td>' + cam.id + '</td><td>' + cam.label + '</td><td>' + cam.viscaIp + ':' + cam.viscaPort + '</td><td>Input ' + cam.inputId + '</td><td>' + (cam.cameraType || 'generic') + '</td></tr>'
     ).join('') +
     '</table>';
 }
