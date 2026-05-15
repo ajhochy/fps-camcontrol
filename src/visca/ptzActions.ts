@@ -1,11 +1,5 @@
 import { ViscaClient } from './viscaClient';
 
-// VISCA-over-IP uses a 8-byte header before the VISCA payload
-function viscaIpPacket(payload: number[]): Buffer {
-  const header = [0x01, 0x00, 0x00, payload.length, 0x00, 0x00, 0x00, 0x01];
-  return Buffer.from([...header, ...payload]);
-}
-
 // Convert -1..1 speed to VISCA speed byte (0x01..0x18 for 1..24)
 function toViscaSpeed(normalized: number): number {
   return Math.max(1, Math.min(24, Math.round(Math.abs(normalized) * 24)));
@@ -27,8 +21,7 @@ export function panTilt(
   if (Math.abs(tiltSpeed) < 0.02) tiltDir = 0x03; // stop
   else tiltDir = tiltSpeed > 0 ? 0x02 : 0x01;     // up : down (VISCA tilt up = 0x01 but varies; use up=0x01)
 
-  const payload = [0x81, 0x01, 0x06, 0x01, panByte, tiltByte, panDir, tiltDir, 0xFF];
-  client.send(viscaIpPacket(payload));
+  client.sendPayload([0x81, 0x01, 0x06, 0x01, panByte, tiltByte, panDir, tiltDir, 0xFF]);
 }
 
 export function zoom(
@@ -45,13 +38,20 @@ export function zoom(
     const speed = Math.max(1, Math.min(7, Math.round(-zoomSpeed * 7)));
     cmd = 0x30 | speed; // wide
   }
-  const payload = [0x81, 0x01, 0x04, 0x07, cmd, 0xFF];
-  client.send(viscaIpPacket(payload));
+  client.sendPayload([0x81, 0x01, 0x04, 0x07, cmd, 0xFF]);
+}
+
+export function stopPanTilt(client: ViscaClient): void {
+  client.sendPayload([0x81, 0x01, 0x06, 0x01, 0x00, 0x00, 0x03, 0x03, 0xFF]);
+}
+
+export function stopZoom(client: ViscaClient): void {
+  client.sendPayload([0x81, 0x01, 0x04, 0x07, 0x00, 0xFF]);
 }
 
 export function stopPTZ(client: ViscaClient): void {
-  panTilt(client, 0, 0);
-  zoom(client, 0);
+  stopPanTilt(client);
+  stopZoom(client);
 }
 
 export interface PTZPosition {
@@ -66,45 +66,29 @@ export function gotoAbsolutePosition(
   panSpeed = 12,
   tiltSpeed = 12
 ): void {
-  // VISCA absolute position command
   const pan = pos.pan;
   const tilt = pos.tilt;
   const z = pos.zoom;
 
-  const payload = [
+  client.sendPayload([
     0x81, 0x01, 0x06, 0x02,
     panSpeed, tiltSpeed,
     (pan >> 12) & 0xF, (pan >> 8) & 0xF, (pan >> 4) & 0xF, pan & 0xF,
     (tilt >> 12) & 0xF, (tilt >> 8) & 0xF, (tilt >> 4) & 0xF, tilt & 0xF,
     0xFF
-  ];
-  client.send(viscaIpPacket(payload));
+  ]);
 
-  // Zoom separately
-  const zPayload = [
+  client.sendPayload([
     0x81, 0x01, 0x04, 0x47,
     (z >> 12) & 0xF, (z >> 8) & 0xF, (z >> 4) & 0xF, z & 0xF,
     0xFF
-  ];
-  client.send(viscaIpPacket(zPayload));
+  ]);
 }
 
-function toSigned16(val: number): number {
-  return val > 0x7FFF ? val - 0x10000 : val;
-}
-
-export async function inquirePanTilt(client: ViscaClient): Promise<{ pan: number; tilt: number }> {
-  const payload = [0x81, 0x09, 0x06, 0x12, 0xFF];
-  const response = await client.inquire(payload);
-  // response: [0x90, 0x50, p1, p2, p3, p4, t1, t2, t3, t4, 0xFF]
-  const pan = toSigned16(((response[2] & 0xF) << 12) | ((response[3] & 0xF) << 8) | ((response[4] & 0xF) << 4) | (response[5] & 0xF));
-  const tilt = toSigned16(((response[6] & 0xF) << 12) | ((response[7] & 0xF) << 8) | ((response[8] & 0xF) << 4) | (response[9] & 0xF));
-  return { pan, tilt };
-}
-
-export async function inquireZoom(client: ViscaClient): Promise<number> {
-  const payload = [0x81, 0x09, 0x04, 0x47, 0xFF];
-  const response = await client.inquire(payload);
-  // response: [0x90, 0x50, z1, z2, z3, z4, 0xFF]
-  return ((response[2] & 0xF) << 12) | ((response[3] & 0xF) << 8) | ((response[4] & 0xF) << 4) | (response[5] & 0xF);
+export async function queryPosition(client: ViscaClient): Promise<PTZPosition> {
+  const [pt, z] = await Promise.all([
+    client.queryPanTilt(),
+    client.queryZoom(),
+  ]);
+  return { pan: pt.pan, tilt: pt.tilt, zoom: z.zoom };
 }
