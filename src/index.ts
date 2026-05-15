@@ -120,7 +120,7 @@ async function main() {
   startWatchdog(state, atem, viscaClients);
 
   // Step 10: Status UI
-  const app = createStatusServer(state, config, presetManager, activityLog);
+  const app = createStatusServer(state, config, presetManager, activityLog, atem, viscaClients);
   const port = parseInt(process.env.STATUS_PORT ?? '8080', 10);
   startStatusServer(app, activityLog, port);
 

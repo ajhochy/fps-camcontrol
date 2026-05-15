@@ -2,10 +2,12 @@ import express from 'express';
 import http from 'http';
 import path from 'path';
 import { WebSocketServer, WebSocket } from 'ws';
-import { AppState } from '../app/state';
-import { AppConfig, MappingConfig, saveMappings } from '../config/configLoader';
+import { AppState, CameraId } from '../app/state';
+import { AppConfig, MappingConfig, saveMappings, validateDevicesConfig, saveDevicesConfig } from '../config/configLoader';
 import { PresetManager } from '../model/presetManager';
 import { ActivityLog } from '../app/activityLog';
+import { ViscaClient } from '../visca/viscaClient';
+import { AtemClient } from '../atem/atemClient';
 import { loadProfiles, detectConnectionType } from '../input/profileDetector';
 import { eventBus } from '../app/eventBus';
 import { logger } from '../index';
@@ -14,7 +16,9 @@ export function createStatusServer(
   state: AppState,
   config: AppConfig,
   presetManager: PresetManager,
-  activityLog: ActivityLog
+  activityLog: ActivityLog,
+  atem: AtemClient,
+  viscaClients: Map<CameraId, ViscaClient>
 ): express.Express {
   const app = express();
   app.use(express.json());
@@ -49,6 +53,7 @@ export function createStatusServer(
 
       // Filter for gamepad/joystick-like devices (usagePage 1 = Generic Desktop, usage 4 = Joystick, 5 = Gamepad)
       // Also include any device that matches a known profile regardless of usage
+      const seen = new Set<string>();
       const result = devices
         .filter(dev => {
           const matchesProfile = profiles.some(p =>
@@ -70,6 +75,11 @@ export function createStatusServer(
             connected: true,
             connectionType: detectConnectionType(dev),
           };
+        })
+        .filter(entry => {
+          if (seen.has(entry.id)) return false;
+          seen.add(entry.id);
+          return true;
         });
 
       res.json(result);
@@ -112,6 +122,72 @@ export function createStatusServer(
   // POST /api/controllers/active
   app.post('/api/controllers/active', (_req, res) => {
     res.json({ ok: true, message: 'Controller switching requires restart' });
+  });
+
+  app.post('/api/config', (req, res) => {
+    try {
+      const parsed = validateDevicesConfig(req.body);
+
+      // Detect ATEM IP change before mutating config
+      const atemIpChanged = parsed.atem.ip !== config.atem.ip;
+
+      // Save to disk
+      saveDevicesConfig(parsed);
+
+      // Update in-memory config
+      config.atem = parsed.atem;
+      config.graphics = parsed.graphics;
+
+      // Reconcile VISCA clients
+      const oldIds = new Set(viscaClients.keys());
+      const newIds = new Set(parsed.cameras.map(c => c.id as CameraId));
+
+      // Remove deleted cameras
+      for (const id of oldIds) {
+        if (!newIds.has(id)) {
+          viscaClients.get(id)?.close();
+          viscaClients.delete(id);
+          delete state.cameraConnected[id];
+        }
+      }
+
+      // Add or update cameras
+      for (const cam of parsed.cameras) {
+        const id = cam.id as CameraId;
+        const existing = viscaClients.get(id);
+        const oldCam = config.cameras.find(c => c.id === cam.id);
+        const changed = !existing || !oldCam ||
+          oldCam.viscaIp !== cam.viscaIp ||
+          oldCam.viscaPort !== cam.viscaPort ||
+          oldCam.cameraType !== cam.cameraType;
+
+        if (changed) {
+          existing?.close();
+          const client = new ViscaClient(cam.id, cam.viscaIp, cam.viscaPort, cam.cameraType);
+          client.setActivityLog(activityLog, cam.label);
+          client.on('connected', () => { state.cameraConnected[id] = true; });
+          client.on('disconnected', () => { state.cameraConnected[id] = false; });
+          viscaClients.set(id, client);
+          client.connect();
+        } else if (existing && oldCam && oldCam.label !== cam.label) {
+          existing.setActivityLog(activityLog, cam.label);
+        }
+      }
+
+      // Update cameras array in config
+      config.cameras = parsed.cameras;
+
+      // Reconnect ATEM if IP changed
+      if (atemIpChanged) {
+        atem.disconnect();
+        atem.connect().catch(err => logger.warn({ err }, 'ATEM reconnect after config change failed'));
+      }
+
+      res.json({ ok: true });
+    } catch (err) {
+      logger.error({ err }, 'config save failed');
+      res.status(400).json({ ok: false, error: String(err) });
+    }
   });
 
   app.get('/api/activity', (_req, res) => {
@@ -230,6 +306,8 @@ function statusHtml(): string {
   details > summary { cursor: pointer; color: #888; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
   details > summary:hover { color: #ccc; }
   .hex-stream { font-size: 0.75rem; color: #5a5; background: #0a0a0a; padding: 8px; border-radius: 4px; overflow-x: auto; white-space: nowrap; min-height: 2em; }
+  .cfg-input { background: #0d0d0d; border: 1px solid #333; color: #eee; padding: 3px 6px; border-radius: 3px; font-family: monospace; font-size: 0.82rem; width: 100%; box-sizing: border-box; }
+  .cfg-input:focus { outline: none; border-color: #0af; }
   .activity-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
   .activity-table th { text-align: left; color: #666; padding: 4px 8px; border-bottom: 1px solid #333; font-size: 0.72rem; text-transform: uppercase; }
   .activity-table td { padding: 3px 8px; border-bottom: 1px solid #1f1f1f; vertical-align: top; }
@@ -256,9 +334,12 @@ function statusHtml(): string {
   <div id="controllers-content">Loading&hellip;</div>
 </div>
 
-<div class="panel">
-  <h2>Camera Config</h2>
-  <div id="config-content">Loading&hellip;</div>
+<div class="panel" id="device-config-panel">
+  <div class="log-meta">
+    <h2 style="margin:0">Device Config</h2>
+    <span id="config-save-status" style="font-size:0.8rem;color:#888"></span>
+  </div>
+  <div id="device-config-content">Loading&hellip;</div>
 </div>
 
 <div class="panel">
@@ -323,18 +404,161 @@ function renderStatus(s, c) {
     '<div class="row section">' + speedBadge + precision + sprint + lt + '</div>' +
     (s.lastPresetNotification ? '<div class="section"><span class="badge on">Preset: ' + s.lastPresetNotification + '</span></div>' : '');
 
-  document.getElementById('config-content').innerHTML =
-    '<table>' +
-    cams.map(cam =>
-      '<tr><td>' + cam.id + '</td><td>' + cam.label + '</td><td>' + cam.viscaIp + ':' + cam.viscaPort + '</td><td>Input ' + cam.inputId + '</td></tr>'
-    ).join('') +
-    '</table>';
 }
 
 setInterval(refresh, 1000);
 setInterval(refreshControllers, 2000);
+setInterval(refreshDeviceConfig, 5000);
 refresh();
 refreshControllers();
+refreshDeviceConfig();
+
+// ---- Device Config Editor ----
+var deviceConfigData = null;
+
+async function refreshDeviceConfig() {
+  if (document.getElementById('device-config-panel').dataset.editing === 'true') return;
+  try {
+    var data = await fetch('/api/config').then(function(r) { return r.json(); });
+    deviceConfigData = data;
+    renderDeviceConfig(data);
+  } catch(e) { /* ignore */ }
+}
+
+function renderDeviceConfig(c) {
+  var html = '';
+
+  // ATEM
+  html += '<div class="section-header">ATEM Switcher</div>';
+  html += '<table style="width:100%;margin-bottom:8px"><tbody>';
+  html += '<tr><td style="color:#888;width:140px">IP Address</td><td><input class="cfg-input" id="atem-ip" value="' + esc(c.atem.ip) + '"></td></tr>';
+  html += '<tr><td style="color:#888">Transition</td><td><select class="cfg-input" id="atem-transition"><option value="cut"' + (c.atem.defaultTransition==='cut'?' selected':'') + '>Cut</option><option value="auto"' + (c.atem.defaultTransition==='auto'?' selected':'') + '>Auto</option></select></td></tr>';
+  html += '<tr><td style="color:#888">M/E Index</td><td><input class="cfg-input" id="atem-me" type="number" min="0" max="3" value="' + c.atem.meIndex + '"></td></tr>';
+  html += '</tbody></table>';
+
+  // Graphics
+  html += '<div class="section-header">Graphics / Lower Thirds</div>';
+  html += '<table style="width:100%;margin-bottom:8px"><tbody>';
+  html += '<tr><td style="color:#888;width:140px">Type</td><td><select class="cfg-input" id="gfx-type"><option value="dsk"' + (c.graphics.type==='dsk'?' selected':'') + '>DSK</option><option value="usk"' + (c.graphics.type==='usk'?' selected':'') + '>USK</option><option value="auto"' + (c.graphics.type==='auto'?' selected':'') + '>Auto</option></select></td></tr>';
+  html += '<tr><td style="color:#888">DSK Index</td><td><input class="cfg-input" id="gfx-dsk" type="number" min="0" max="3" value="' + c.graphics.dskIndex + '"></td></tr>';
+  html += '<tr><td style="color:#888">USK Index</td><td><input class="cfg-input" id="gfx-usk" type="number" min="0" max="3" value="' + c.graphics.uskIndex + '"></td></tr>';
+  html += '<tr><td style="color:#888">M/E Index</td><td><input class="cfg-input" id="gfx-me" type="number" min="0" max="3" value="' + c.graphics.meIndex + '"></td></tr>';
+  html += '</tbody></table>';
+
+  // Cameras
+  html += '<div class="section-header" style="display:flex;justify-content:space-between;align-items:center">';
+  html += '<span>Cameras</span>';
+  html += '<button class="btn-sm" onclick="addCameraRow()">+ Add Camera</button>';
+  html += '</div>';
+  html += '<div id="cameras-editor">';
+  for (var i = 0; i < c.cameras.length; i++) {
+    html += cameraRowHtml(c.cameras[i], i);
+  }
+  html += '</div>';
+
+  html += '<div style="margin-top:14px;display:flex;gap:8px;align-items:center">';
+  html += '<button class="btn" onclick="saveDeviceConfig()">Save &amp; Apply</button>';
+  html += '<button class="btn" onclick="refreshDeviceConfig()">Revert</button>';
+  html += '</div>';
+
+  var el = document.getElementById('device-config-content');
+  el.innerHTML = html;
+  document.getElementById('device-config-panel').dataset.editing = 'false';
+  // Mark as editing when any input changes
+  el.addEventListener('input', function() {
+    document.getElementById('device-config-panel').dataset.editing = 'true';
+  }, { once: true });
+}
+
+function cameraRowHtml(cam, idx) {
+  var id = 'cam-' + idx;
+  return '<div class="cam-row" id="' + id + '" style="border:1px solid #2a2a2a;border-radius:4px;padding:8px;margin-bottom:6px">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
+    '<span style="color:#7af;font-size:0.8rem">Camera ' + (idx+1) + '</span>' +
+    '<button class="btn-sm" style="color:#f44;border-color:#800" data-rowid="' + id + '" onclick="removeCameraRow(this.dataset.rowid)">Remove</button>' +
+    '</div>' +
+    '<table style="width:100%"><tbody>' +
+    '<tr><td style="color:#888;width:110px">ID</td><td><input class="cfg-input" name="cam-id" value="' + esc(cam.id) + '"></td></tr>' +
+    '<tr><td style="color:#888">Label</td><td><input class="cfg-input" name="cam-label" value="' + esc(cam.label) + '"></td></tr>' +
+    '<tr><td style="color:#888">Type</td><td><select class="cfg-input" name="cam-type"><option value="generic"' + (cam.cameraType==='generic'?' selected':'') + '>generic</option><option value="birddog"' + (cam.cameraType==='birddog'?' selected':'') + '>birddog</option><option value="vbot"' + (cam.cameraType==='vbot'?' selected':'') + '>vbot</option></select></td></tr>' +
+    '<tr><td style="color:#888">VISCA IP</td><td><input class="cfg-input" name="cam-ip" value="' + esc(cam.viscaIp) + '"></td></tr>' +
+    '<tr><td style="color:#888">VISCA Port</td><td><input class="cfg-input" name="cam-port" type="number" min="1" max="65535" value="' + cam.viscaPort + '"></td></tr>' +
+    '<tr><td style="color:#888">ATEM Input</td><td><input class="cfg-input" name="cam-input" type="number" min="1" value="' + cam.inputId + '"></td></tr>' +
+    '</tbody></table></div>';
+}
+
+var newCamCounter = 0;
+function addCameraRow() {
+  document.getElementById('device-config-panel').dataset.editing = 'true';
+  newCamCounter++;
+  var idx = document.getElementById('cameras-editor').children.length;
+  var blank = { id: 'cam' + (idx+1), label: 'Camera ' + (idx+1), cameraType: 'generic', viscaIp: '192.168.50.', viscaPort: 52381, inputId: idx+1 };
+  var div = document.createElement('div');
+  div.innerHTML = cameraRowHtml(blank, idx);
+  document.getElementById('cameras-editor').appendChild(div.firstChild);
+}
+
+function removeCameraRow(id) {
+  document.getElementById('device-config-panel').dataset.editing = 'true';
+  var el = document.getElementById(id);
+  if (el) el.remove();
+  // Re-label remaining rows
+  var rows = document.getElementById('cameras-editor').children;
+  for (var i = 0; i < rows.length; i++) {
+    var hdr = rows[i].querySelector('span');
+    if (hdr) hdr.textContent = 'Camera ' + (i+1);
+  }
+}
+
+async function saveDeviceConfig() {
+  var atem = {
+    ip: document.getElementById('atem-ip').value.trim(),
+    defaultTransition: document.getElementById('atem-transition').value,
+    meIndex: parseInt(document.getElementById('atem-me').value, 10) || 0,
+  };
+  var graphics = {
+    type: document.getElementById('gfx-type').value,
+    dskIndex: parseInt(document.getElementById('gfx-dsk').value, 10) || 0,
+    uskIndex: parseInt(document.getElementById('gfx-usk').value, 10) || 0,
+    meIndex: parseInt(document.getElementById('gfx-me').value, 10) || 0,
+  };
+  var cameras = [];
+  var rows = document.getElementById('cameras-editor').children;
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    cameras.push({
+      id: r.querySelector('[name="cam-id"]').value.trim(),
+      label: r.querySelector('[name="cam-label"]').value.trim(),
+      cameraType: r.querySelector('[name="cam-type"]').value,
+      viscaIp: r.querySelector('[name="cam-ip"]').value.trim(),
+      viscaPort: parseInt(r.querySelector('[name="cam-port"]').value, 10) || 52381,
+      inputId: parseInt(r.querySelector('[name="cam-input"]').value, 10) || 1,
+    });
+  }
+  var statusEl = document.getElementById('config-save-status');
+  statusEl.textContent = 'Saving…';
+  statusEl.style.color = '#888';
+  try {
+    var r = await fetch('/api/config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ atem: atem, cameras: cameras, graphics: graphics }),
+    });
+    var j = await r.json();
+    if (j.ok) {
+      statusEl.textContent = 'Saved & applied ✓';
+      statusEl.style.color = '#4f4';
+      document.getElementById('device-config-panel').dataset.editing = 'false';
+      setTimeout(function() { statusEl.textContent = ''; }, 3000);
+    } else {
+      statusEl.textContent = 'Error: ' + j.error;
+      statusEl.style.color = '#f44';
+    }
+  } catch(e) {
+    statusEl.textContent = 'Save failed: ' + e;
+    statusEl.style.color = '#f44';
+  }
+}
 
 // ---- Controllers Tab ----
 var remappingAction = null;
@@ -393,7 +617,6 @@ function renderControllers(controllers, active, mappings) {
       html += '<div style="display:flex;align-items:center;gap:10px">';
       html += '<span class="badge' + (isActive ? ' active' : '') + '">' + esc(c.label) + '</span>';
       html += connBadge;
-      html += '<span style="color:#666;font-size:0.8rem">' + esc(c.profileName) + '</span>';
       if (isActive) html += '<span style="color:#7af;font-size:0.8rem">&#9679; Active</span>';
       html += '</div>';
     }
