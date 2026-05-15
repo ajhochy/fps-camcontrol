@@ -29,9 +29,12 @@ export function detectConnectionType(device: HID.Device): 'usb' | 'bluetooth' {
   // On macOS, Bluetooth HID device paths typically contain 'Bluetooth'
   const p = (device.path ?? '').toLowerCase();
   if (p.includes('bluetooth')) return 'bluetooth';
-  // Fallback: check vendor/product against known Bluetooth-only product IDs
+  // Fallback: check vendor/product against known Bluetooth-only product IDs.
+  // On modern macOS the path is "DevSrvsID:XXXXXXXXXX" for all HID devices
+  // (USB and BT alike), so the path check above never fires — this list is the
+  // primary detection mechanism.
   const bluetoothProductIds: Record<number, number[]> = {
-    0x045E: [0x02E0, 0x0B20], // Xbox One BT (0x02E0), Xbox Series BT (0x0B20)
+    0x045E: [0x02E0, 0x0B13, 0x0B20, 0x0B22], // Xbox One BT, Series X/S BT variants
   };
   const btIds = bluetoothProductIds[device.vendorId] ?? [];
   if (btIds.includes(device.productId)) return 'bluetooth';

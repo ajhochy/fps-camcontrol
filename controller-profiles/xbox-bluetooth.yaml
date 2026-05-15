@@ -25,6 +25,7 @@ vendorIds:
   - 0x045E
 productIds:
   - 0x02E0   # Xbox One (original) Bluetooth
+  - 0x0B13   # Xbox Series X/S Bluetooth (seen on newer firmware)
   - 0x0B20   # Xbox Series X/S Bluetooth
   - 0x0B22   # Xbox Series X/S Bluetooth (alternate)
   - 0x02FD   # Xbox One S may also appear under this ID over BT on some macOS versions
