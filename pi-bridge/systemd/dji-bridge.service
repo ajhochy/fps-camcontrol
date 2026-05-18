@@ -1,0 +1,19 @@
+[Unit]
+Description=DJI RS gimbal bridge for fps-camcontrol
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/dji-bridge
+Environment=PYTHONUNBUFFERED=1
+# Bring up CAN before launching the bridge (PiCAN3 / CANable Pro).
+# Comment out if you're running --driver mock.
+ExecStartPre=/usr/bin/sudo /sbin/ip link set can0 up type can bitrate 1000000
+ExecStart=/usr/bin/python3 /home/pi/dji-bridge/dji_bridge.py --host 0.0.0.0 --port 7878 --driver mock
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
