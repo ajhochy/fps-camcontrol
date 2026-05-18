@@ -137,6 +137,10 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
     await this.request('moveToPosition', { yaw: pos.yaw, pitch: pos.pitch, roll: pos.roll }, 5000);
   }
 
+  async recenter(): Promise<void> {
+    await this.request('recenter', {}, 5000);
+  }
+
   async probe(timeoutMs = 1000): Promise<boolean> {
     if (!this._connected) return false;
     return Promise.race<boolean>([

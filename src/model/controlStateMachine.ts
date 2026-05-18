@@ -122,12 +122,21 @@ export class ControlStateMachine {
       });
     }
 
-    // RB — auto transition
+    // RB — auto transition, or LB+RB → recenter on gimbal devices
     if (risingEdge('RB', input.buttons['RB'] ?? false, this.edgeState)) {
-      this.activityLog?.setContext(device, INPUT_LABELS['RB'], 'Auto Transition');
-      autoTransitionControlledCamera(this.atem, this.state, this.config.cameras).catch(err => {
-        logger.error({ err }, 'auto transition error');
-      });
+      const lbHeldForRb = input.buttons['LB'] ?? false;
+      const currentDeviceForRb = this.devices.get(this.state.controlledCamera);
+      if (lbHeldForRb && currentDeviceForRb?.recenter) {
+        this.activityLog?.setContext(device, 'LB + RB', 'Recenter');
+        currentDeviceForRb.recenter().catch(err => {
+          logger.error({ err }, 'recenter error');
+        });
+      } else {
+        this.activityLog?.setContext(device, INPUT_LABELS['RB'], 'Auto Transition');
+        autoTransitionControlledCamera(this.atem, this.state, this.config.cameras).catch(err => {
+          logger.error({ err }, 'auto transition error');
+        });
+      }
     }
 
     // LB modifier — preset save/recall

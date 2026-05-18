@@ -164,6 +164,15 @@ export class VirtualDjiBridge {
         this.ack(ws, frame.id, { yaw: this.yaw, pitch: this.pitch, roll: this.roll, ts: Date.now() });
         return;
       }
+      case 'recenter': {
+        this.yaw = 0;
+        this.pitch = 0;
+        this.roll = 0;
+        this.velPan = 0;
+        this.velTilt = 0;
+        this.ack(ws, frame.id, {});
+        return;
+      }
       case 'moveToPosition': {
         const p = frame.params as { yaw?: number; pitch?: number; roll?: number };
         this.yaw = p?.yaw ?? this.yaw;

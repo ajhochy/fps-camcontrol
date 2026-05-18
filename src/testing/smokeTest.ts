@@ -340,9 +340,43 @@ async function runTests(): Promise<void> {
   assert('DJI preset recall restores yaw', Math.abs(bridge.yaw - (saved?.yaw ?? 0)) < 0.001);
   assert('DJI preset recall restores pitch', Math.abs(bridge.pitch - (saved?.pitch ?? 0)) < 0.001);
 
+  // recenter
+  bridge.yaw = 42; bridge.pitch = -7; bridge.roll = 3;
+  await dji.recenter();
+  assert('recenter zeros yaw', bridge.yaw === 0);
+  assert('recenter zeros pitch', bridge.pitch === 0);
+  assert('recenter zeros roll', bridge.roll === 0);
+
   // disconnect cleanup
   dji.close();
   await bridge.stop();
+
+  // Roll capability gating
+  console.log('\nTest 11: Roll capability is opt-in via rollEnabled');
+  const rollBridge = new VirtualDjiBridge({ capabilities: ['velocity', 'position', 'moveTo', 'roll'] });
+  const rollPort = await rollBridge.start();
+  const djiRollOff = new DjiBridgeDevice(
+    { host: '127.0.0.1', port: rollPort, safetyTimeoutMs: 250, reconnectBackoffMs: [50], rollEnabled: false },
+    'cam5', 'DJI roll-off',
+  );
+  await new Promise<void>((resolve) => {
+    djiRollOff.once('connected', () => resolve());
+    djiRollOff.connect();
+  });
+  assert('rollEnabled:false → capabilities.roll false even if bridge offers it', djiRollOff.capabilities.roll === false);
+  djiRollOff.close();
+
+  const djiRollOn = new DjiBridgeDevice(
+    { host: '127.0.0.1', port: rollPort, safetyTimeoutMs: 250, reconnectBackoffMs: [50], rollEnabled: true },
+    'cam5', 'DJI roll-on',
+  );
+  await new Promise<void>((resolve) => {
+    djiRollOn.once('connected', () => resolve());
+    djiRollOn.connect();
+  });
+  assert('rollEnabled:true + bridge advertises roll → capabilities.roll true', djiRollOn.capabilities.roll === true);
+  djiRollOn.close();
+  await rollBridge.stop();
 
   // Results
   console.log('\n=== Results ===');

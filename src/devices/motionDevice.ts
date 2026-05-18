@@ -30,5 +30,8 @@ export interface MotionDevice {
 
   probe(timeoutMs?: number): Promise<boolean>;
 
+  /** Optional: only present on devices that advertise a recenter capability. */
+  recenter?(): Promise<void>;
+
   on(event: string, listener: (...args: unknown[]) => void): this;
 }
