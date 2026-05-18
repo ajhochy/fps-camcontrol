@@ -6,9 +6,9 @@ import { AppState, CameraId } from '../app/state';
 import { AppConfig, MappingConfig, saveMappings, validateDevicesConfig, saveDevicesConfig } from '../config/configLoader';
 import { PresetManager } from '../model/presetManager';
 import { ActivityLog } from '../app/activityLog';
-import { ViscaClient } from '../visca/viscaClient';
 import { ViscaDevice } from '../devices/viscaDevice';
 import { MotionDevice } from '../devices/motionDevice';
+import { createMotionDevice } from '../devices/deviceFactory';
 import { AtemClient } from '../atem/atemClient';
 import { loadProfiles, detectConnectionType } from '../input/profileDetector';
 import { eventBus } from '../app/eventBus';
@@ -153,21 +153,21 @@ export function createStatusServer(
         }
       }
 
-      // Add or update cameras (VISCA only for now; DJI bridge added in Phase 1)
+      // Add or update cameras via factory (VISCA or DJI bridge).
       for (const cam of parsed.cameras) {
         const id = cam.id as CameraId;
         const existing = devices.get(id);
         const oldCam = config.cameras.find(c => c.id === cam.id);
         const changed = !existing || !oldCam ||
+          oldCam.protocol !== cam.protocol ||
           oldCam.viscaIp !== cam.viscaIp ||
           oldCam.viscaPort !== cam.viscaPort ||
-          oldCam.cameraType !== cam.cameraType;
+          oldCam.cameraType !== cam.cameraType ||
+          JSON.stringify(oldCam.bridge) !== JSON.stringify(cam.bridge);
 
         if (changed) {
           existing?.close();
-          const client = new ViscaClient(cam.id, cam.viscaIp, cam.viscaPort, cam.cameraType);
-          const device = new ViscaDevice(client, cam.id, cam.label);
-          device.setActivityLog(activityLog, cam.label);
+          const device = createMotionDevice(cam, activityLog);
           device.on('connected', () => { state.cameraConnected[id] = true; });
           device.on('disconnected', () => { state.cameraConnected[id] = false; });
           devices.set(id, device);

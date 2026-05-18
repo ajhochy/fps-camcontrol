@@ -3,13 +3,31 @@ import path from 'path';
 import yaml from 'js-yaml';
 import { z } from 'zod';
 
+const BridgeSchema = z.object({
+  host: z.string(),
+  port: z.number().default(7878),
+  gimbalModel: z.string().optional(),
+  safetyTimeoutMs: z.number().default(250),
+  reconnectBackoffMs: z.array(z.number()).default([1000, 2000, 5000, 15000]),
+  rollEnabled: z.boolean().default(false),
+});
+
 const CameraSchema = z.object({
   id: z.string(),
   label: z.string(),
+  protocol: z.enum(['visca', 'dji-bridge']).default('visca'),
   cameraType: z.enum(['vbot', 'birddog', 'generic']).default('generic'),
   inputId: z.number(),
-  viscaIp: z.string(),
+  viscaIp: z.string().optional(),
   viscaPort: z.number().default(52381),
+  bridge: BridgeSchema.optional(),
+}).superRefine((cam, ctx) => {
+  if (cam.protocol === 'visca' && !cam.viscaIp) {
+    ctx.addIssue({ code: 'custom', message: `camera ${cam.id}: viscaIp required when protocol=visca`, path: ['viscaIp'] });
+  }
+  if (cam.protocol === 'dji-bridge' && !cam.bridge) {
+    ctx.addIssue({ code: 'custom', message: `camera ${cam.id}: bridge required when protocol=dji-bridge`, path: ['bridge'] });
+  }
 });
 
 const GraphicsSchema = z.object({

@@ -36,9 +36,9 @@ const virtualViscas: Record<string, VirtualVisca> = {
 const config: AppConfig = {
   atem: { ip: '127.0.0.1', defaultTransition: 'cut', meIndex: 0 },
   cameras: [
-    { id: 'cam1', label: 'V-BOT', cameraType: 'vbot', inputId: 1, viscaIp: '127.0.0.1', viscaPort: 52381 },
-    { id: 'cam2', label: 'BirdDog 1', cameraType: 'birddog', inputId: 2, viscaIp: '127.0.0.1', viscaPort: 52381 },
-    { id: 'cam3', label: 'BirdDog 2', cameraType: 'birddog', inputId: 3, viscaIp: '127.0.0.1', viscaPort: 52381 },
+    { id: 'cam1', label: 'V-BOT', protocol: 'visca', cameraType: 'vbot', inputId: 1, viscaIp: '127.0.0.1', viscaPort: 52381 },
+    { id: 'cam2', label: 'BirdDog 1', protocol: 'visca', cameraType: 'birddog', inputId: 2, viscaIp: '127.0.0.1', viscaPort: 52381 },
+    { id: 'cam3', label: 'BirdDog 2', protocol: 'visca', cameraType: 'birddog', inputId: 3, viscaIp: '127.0.0.1', viscaPort: 52381 },
   ],
   graphics: { type: 'dsk', dskIndex: 0, uskIndex: 0, meIndex: 0 },
   speeds: {
@@ -264,6 +264,85 @@ async function runTests(): Promise<void> {
       });
     });
   });
+
+  // ===== DJI bridge device =====
+  console.log('\nTest 10: DJI bridge — hello, velocity, getPosition, moveTo, stop');
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { VirtualDjiBridge } = require('./virtualDjiBridge');
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { DjiBridgeDevice } = require('../devices/djiBridgeDevice');
+
+  const bridge = new VirtualDjiBridge({});
+  const bridgePort = await bridge.start();
+  const dji = new DjiBridgeDevice(
+    {
+      host: '127.0.0.1',
+      port: bridgePort,
+      safetyTimeoutMs: 250,
+      reconnectBackoffMs: [50, 100, 200],
+      rollEnabled: false,
+    },
+    'cam4',
+    'DJI RS4 Pro',
+  );
+
+  const connected = await new Promise<boolean>((resolve) => {
+    const t = setTimeout(() => resolve(false), 2000);
+    dji.once('connected', () => { clearTimeout(t); resolve(true); });
+    dji.connect();
+  });
+  assert('DJI bridge handshake completed', connected);
+  assert('capabilities include velocity', dji.capabilities.pan && dji.capabilities.tilt);
+  assert('capabilities include position', dji.capabilities.position);
+
+  // velocity → safety stop after silence
+  dji.setPanTilt(0.5, 0.25);
+  await new Promise(r => setTimeout(r, 50));
+  assert('bridge received moveVelocity', bridge.log.some((l: string) => l.startsWith('moveVelocity')));
+  await new Promise(r => setTimeout(r, 400));
+  assert('bridge auto-stopped on safety timeout', bridge.velPan === 0 && bridge.velTilt === 0);
+
+  // getPosition + moveTo
+  dji.setPanTilt(0.5, 0);
+  await new Promise(r => setTimeout(r, 100));
+  dji.stop();
+  await new Promise(r => setTimeout(r, 20));
+  const pos = await dji.getPosition();
+  assert('getPosition returns gimbal position', pos.kind === 'gimbal');
+
+  bridge.reset();
+  await dji.moveTo({ kind: 'gimbal', yaw: 10, pitch: -5, roll: 0 });
+  assert('bridge yaw after moveTo', bridge.yaw === 10);
+  assert('bridge pitch after moveTo', bridge.pitch === -5);
+
+  // preset save/recall via PresetManager on a DJI device
+  const djiDevices = new Map<CameraId, any>();
+  djiDevices.set('cam4' as CameraId, dji);
+  const djiState: AppState = { ...defaultState, controlledCamera: 'cam4' };
+  const djiConfig: AppConfig = {
+    ...config,
+    cameras: [
+      ...config.cameras,
+      {
+        id: 'cam4', label: 'DJI RS4 Pro', protocol: 'dji-bridge', cameraType: 'generic',
+        inputId: 4, viscaPort: 52381,
+        bridge: { host: '127.0.0.1', port: bridgePort, safetyTimeoutMs: 250, reconnectBackoffMs: [50], rollEnabled: false },
+      },
+    ],
+  };
+  const djiPresetMgr = new PresetManager(djiState, djiConfig, djiDevices);
+  await djiPresetMgr.savePreset('cam4', 'A');
+  const saved = (djiPresetMgr as any).data['cam4']?.A;
+  assert('DJI preset saved with kind:gimbal', saved?.kind === 'gimbal');
+
+  bridge.yaw = 99; bridge.pitch = 99;
+  await djiPresetMgr.recallPreset('cam4', 'A');
+  assert('DJI preset recall restores yaw', Math.abs(bridge.yaw - (saved?.yaw ?? 0)) < 0.001);
+  assert('DJI preset recall restores pitch', Math.abs(bridge.pitch - (saved?.pitch ?? 0)) < 0.001);
+
+  // disconnect cleanup
+  dji.close();
+  await bridge.stop();
 
   // Results
   console.log('\n=== Results ===');

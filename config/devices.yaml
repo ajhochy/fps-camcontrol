@@ -6,6 +6,7 @@ atem:
 cameras:
   - id: cam1
     label: "V-BOT"
+    protocol: "visca"
     cameraType: "vbot"
     inputId: 1
     viscaIp: "192.168.50.15"
@@ -13,6 +14,7 @@ cameras:
 
   - id: cam2
     label: "BirdDog 1"
+    protocol: "visca"
     cameraType: "birddog"
     inputId: 2
     viscaIp: "192.168.50.16"
@@ -20,10 +22,23 @@ cameras:
 
   - id: cam3
     label: "BirdDog 2"
+    protocol: "visca"
     cameraType: "birddog"
     inputId: 3
     viscaIp: "192.168.50.17"
     viscaPort: 52381
+
+  # Example DJI RS4 Pro gimbal — uncomment and update host when Pi bridge is up
+  # - id: cam4
+  #   label: "DJI RS4 Pro"
+  #   protocol: "dji-bridge"
+  #   inputId: 4
+  #   bridge:
+  #     host: "192.168.50.40"
+  #     port: 7878
+  #     gimbalModel: "RS4Pro"
+  #     safetyTimeoutMs: 250
+  #     rollEnabled: false
 
 graphics:
   type: "auto"

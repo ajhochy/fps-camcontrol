@@ -22,6 +22,26 @@ export class VirtualVisca {
     this.log.push(`send([${cmd}])`);
   }
 
+  async queryPanTilt(): Promise<{ pan: number; tilt: number }> {
+    return { pan: this.state.pan, tilt: this.state.tilt };
+  }
+
+  async queryZoom(): Promise<{ zoom: number }> {
+    return { zoom: this.state.zoom };
+  }
+
+  async probe(_timeoutMs?: number): Promise<boolean> {
+    return this.connected;
+  }
+
+  on(_event: string, _listener: (...args: unknown[]) => void): this {
+    return this;
+  }
+
+  setActivityLog(_log: unknown, _label: string): void { /* no-op */ }
+  close(): void { /* no-op */ }
+  connect(): void { /* no-op */ }
+
   async inquire(payload: number[]): Promise<Buffer> {
     this.log.push(`inquire([${payload.join(',')}])`);
     // Pan/tilt inquiry: 81 09 06 12 FF

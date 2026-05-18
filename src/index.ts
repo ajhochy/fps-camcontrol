@@ -9,9 +9,8 @@ export const logger = (global as any).__testLogger ?? pino({
 import { loadConfig } from './config/configLoader';
 import { defaultState, AppState, CameraId } from './app/state';
 import { AtemClient } from './atem/atemClient';
-import { ViscaClient } from './visca/viscaClient';
-import { ViscaDevice } from './devices/viscaDevice';
 import { MotionDevice } from './devices/motionDevice';
+import { createMotionDevice } from './devices/deviceFactory';
 import { loadProfiles, findConnectedController } from './input/profileDetector';
 import { GamepadDevice } from './input/gamepad';
 import { normalizeHIDReport } from './input/normalizers';
@@ -43,9 +42,7 @@ async function main() {
   // Step 2: Connect to cameras (non-blocking)
   const devices = new Map<CameraId, MotionDevice>();
   for (const cam of config.cameras) {
-    const client = new ViscaClient(cam.id, cam.viscaIp, cam.viscaPort, cam.cameraType);
-    const device = new ViscaDevice(client, cam.id, cam.label);
-    device.setActivityLog(activityLog, cam.label);
+    const device = createMotionDevice(cam, activityLog);
     device.on('connected', () => {
       state.cameraConnected[cam.id as CameraId] = true;
     });

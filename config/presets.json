@@ -6,13 +6,29 @@
     "Y": null
   },
   "cam2": {
-    "A": null,
+    "A": {
+      "kind": "visca",
+      "pan": 0,
+      "tilt": 0,
+      "zoom": 0
+    },
     "B": null,
     "X": null,
     "Y": null
   },
   "cam3": {
     "A": null,
+    "B": null,
+    "X": null,
+    "Y": null
+  },
+  "cam4": {
+    "A": {
+      "kind": "gimbal",
+      "yaw": 10,
+      "pitch": -5,
+      "roll": 0
+    },
     "B": null,
     "X": null,
     "Y": null
