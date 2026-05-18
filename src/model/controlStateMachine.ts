@@ -1,14 +1,13 @@
 import { AppState, CameraId, PresetSlot } from '../app/state';
 import { CameraConfig, AppConfig } from '../config/configLoader';
 import { AtemClient } from '../atem/atemClient';
-import { ViscaClient } from '../visca/viscaClient';
+import { MotionDevice } from '../devices/motionDevice';
 import { NormalizedInput } from '../input/normalizers';
 import { EdgeState, createEdgeState, risingEdge, triggerRisingEdge } from '../input/edgeTriggers';
 import { CameraSelector } from './cameraSelector';
 import { PresetManager } from './presetManager';
 import { SpeedManager } from './speedManager';
 import { cutControlledCameraLive, autoTransitionControlledCamera, toggleLowerThirds } from '../atem/switcherActions';
-import { panTilt, zoom, stopPTZ } from '../visca/ptzActions';
 import { applyCurve, applyDeadzone, clamp } from '../visca/speedCurves';
 import { emergencyStopAll } from '../safety/emergencyStop';
 import { ActivityLog } from '../app/activityLog';
@@ -48,12 +47,12 @@ export class ControlStateMachine {
     private state: AppState,
     private config: AppConfig,
     private atem: AtemClient,
-    private viscaClients: Map<CameraId, ViscaClient>,
+    private devices: Map<CameraId, MotionDevice>,
     activityLog: ActivityLog | null = null
   ) {
     this.activityLog = activityLog;
-    this.cameraSelector = new CameraSelector(state, config.cameras, atem, viscaClients);
-    this.presetManager = new PresetManager(state, config, viscaClients);
+    this.cameraSelector = new CameraSelector(state, config.cameras, atem, devices);
+    this.presetManager = new PresetManager(state, config, devices);
     this.speedManager = new SpeedManager(state, config);
   }
 
@@ -87,17 +86,17 @@ export class ControlStateMachine {
     const movingPT = rightX !== 0 || rightY !== 0;
     const movingZoom = leftY !== 0;
 
-    const currentClient = this.viscaClients.get(this.state.controlledCamera);
-    if (currentClient) {
+    const currentDevice = this.devices.get(this.state.controlledCamera);
+    if (currentDevice) {
       if (movingPT && !this.wasMovingPT) {
         this.activityLog?.setContext(device, INPUT_LABELS['rightStick'], 'Pan/Tilt Start');
       }
       if (!movingPT && this.wasMovingPT) {
         this.activityLog?.setContext(device, INPUT_LABELS['rightStick'], 'Pan/Tilt Stop');
-        stopPTZ(currentClient);
+        currentDevice.stop();
       }
       if (movingPT) {
-        panTilt(currentClient, this.getEffectiveSpeed(rightX), this.getEffectiveSpeed(-rightY));
+        currentDevice.setPanTilt(this.getEffectiveSpeed(rightX), this.getEffectiveSpeed(-rightY));
       }
 
       if (movingZoom && !this.wasMovingZoom) {
@@ -105,10 +104,10 @@ export class ControlStateMachine {
       }
       if (!movingZoom && this.wasMovingZoom) {
         this.activityLog?.setContext(device, INPUT_LABELS['leftStickY'], 'Zoom Stop');
-        zoom(currentClient, 0);
+        currentDevice.setZoom(0);
       }
       if (movingZoom) {
-        zoom(currentClient, this.getEffectiveSpeed(-leftY));
+        currentDevice.setZoom(this.getEffectiveSpeed(-leftY));
       }
     }
 
@@ -180,7 +179,7 @@ export class ControlStateMachine {
     if (risingEdge('back', input.buttons['back'] ?? false, this.edgeState)) {
       this.activityLog?.setContext(device, INPUT_LABELS['back'], 'Emergency Stop');
       this.activityLog?.addSystemEntry('Emergency Stop', 'All cameras stopped, PTZ halted');
-      emergencyStopAll(this.state, this.config, this.atem, this.viscaClients).catch(err => {
+      emergencyStopAll(this.state, this.config, this.atem, this.devices).catch(err => {
         logger.error({ err }, 'emergency stop error');
       });
     }

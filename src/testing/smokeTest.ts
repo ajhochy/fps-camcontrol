@@ -1,18 +1,17 @@
 import { defaultState, AppState, CameraId } from '../app/state';
 import { AppConfig } from '../config/configLoader';
-import { VirtualController } from './virtualController';
 import { VirtualAtem } from './virtualAtem';
 import { VirtualVisca } from './virtualVisca';
-import { ControlStateMachine } from '../model/controlStateMachine';
 import { AtemClient } from '../atem/atemClient';
 import { ViscaClient } from '../visca/viscaClient';
+import { ViscaDevice } from '../devices/viscaDevice';
+import { MotionDevice } from '../devices/motionDevice';
 import { PresetManager } from '../model/presetManager';
-import { SpeedManager } from '../model/speedManager';
 import { CameraSelector } from '../model/cameraSelector';
 import { emergencyStopAll } from '../safety/emergencyStop';
 import { EdgeState, createEdgeState, risingEdge, triggerRisingEdge } from '../input/edgeTriggers';
 import { applyCurve, applyDeadzone, clamp } from '../visca/speedCurves';
-import { panTilt, zoom, stopPTZ } from '../visca/ptzActions';
+import { panTilt, zoom } from '../visca/ptzActions';
 import { cutControlledCameraLive, autoTransitionControlledCamera, toggleLowerThirds } from '../atem/switcherActions';
 
 // ---- minimal logger for tests ----
@@ -80,10 +79,17 @@ const state: AppState = {
   cameraIndex: 1,
 };
 
-// ---- Wire virtual VISCA clients via duck-typing ----
+// ---- Wire virtual VISCA clients via duck-typing through ViscaDevice ----
+// VirtualVisca only implements sendPayload, so we keep the raw map around for
+// the smoke test's direct panTilt/zoom calls and also expose a MotionDevice
+// view for the state-machine-shaped consumers.
 const viscaClients = new Map<CameraId, any>();
+const devices = new Map<CameraId, MotionDevice>();
 for (const [id, vv] of Object.entries(virtualViscas)) {
   viscaClients.set(id as CameraId, vv);
+  // ViscaDevice forwards to ViscaClient; VirtualVisca is duck-typed in.
+  const device = new ViscaDevice(vv as unknown as ViscaClient, id, id);
+  devices.set(id as CameraId, device);
 }
 
 // ---- Wire virtual ATEM client via duck-typing ----
@@ -91,7 +97,7 @@ const atemProxy = virtualAtem as unknown as AtemClient;
 
 // ---- Build sub-systems ----
 const edgeState: EdgeState = createEdgeState();
-const cameraSelector = new CameraSelector(state, config.cameras, atemProxy, viscaClients);
+const cameraSelector = new CameraSelector(state, config.cameras, atemProxy, devices);
 
 // ---- Assertion helpers ----
 let passed = 0;
@@ -145,7 +151,7 @@ async function tick(input: { axes?: Record<string, number>; buttons?: Record<str
 
   // Emergency stop
   if (risingEdge('back', buttons['back'] ?? false, edgeState)) {
-    await emergencyStopAll(state, config, atemProxy, viscaClients);
+    await emergencyStopAll(state, config, atemProxy, devices);
   }
 
   // Lower thirds
@@ -215,7 +221,7 @@ async function runTests(): Promise<void> {
 
   // Test 7: Preset save (LB+A)
   console.log('\nTest 7: Preset save via LB+A (placeholder)');
-  const presetManager = new PresetManager(state, config, viscaClients);
+  const presetManager = new PresetManager(state, config, devices);
   await presetManager.savePreset('cam2', 'A');
   const data = presetManager.getData();
   assert('cam2 slot A has a value', data['cam2'] != null && 'A' in data['cam2']);
@@ -223,7 +229,7 @@ async function runTests(): Promise<void> {
   // Test 8: Preset recall
   console.log('\nTest 8: Preset recall via A');
   virtualViscas.cam2.reset();
-  (presetManager as any).data['cam2']['A'] = { pan: 1000, tilt: 500, zoom: 8000 };
+  (presetManager as any).data['cam2']['A'] = { kind: 'visca', pan: 1000, tilt: 500, zoom: 8000 };
   state.controlledCamera = 'cam2';
   await presetManager.recallPreset('cam2', 'A');
   assert('cam2 VISCA received absolute position command', virtualViscas.cam2.log.length > 0);

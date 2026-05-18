@@ -1,8 +1,7 @@
 import { AppState, CameraId } from '../app/state';
 import { CameraConfig } from '../config/configLoader';
 import { AtemClient } from '../atem/atemClient';
-import { ViscaClient } from '../visca/viscaClient';
-import { stopPTZ } from '../visca/ptzActions';
+import { MotionDevice } from '../devices/motionDevice';
 import { logger } from '../index';
 
 const FLICK_THRESHOLD = 0.75;
@@ -15,7 +14,7 @@ export class CameraSelector {
     private state: AppState,
     private cameras: CameraConfig[],
     private atem: AtemClient,
-    private viscaClients: Map<CameraId, ViscaClient>
+    private devices: Map<CameraId, MotionDevice>
   ) {}
 
   handleLeftStickX(x: number): void {
@@ -37,8 +36,8 @@ export class CameraSelector {
     if (clamped === this.state.cameraIndex) return;
 
     // Stop old camera
-    const oldClient = this.viscaClients.get(this.state.controlledCamera);
-    if (oldClient) stopPTZ(oldClient);
+    const oldDevice = this.devices.get(this.state.controlledCamera);
+    if (oldDevice) oldDevice.stop();
 
     this.state.cameraIndex = clamped;
     this.state.controlledCamera = this.cameras[clamped].id as CameraId;
