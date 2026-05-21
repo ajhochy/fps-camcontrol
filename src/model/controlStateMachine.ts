@@ -34,14 +34,30 @@ const INPUT_LABELS: Record<string, string> = {
   back: 'Back Button',
 };
 
+const INPUT_STALE_MS = 250;
+// PTZ throttling: VISCA cameras process commands sequentially. Sending fresh
+// pan/tilt frames every 16ms (60Hz) overflows the camera's input queue and
+// causes the eventual stop to wait behind ~60 queued moves — felt as ~1s
+// release latency. We send a new frame only when the encoded speed/direction
+// bytes change, with a heartbeat every PTZ_HEARTBEAT_MS to keep the camera
+// moving (some firmwares auto-stop after ~500ms of silence).
+const PTZ_HEARTBEAT_MS = 250;
+
+interface LastSent {
+  pan: number; tilt: number; ts: number;
+}
+
 export class ControlStateMachine {
   private edgeState: EdgeState = createEdgeState();
   private lastInput: NormalizedInput | null = null;
+  private lastInputTs = 0;
   private cameraSelector: CameraSelector;
   private presetManager: PresetManager;
   private speedManager: SpeedManager;
   private wasMovingPT = false;
   private wasMovingZoom = false;
+  private lastPanTilt: Map<CameraId, LastSent> = new Map();
+  private lastZoom: Map<CameraId, { speed: number; ts: number }> = new Map();
   private activityLog: ActivityLog | null;
 
   constructor(
@@ -59,11 +75,29 @@ export class ControlStateMachine {
 
   updateInput(input: NormalizedInput): void {
     this.lastInput = input;
+    this.lastInputTs = Date.now();
   }
 
   tick(): void {
     const input = this.lastInput;
     if (!input) return;
+
+    // Safety: if controller isn't reporting fresh data, force-stop any in-flight PTZ
+    // motion and skip the rest of the tick. Prevents stale axis values from being
+    // re-sent at 60Hz when the HID device closes or hangs.
+    const stale = !this.state.controllerConnected || Date.now() - this.lastInputTs > INPUT_STALE_MS;
+    if (stale) {
+      if (this.wasMovingPT || this.wasMovingZoom) {
+        const currentClient = this.viscaClients.get(this.state.controlledCamera);
+        if (currentClient) {
+          stopPTZ(currentClient);
+          zoom(currentClient, 0);
+        }
+        this.wasMovingPT = false;
+        this.wasMovingZoom = false;
+      }
+      return;
+    }
 
     const device = this.state.activeControllerProfile ?? 'Unknown';
 
@@ -89,15 +123,33 @@ export class ControlStateMachine {
 
     const currentClient = this.viscaClients.get(this.state.controlledCamera);
     if (currentClient) {
+      const camId = this.state.controlledCamera;
+      const now = Date.now();
+
       if (movingPT && !this.wasMovingPT) {
         this.activityLog?.setContext(device, INPUT_LABELS['rightStick'], 'Pan/Tilt Start');
       }
       if (!movingPT && this.wasMovingPT) {
         this.activityLog?.setContext(device, INPUT_LABELS['rightStick'], 'Pan/Tilt Stop');
         stopPTZ(currentClient);
+        this.lastPanTilt.delete(camId);
       }
       if (movingPT) {
-        panTilt(currentClient, this.getEffectiveSpeed(rightX), this.getEffectiveSpeed(-rightY));
+        // Throttle: only resend panTilt when the *normalized* speed/direction
+        // delta crosses a meaningful threshold or the heartbeat interval expired.
+        const newPan = this.getEffectiveSpeed(rightX);
+        const newTilt = this.getEffectiveSpeed(-rightY);
+        const last = this.lastPanTilt.get(camId);
+        const changed = !last
+          || Math.abs(newPan - last.pan) > 0.05
+          || Math.abs(newTilt - last.tilt) > 0.05
+          || Math.sign(newPan) !== Math.sign(last.pan)
+          || Math.sign(newTilt) !== Math.sign(last.tilt);
+        const stale = last && now - last.ts >= PTZ_HEARTBEAT_MS;
+        if (changed || stale) {
+          panTilt(currentClient, newPan, newTilt);
+          this.lastPanTilt.set(camId, { pan: newPan, tilt: newTilt, ts: now });
+        }
       }
 
       if (movingZoom && !this.wasMovingZoom) {
@@ -106,9 +158,19 @@ export class ControlStateMachine {
       if (!movingZoom && this.wasMovingZoom) {
         this.activityLog?.setContext(device, INPUT_LABELS['leftStickY'], 'Zoom Stop');
         zoom(currentClient, 0);
+        this.lastZoom.delete(camId);
       }
       if (movingZoom) {
-        zoom(currentClient, this.getEffectiveSpeed(-leftY));
+        const newZoom = this.getEffectiveSpeed(-leftY);
+        const last = this.lastZoom.get(camId);
+        const changed = !last
+          || Math.abs(newZoom - last.speed) > 0.05
+          || Math.sign(newZoom) !== Math.sign(last.speed);
+        const stale = last && now - last.ts >= PTZ_HEARTBEAT_MS;
+        if (changed || stale) {
+          zoom(currentClient, newZoom);
+          this.lastZoom.set(camId, { speed: newZoom, ts: now });
+        }
       }
     }
 
@@ -188,7 +250,9 @@ export class ControlStateMachine {
 
   private getEffectiveSpeed(raw: number): number {
     const activeMultiplier = this.config.speeds.presets[this.state.speedPreset].multiplier;
-    let speed = applyCurve(raw) * activeMultiplier;
+    const cam = this.config.cameras.find(c => c.id === this.state.controlledCamera);
+    const camScale = cam?.speedScale ?? 1.0;
+    let speed = applyCurve(raw) * activeMultiplier * camScale;
     if (this.state.precisionMode) speed *= 0.25;
     if (this.state.sprintMode) speed *= 1.75;
     return clamp(speed, -1, 1);

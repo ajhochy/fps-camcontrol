@@ -6,15 +6,39 @@
     "Y": null
   },
   "cam2": {
-    "A": null,
-    "B": null,
-    "X": null,
-    "Y": null
+    "A": {
+      "pan": 32,
+      "tilt": -14,
+      "zoom": 2036
+    },
+    "B": {
+      "pan": 147,
+      "tilt": 21,
+      "zoom": 12668
+    },
+    "X": {
+      "pan": 65415,
+      "tilt": 17,
+      "zoom": 13735
+    },
+    "Y": {
+      "pan": 29,
+      "tilt": 6,
+      "zoom": 12423
+    }
   },
   "cam3": {
-    "A": null,
+    "A": {
+      "pan": 64993,
+      "tilt": -25,
+      "zoom": 6745
+    },
     "B": null,
     "X": null,
-    "Y": null
+    "Y": {
+      "pan": 65050,
+      "tilt": -6,
+      "zoom": 12693
+    }
   }
 }

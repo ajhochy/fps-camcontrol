@@ -10,6 +10,10 @@ const CameraSchema = z.object({
   inputId: z.number(),
   viscaIp: z.string(),
   viscaPort: z.number().default(52381),
+  cameraAddress: z.number().min(0).max(7).default(1),
+  // Per-camera speed multiplier. 1.0 = same speed as the global preset; raise
+  // above 1 for slower cameras (V-BOT) so they keep up with faster BirdDogs.
+  speedScale: z.number().min(0.1).max(5).default(1.0),
 });
 
 const GraphicsSchema = z.object({

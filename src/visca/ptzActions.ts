@@ -28,6 +28,11 @@ export function panTilt(
   if (Math.abs(tiltSpeed) < 0.02) tiltDir = 0x03;
   else tiltDir = tiltSpeed > 0 ? 0x01 : 0x02;
 
+  // Skip emitting a full stop frame here — the state machine sends an explicit
+  // stopPTZ on motion-end edge. Repeated stop frames at 60Hz can cause some
+  // cameras (V-BOT in particular) to wake or drift back to a prior position.
+  if (panDir === 0x03 && tiltDir === 0x03) return;
+
   client.sendPayload([0x81, 0x01, 0x06, 0x01, panByte, tiltByte, panDir, tiltDir, 0xFF]);
 }
 

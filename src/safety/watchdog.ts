@@ -18,14 +18,17 @@ export function startWatchdog(
     tick++;
     if (tick % PROBE_EVERY_TICKS === 0) {
       for (const [id, client] of viscaClients) {
+        // Use the socket-level connected flag as the source of truth.
+        // The VISCA probe (CAM_PowerInq) is just a soft health check — some
+        // cameras (e.g. V-BOT) don't reply to that specific inquiry even when
+        // they're perfectly responsive to control commands, so a probe miss
+        // must NOT force the camera into a disconnected state.
+        state.cameraConnected[id] = client.connected;
         client.probe().then(reachable => {
-          state.cameraConnected[id] = reachable;
-          if (!reachable) {
-            logger.warn({ cameraId: id }, 'camera probe failed — not reachable');
+          if (!reachable && client.connected) {
+            logger.warn({ cameraId: id }, 'camera probe returned no reply (camera may still be controllable)');
           }
-        }).catch(() => {
-          state.cameraConnected[id] = false;
-        });
+        }).catch(() => { /* ignore */ });
       }
     }
   }, 1000);

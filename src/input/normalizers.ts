@@ -59,8 +59,16 @@ export function normalizeHIDReport(buf: Buffer, profile: ControllerProfile): Nor
 
   for (const [name, def] of Object.entries(profile.buttons)) {
     const byte = buf[def.byte] ?? 0;
-    const bit = Boolean(byte & (1 << def.bit));
-    buttons[name] = def.activeLow ? !bit : bit;
+    let pressed: boolean;
+    if (def.hatValue != null) {
+      // Hat switch button: pressed iff the whole byte equals this exact value.
+      pressed = byte === def.hatValue;
+    } else if (def.bit != null) {
+      pressed = Boolean(byte & (1 << def.bit));
+    } else {
+      pressed = false;
+    }
+    buttons[name] = def.activeLow ? !pressed : pressed;
   }
 
   return { axes, buttons, triggers };
