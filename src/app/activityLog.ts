@@ -28,8 +28,12 @@ export class ActivityLog extends EventEmitter {
   }
 
   addEntry(partial: Omit<ActivityEntry, 'ts' | 'device' | 'input' | 'command'>): void {
+    // Context is sticky — once set by setContext(), it persists across every
+    // subsequent entry until the next setContext() replaces it. This is so a
+    // 60Hz stream of PTZ commands during a single stick motion all carry the
+    // "Right Stick / Pan-Tilt" label instead of just the first packet on the
+    // motion-start edge.
     const ctx = this.pendingContext ?? { device: 'unknown', input: '—', command: '—' };
-    this.pendingContext = null;
     const entry: ActivityEntry = { ts: Date.now(), ...ctx, ...partial };
     if (this.buffer.length >= MAX_ENTRIES) this.buffer.shift();
     this.buffer.push(entry);
@@ -38,7 +42,6 @@ export class ActivityLog extends EventEmitter {
 
   addSystemEntry(command: string, message: string): void {
     const ctx = this.pendingContext ?? { device: '—', input: '—', command };
-    this.pendingContext = null;
     const entry: ActivityEntry = {
       ts: Date.now(),
       device: ctx.device,

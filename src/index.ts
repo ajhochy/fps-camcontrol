@@ -41,7 +41,7 @@ async function main() {
   // Step 2: Connect to cameras (non-blocking)
   const viscaClients = new Map<CameraId, ViscaClient>();
   for (const cam of config.cameras) {
-    const client = new ViscaClient(cam.id, cam.viscaIp, cam.viscaPort, cam.cameraType);
+    const client = new ViscaClient(cam.id, cam.viscaIp, cam.viscaPort, cam.cameraType, cam.cameraAddress);
     client.setActivityLog(activityLog, cam.label);
     client.on('connected', () => {
       state.cameraConnected[cam.id as CameraId] = true;
@@ -65,7 +65,7 @@ async function main() {
     logger.info({ profile: found.profile.name, connectionType: found.connectionType }, 'controller profile loaded');
     state.activeControllerProfile = found.profile.name;
     state.activeConnectionType = found.connectionType;
-    const gamepad = new GamepadDevice(found.device.vendorId, found.device.productId);
+    const gamepad = new GamepadDevice(found.device.vendorId, found.device.productId, found.device.path);
 
     gamepad.on('connected', () => {
       state.controllerConnected = true;
