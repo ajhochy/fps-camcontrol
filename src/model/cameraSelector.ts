@@ -32,6 +32,17 @@ export class CameraSelector {
     }
   }
 
+  /**
+   * Directly arm a camera as standby by its index in the configured camera
+   * list. Used by the face-button hotkeys (A/B/X/Y). Shares all the same
+   * side effects as a left-stick flick: stops the outgoing camera's PTZ,
+   * updates controlled/preview state, and moves the ATEM preview bus.
+   */
+  selectByIndex(index: number): void {
+    this.selectCamera(index);
+    this.stickReadyForSelection = true;
+  }
+
   private selectCamera(newIndex: number): void {
     const clamped = Math.max(0, Math.min(this.cameras.length - 1, newIndex));
     if (clamped === this.state.cameraIndex) return;

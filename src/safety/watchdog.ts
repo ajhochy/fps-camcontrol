@@ -1,7 +1,7 @@
 import { AppState, CameraId } from '../app/state';
 import { AtemClient } from '../atem/atemClient';
 import { ViscaClient } from '../visca/viscaClient';
-import { logger } from '../index';
+import { throttledLog } from '../app/logThrottle';
 
 const PROBE_EVERY_TICKS = 30; // probe cameras every 30s (watchdog runs at 1s)
 
@@ -26,7 +26,7 @@ export function startWatchdog(
         state.cameraConnected[id] = client.connected;
         client.probe().then(reachable => {
           if (!reachable && client.connected) {
-            logger.warn({ cameraId: id }, 'camera probe returned no reply (camera may still be controllable)');
+            throttledLog.warn(`probe-${id}`, 300000, { cameraId: id }, 'camera probe returned no reply (camera may still be controllable)');
           }
         }).catch(() => { /* ignore */ });
       }

@@ -1,6 +1,7 @@
 import HID from 'node-hid';
 import { EventEmitter } from 'events';
 import { logger } from '../index';
+import { throttledLog } from '../app/logThrottle';
 
 export class GamepadDevice extends EventEmitter {
   private device: HID.HID | null = null;
@@ -44,7 +45,8 @@ export class GamepadDevice extends EventEmitter {
       let gotFirstPacket = false;
       const handshakeTimer = setTimeout(() => {
         if (gotFirstPacket) return;
-        logger.warn(
+        throttledLog.warn(
+          'gamepad-no-hid', 30000,
           { vendorId: this.vendorId, productId: this.productId, path: this.path },
           'gamepad opened but no HID data within 2s — likely missing macOS Input Monitoring permission'
         );
@@ -63,11 +65,11 @@ export class GamepadDevice extends EventEmitter {
       });
       this.device.on('error', (err: Error) => {
         clearTimeout(handshakeTimer);
-        logger.warn({ err }, 'gamepad error, scheduling reconnect');
+        throttledLog.warn('gamepad-error', 30000, { err }, 'gamepad error, scheduling reconnect');
         this.scheduleReconnect();
       });
     } catch (err) {
-      logger.warn({ err }, 'gamepad open failed, scheduling reconnect');
+      throttledLog.warn('gamepad-open-fail', 30000, { err }, 'gamepad open failed, scheduling reconnect');
       this.scheduleReconnect();
     }
   }

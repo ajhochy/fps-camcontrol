@@ -1038,18 +1038,16 @@ var hidDebugEnabled = false;
 
 var ACTION_LABELS = {
   panTilt: 'Pan / Tilt',
-  zoom: 'Zoom',
+  zoomIn: 'Zoom In (RT, hold)',
+  zoomOut: 'Zoom Out (LT, hold)',
   cameraSelectLeft: 'Camera Select Left',
   cameraSelectRight: 'Camera Select Right',
-  takeLive: 'Take Live (Cut)',
-  autoTransition: 'Auto Transition',
+  autoTransition: 'Take Live (Auto Transition)',
   precisionMode: 'Precision Mode (hold)',
-  sprintMode: 'Sprint Mode (hold)',
-  presetA: 'Recall Preset A',
-  presetB: 'Recall Preset B',
-  presetX: 'Recall Preset X',
-  presetY: 'Recall Preset Y',
-  presetSave: 'Preset Save modifier',
+  selectCam1: 'Select Camera 1 → standby',
+  selectCam2: 'Select Camera 2 → standby',
+  selectCam3: 'Select Camera 3 → standby',
+  selectCam4: 'Select Camera 4 → standby',
   speedUp: 'Speed Up',
   speedDown: 'Speed Down',
   lowerThirds: 'Lower Thirds Toggle',
@@ -1274,10 +1272,10 @@ async function saveMappingsUI() {
 }
 
 var DEFAULT_MAPPINGS = {
-  panTilt:'rightStick', zoom:'leftStickY', cameraSelectLeft:'leftStickLeft',
-  cameraSelectRight:'leftStickRight', takeLive:'rightTrigger', autoTransition:'RB',
-  precisionMode:'leftTrigger', sprintMode:'LS', presetA:'A', presetB:'B',
-  presetX:'X', presetY:'Y', presetSave:'LB', speedUp:'dpadUp', speedDown:'dpadDown',
+  panTilt:'rightStick', zoomIn:'rightTrigger', zoomOut:'leftTrigger',
+  cameraSelectLeft:'leftStickLeft', cameraSelectRight:'leftStickRight',
+  autoTransition:'RB', precisionMode:'LS', selectCam1:'X', selectCam2:'A',
+  selectCam3:'B', selectCam4:'Y', speedUp:'dpadUp', speedDown:'dpadDown',
   lowerThirds:'dpadLeft', emergencyStop:'back'
 };
 

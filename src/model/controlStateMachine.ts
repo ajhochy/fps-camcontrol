@@ -1,21 +1,25 @@
-import { AppState, CameraId, PresetSlot } from '../app/state';
+import { AppState, CameraId } from '../app/state';
 import { CameraConfig, AppConfig } from '../config/configLoader';
 import { AtemClient } from '../atem/atemClient';
 import { ViscaClient } from '../visca/viscaClient';
 import { NormalizedInput } from '../input/normalizers';
-import { EdgeState, createEdgeState, risingEdge, triggerRisingEdge } from '../input/edgeTriggers';
+import { EdgeState, createEdgeState, risingEdge } from '../input/edgeTriggers';
 import { CameraSelector } from './cameraSelector';
-import { PresetManager } from './presetManager';
 import { SpeedManager } from './speedManager';
-import { cutControlledCameraLive, autoTransitionControlledCamera, toggleLowerThirds } from '../atem/switcherActions';
+import { autoTransitionControlledCamera, toggleLowerThirds } from '../atem/switcherActions';
 import { panTilt, zoom, stopPTZ } from '../visca/ptzActions';
 import { applyCurve, applyDeadzone, clamp } from '../visca/speedCurves';
 import { emergencyStopAll } from '../safety/emergencyStop';
 import { ActivityLog } from '../app/activityLog';
 import { logger } from '../index';
 
-const RT_THRESHOLD = 0.5;
-const LT_THRESHOLD = 0.3;
+// Ignore trigger noise below this before it counts as a zoom command.
+const TRIGGER_DEADZONE = 0.05;
+
+// Face-button camera hotkeys. Each button arms the camera at the matching
+// index in the configured camera list as standby — same effect as a left-stick
+// flick, just direct. Order: X→cam[0], A→cam[1], B→cam[2], Y→cam[3].
+const FACE_CAMERA_BUTTONS = ['X', 'A', 'B', 'Y'] as const;
 
 const INPUT_LABELS: Record<string, string> = {
   rightStick: 'Right Stick',
@@ -52,7 +56,6 @@ export class ControlStateMachine {
   private lastInput: NormalizedInput | null = null;
   private lastInputTs = 0;
   private cameraSelector: CameraSelector;
-  private presetManager: PresetManager;
   private speedManager: SpeedManager;
   private wasMovingPT = false;
   private wasMovingZoom = false;
@@ -69,7 +72,6 @@ export class ControlStateMachine {
   ) {
     this.activityLog = activityLog;
     this.cameraSelector = new CameraSelector(state, config.cameras, atem, viscaClients);
-    this.presetManager = new PresetManager(state, config, viscaClients);
     this.speedManager = new SpeedManager(state, config);
   }
 
@@ -101,8 +103,9 @@ export class ControlStateMachine {
 
     const device = this.state.activeControllerProfile ?? 'Unknown';
 
-    this.state.precisionMode = (input.triggers['leftTrigger'] ?? 0) >= LT_THRESHOLD;
-    this.state.sprintMode = input.buttons['LS'] ?? false;
+    // Left-stick click = Precision Mode (slow, fine control). Sprint removed.
+    this.state.precisionMode = input.buttons['LS'] ?? false;
+    this.state.sprintMode = false;
 
     // Camera selector — left stick X flick
     const leftX = applyDeadzone(input.axes['leftStickX'] ?? 0);
@@ -114,12 +117,17 @@ export class ControlStateMachine {
       this.activityLog?.addSystemEntry(`Cam → ${camLabel}`, '—');
     }
 
-    // PTZ — right stick + left stick Y
+    // PTZ — right stick (pan/tilt) + triggers (zoom: RT = in/tele, LT = out/wide)
     const rightX = applyDeadzone(input.axes['rightStickX'] ?? 0);
     const rightY = applyDeadzone(input.axes['rightStickY'] ?? 0);
-    const leftY = applyDeadzone(input.axes['leftStickY'] ?? 0);
+    const rt = input.triggers['rightTrigger'] ?? 0;
+    const lt = input.triggers['leftTrigger'] ?? 0;
+    // Combined analog zoom axis: positive = zoom in, negative = zoom out. If both
+    // triggers are pressed they cancel. Speed follows how hard the trigger is
+    // pulled, scaled by the D-pad speed preset (and Precision if LS is held).
+    const zoomAxis = (rt > TRIGGER_DEADZONE ? rt : 0) - (lt > TRIGGER_DEADZONE ? lt : 0);
     const movingPT = rightX !== 0 || rightY !== 0;
-    const movingZoom = leftY !== 0;
+    const movingZoom = zoomAxis !== 0;
 
     const currentClient = this.viscaClients.get(this.state.controlledCamera);
     if (currentClient) {
@@ -153,15 +161,15 @@ export class ControlStateMachine {
       }
 
       if (movingZoom && !this.wasMovingZoom) {
-        this.activityLog?.setContext(device, INPUT_LABELS['leftStickY'], 'Zoom Start');
+        this.activityLog?.setContext(device, zoomAxis > 0 ? 'Right Trigger' : 'Left Trigger', zoomAxis > 0 ? 'Zoom In' : 'Zoom Out');
       }
       if (!movingZoom && this.wasMovingZoom) {
-        this.activityLog?.setContext(device, INPUT_LABELS['leftStickY'], 'Zoom Stop');
+        this.activityLog?.setContext(device, 'Triggers', 'Zoom Stop');
         zoom(currentClient, 0);
         this.lastZoom.delete(camId);
       }
       if (movingZoom) {
-        const newZoom = this.getEffectiveSpeed(-leftY);
+        const newZoom = this.getEffectiveSpeed(zoomAxis);
         const last = this.lastZoom.get(camId);
         const changed = !last
           || Math.abs(newZoom - last.speed) > 0.05
@@ -177,40 +185,27 @@ export class ControlStateMachine {
     this.wasMovingPT = movingPT;
     this.wasMovingZoom = movingZoom;
 
-    // RT — cut live (rising edge on trigger crossing threshold)
-    if (triggerRisingEdge('rightTrigger', input.triggers['rightTrigger'] ?? 0, RT_THRESHOLD, this.edgeState)) {
-      this.activityLog?.setContext(device, INPUT_LABELS['rightTrigger'], 'Cut Live');
-      cutControlledCameraLive(this.atem, this.state, this.config.cameras).catch(err => {
-        logger.error({ err }, 'cut live error');
-      });
-    }
-
-    // RB — auto transition
+    // Take Live — RB / Auto Transition (the hard cut on RT was removed; RT/LT now zoom)
     if (risingEdge('RB', input.buttons['RB'] ?? false, this.edgeState)) {
       this.activityLog?.setContext(device, INPUT_LABELS['RB'], 'Auto Transition');
-      autoTransitionControlledCamera(this.atem, this.state, this.config.cameras).catch(err => {
+      autoTransitionControlledCamera(this.atem, this.state, this.config.cameras, this.viscaClients).catch(err => {
         logger.error({ err }, 'auto transition error');
       });
     }
 
-    // LB modifier — preset save/recall
-    const lbHeld = input.buttons['LB'] ?? false;
-    for (const slot of ['A', 'B', 'X', 'Y'] as PresetSlot[]) {
-      const pressed = risingEdge(slot, input.buttons[slot] ?? false, this.edgeState);
-      if (pressed) {
-        if (lbHeld) {
-          this.activityLog?.setContext(device, `LB + ${slot}`, `Preset ${slot} Save`);
-          this.presetManager.savePreset(this.state.controlledCamera, slot).catch(err => {
-            logger.error({ err }, 'preset save error');
-          });
-        } else {
-          this.activityLog?.setContext(device, `${slot} ${INPUT_LABELS[slot]}`, `Preset ${slot} Recall`);
-          this.presetManager.recallPreset(this.state.controlledCamera, slot).catch(err => {
-            logger.error({ err }, 'preset recall error');
-          });
+    // Face buttons A/B/X/Y — arm a camera as standby directly (hotkeys).
+    FACE_CAMERA_BUTTONS.forEach((btn, idx) => {
+      if (idx >= this.config.cameras.length) return;
+      if (risingEdge(btn, input.buttons[btn] ?? false, this.edgeState)) {
+        const prevCamera = this.state.controlledCamera;
+        this.cameraSelector.selectByIndex(idx);
+        if (this.state.controlledCamera !== prevCamera) {
+          const camLabel = this.config.cameras[idx].label;
+          this.activityLog?.setContext(device, INPUT_LABELS[btn], `Cam → ${camLabel}`);
+          this.activityLog?.addSystemEntry(`Cam → ${camLabel}`, '—');
         }
       }
-    }
+    });
 
     // Speed presets — D-pad up/down
     if (risingEdge('dpadUp', input.buttons['dpadUp'] ?? false, this.edgeState)) {

@@ -39,6 +39,15 @@ export class VirtualAtem extends EventEmitter {
     this.log.push(`setDownstreamKeyOnAir(${dskIndex}, ${onAir})`);
   }
 
+  async setDownstreamKeyRate(dskIndex: number, rateFrames: number): Promise<void> {
+    this.log.push(`setDownstreamKeyRate(${dskIndex}, ${rateFrames})`);
+  }
+
+  async autoDownstreamKey(dskIndex: number, isTowardsOnAir: boolean): Promise<void> {
+    this.state.dsk[dskIndex] = isTowardsOnAir;
+    this.log.push(`autoDownstreamKey(${dskIndex}, ${isTowardsOnAir})`);
+  }
+
   async setUpstreamKeyerOnAir(meIndex: number, keyIndex: number, onAir: boolean): Promise<void> {
     const key = `${meIndex}:${keyIndex}`;
     this.state.usk[key] = onAir;

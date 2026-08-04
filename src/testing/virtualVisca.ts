@@ -47,6 +47,17 @@ export class VirtualVisca {
     throw new Error(`VirtualVisca: unknown inquiry [${payload.join(', ')}]`);
   }
 
+  // Match the real ViscaClient inquiry interface used by ptzActions.queryPosition.
+  async queryPanTilt(): Promise<{ pan: number; tilt: number }> {
+    this.log.push('queryPanTilt()');
+    return { pan: this.state.pan, tilt: this.state.tilt };
+  }
+
+  async queryZoom(): Promise<{ zoom: number }> {
+    this.log.push('queryZoom()');
+    return { zoom: this.state.zoom };
+  }
+
   printLog(): void {
     console.log('=== VirtualVisca Log ===');
     this.log.forEach(l => console.log(' ', l));

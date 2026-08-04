@@ -1,17 +1,15 @@
 # Controller button mappings - managed by FPS CamControl UI
 panTilt: rightStick
-zoom: leftStickY
+zoomIn: rightTrigger
+zoomOut: leftTrigger
 cameraSelectLeft: leftStickLeft
 cameraSelectRight: leftStickRight
-takeLive: rightTrigger
 autoTransition: RB
-precisionMode: leftTrigger
-sprintMode: LS
-presetA: A
-presetB: B
-presetX: X
-presetY: Y
-presetSave: LB
+precisionMode: LS
+selectCam1: X
+selectCam2: A
+selectCam3: B
+selectCam4: Y
 speedUp: dpadUp
 speedDown: dpadDown
 lowerThirds: dpadLeft
