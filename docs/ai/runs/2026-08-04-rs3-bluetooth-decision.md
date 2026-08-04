@@ -2,9 +2,9 @@
 date: 2026-08-04
 repo: fps-camcontrol
 branch: main
-pr: none
+pr: 2
 issues: none
-status: verification passed; deployed; initial live bridge validation passed
+status: verification passed; deployed; integrated into PR 2; main merge pending
 tags: [run, fps-camcontrol]
 index: "[[fps-camcontrol]]"
 ---
@@ -131,3 +131,12 @@ index: "[[fps-camcontrol]]"
 - Remaining live-use checks: controller-driven motion, preset `moveTo`/`recenter`,
   SIGTERM/Ethernet yank, reconnect/reboot, and 30-minute idle/show soaks.
 - The `websockets.server` type-import deprecation warning is non-blocking future cleanup.
+
+## PR 2 integration
+
+- Merged current `main` into `fix/controller-visca-ptz-and-multi-cam`, resolved
+  controller/VISCA conflicts against the shared `MotionDevice` path, and added
+  the verified RS3 BLE commit.
+- Local checks passed: `pnpm build`, merged smoke 64/64, and Python 4/4.
+- `git diff --check main...HEAD` only reports trailing whitespace embedded in
+  PR #2's existing `docs/CamControl-Volunteer-Guide.pdf`; merge to `main` was not performed.

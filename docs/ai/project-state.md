@@ -8,7 +8,8 @@ type: project
 Complete the remaining live-use checks for the deployed DJI RS3 Bluetooth Low Energy bridge. The BLE driver and app-to-Pi WebSocket path have passed formal verification and initial end-to-end hardware validation. Core VISCA-IP + ATEM camera control remains field-ready pending first-service config.
 
 ## Active branch / PR
-`main`. No open PR. The working tree contains pre-existing source, configuration, documentation, and untracked changes from the RS3 work and unrelated work.
+`fix/controller-visca-ptz-and-multi-cam`; PR #2 targets `main`. Current `main`
+and the verified RS3 BLE work are integrated locally; merge to `main` is pending.
 
 ## In progress
 - The BLE bridge is deployed to `dji-bridge.local` (`192.168.10.150`) as user
@@ -29,6 +30,9 @@ Complete the remaining live-use checks for the deployed DJI RS3 Bluetooth Low En
 ## Test status
 - Verification gate passed: Python 4/4, `pnpm build`, smoke 36/36,
   `git diff --check`, and formal verification all passed.
+- Integrated PR #2 check: `pnpm build`, merged smoke 64/64, and Python 4/4
+  passed locally. `git diff --check main...HEAD` only reports trailing whitespace
+  embedded in PR #2's existing volunteer-guide PDF.
 - Target-Pi BLE discovery, telemetry, active pose, and bidirectional pan/tilt/roll
   passed. FPS-style visible pan streaming passed end to end; command cessation
   produced `safetyStop` reason `app_timeout` after 250 ms and automatic motion stop.
