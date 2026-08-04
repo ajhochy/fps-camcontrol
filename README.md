@@ -8,7 +8,7 @@ Supports VISCA-IP cameras (BirdDog, V-BOT, generic), a Blackmagic ATEM switcher,
 - ATEM switcher (tested with Mini/Mini Pro)
 - BirdDog PTZ cameras (or any VISCA-IP camera on port 52381)
 - Xbox controller (USB or Bluetooth) or Wii U Pro Controller
-- *Optional:* Raspberry Pi 5 + PiCAN3 + DJI RS-series gimbal for gimbal control
+- *Optional:* Raspberry Pi 5 with Bluetooth LE + DJI RS3 gimbal for gimbal control
 
 ## Quick Start
 
@@ -50,12 +50,10 @@ pnpm test:smoke
 
 ## DJI Gimbal Support
 
-A DJI RS-series gimbal (RS4 Pro target) can be added as another controllable
-camera via a small Raspberry Pi bridge that translates the app's WebSocket
-commands into DJI's CAN protocol. The bridge runs in pure mock mode against a
-dev box today, no hardware required — full architecture and protocol contract
-in [docs/dji-gimbal-spec.md](docs/dji-gimbal-spec.md), and the Pi build
-checklist in [docs/pi-implementation.md](docs/pi-implementation.md).
+A DJI RS3 can be added as another controllable camera via a Raspberry Pi bridge
+that translates the app's WebSocket commands into Bluetooth LE. The bridge also
+runs in mock mode on a dev box; deployment details are in
+[docs/pi-implementation.md](docs/pi-implementation.md).
 
 Quick start (mock bridge on the dev box):
 

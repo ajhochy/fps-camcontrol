@@ -4,13 +4,12 @@ DJI RS gimbal bridge for fps-camcontrol.
 
 Speaks the WebSocket/JSON protocol documented in docs/dji-gimbal-spec.md §5.
 Hosts a WS server on configurable host:port, performs capability negotiation
-on `hello`, enforces a safety watchdog, and delegates motor commands to a
-pluggable driver (mock by default; real DJI SDK driver to be added once the
-SDK is downloaded and the CAN hardware is wired).
+    on `hello`, enforces a safety watchdog, and delegates motor commands to a
+    pluggable driver (mock by default; RS3 Bluetooth LE when selected).
 
 Usage:
     python3 dji_bridge.py --port 7878 --driver mock
-    python3 dji_bridge.py --port 7878 --driver dji-rs-sdk --can-iface can0
+    python3 dji_bridge.py --port 7878 --driver dji-rs3-ble --ble-address 34:D2:62:15:A5:47
 """
 
 import argparse
@@ -56,6 +55,8 @@ class Session:
         try:
             async for raw in self.ws:
                 await self._handle(raw)
+        except websockets.exceptions.ConnectionClosed:
+            log.info("client connection closed")
         finally:
             if self.safety_task and not self.safety_task.done():
                 self.safety_task.cancel()
@@ -213,16 +214,14 @@ async def serve(host: str, port: int, driver: GimbalDriver, safety_timeout_ms: i
 def build_driver(name: str, args: argparse.Namespace) -> GimbalDriver:
     if name == "mock":
         return MockDriver()
-    if name == "dji-rs-sdk":
-        # Real driver TBD — depends on SDK download + CAN hardware.
-        # Skeleton import is deferred so the bridge can run in mock mode
-        # without the SDK being present.
+    if name == "dji-rs3-ble":
+        # Deferred import keeps mock mode usable without bleak installed.
         try:
             from drivers.dji_rs_driver import DjiRsDriver  # type: ignore
         except ImportError as e:
-            print(f"dji-rs-sdk driver not yet implemented: {e}", file=sys.stderr)
+            print(f"dji-rs3-ble driver unavailable: {e}", file=sys.stderr)
             sys.exit(2)
-        return DjiRsDriver(can_iface=args.can_iface, bitrate=args.can_bitrate)
+        return DjiRsDriver(address=args.ble_address)
     print(f"unknown driver: {name}", file=sys.stderr)
     sys.exit(2)
 
@@ -231,10 +230,9 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=7878)
-    ap.add_argument("--driver", default="mock", choices=["mock", "dji-rs-sdk"])
+    ap.add_argument("--driver", default="mock", choices=["mock", "dji-rs3-ble"])
     ap.add_argument("--safety-timeout-ms", type=int, default=DEFAULT_SAFETY_TIMEOUT_MS)
-    ap.add_argument("--can-iface", default="can0")
-    ap.add_argument("--can-bitrate", type=int, default=1_000_000)
+    ap.add_argument("--ble-address", help="RS3 BLE address (or DJI_RS3_BLE_ADDRESS)")
     ap.add_argument("--log-level", default="INFO")
     args = ap.parse_args()
 

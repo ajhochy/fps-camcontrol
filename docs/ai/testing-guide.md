@@ -8,6 +8,8 @@ pnpm test:smoke     # ts-node src/testing/smokeTest.ts
 ```
 The smoke suite runs entirely against virtual hardware — no ATEM, cameras, gimbal, or controller required.
 
+The Pi bridge's `bleak>=3.0.2` runtime requires Python >=3.10.
+
 ## What's covered
 - Custom virtual-hardware smoke suite (`src/testing/smokeTest.ts`): **36/36 assertions** as of Round 11.
 - VISCA path via `virtualVisca.ts` (incl. preset save/recall round-trip).
@@ -18,7 +20,9 @@ The smoke suite runs entirely against virtual hardware — no ATEM, cameras, gim
 ## What's NOT covered (manual verification only)
 - Real VISCA cameras (BirdDog / V-BOT) — needs the cameras on the LAN at their configured IPs.
 - Real ATEM switcher — input IDs, DSK/USK index, transition behavior.
-- Real DJI gimbal — the `dji_rs_driver.py` is a stub; CAN path is unverified against hardware.
+- Real DJI bridge deployment — focused fake-BLE driver tests cover RS3 frame
+  mapping, active pose translation, and neutral stop/close, but do not replace
+  safety-confirmed end-to-end bridge validation on the Pi.
 - V-BOT tilt direction (inverted byte) on the actual unit.
 
 ## Manual smoke (real gear)
@@ -34,3 +38,9 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python3 dji_bridge.py --driver mock --port 7878
 ```
 Uncomment the `cam4` block in `config/devices.yaml`, restart the app, and confirm the gimbal joins camera selection. Soak procedure: `docs/pi-implementation.md` §12.
+
+## RS3 BLE driver tests
+```bash
+python3 -m unittest discover -s pi-bridge/tests -v
+```
+These use an injected fake BLE transport; no gimbal or `bleak` installation is required.
