@@ -53,7 +53,10 @@ python3 -m venv .venv
 # Create the stable path only after the repository venv exists:
 ln -sfn /home/worship/fps-camcontrol/pi-bridge /home/worship/dji-bridge
 sudo install -m 600 /dev/null /etc/default/dji-bridge
-echo 'DJI_RS3_BLE_ADDRESS=34:D2:62:15:A5:47' | sudo tee /etc/default/dji-bridge
+sudo tee /etc/default/dji-bridge <<'EOF'
+DJI_RS3_BLE_ADDRESS=34:D2:62:15:A5:47
+DJI_RS3_MAX_JOYSTICK=200
+EOF
 
 # Install the systemd unit:
 sudo cp systemd/dji-bridge.service /etc/systemd/system/
@@ -67,6 +70,10 @@ journalctl -u dji-bridge -f
 The service uses the stable symlink's `.venv/bin/python3`. Mock mode does not
 import `bleak`. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the
 adapted RS3 protocol attribution and license.
+
+`DJI_RS3_MAX_JOYSTICK` scales normalized joystick input; it defaults to `200`
+and is clamped to the RS3 safe protocol range `1..1000`. Tune it only while
+viewing actual camera video.
 
 ## Architecture
 

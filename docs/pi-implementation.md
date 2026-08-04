@@ -25,7 +25,10 @@ Set the RS3 address (the validated target address is shown only as an example):
 
 ```bash
 sudo install -m 600 /dev/null /etc/default/dji-bridge
-echo 'DJI_RS3_BLE_ADDRESS=34:D2:62:15:A5:47' | sudo tee /etc/default/dji-bridge
+sudo tee /etc/default/dji-bridge <<'EOF'
+DJI_RS3_BLE_ADDRESS=34:D2:62:15:A5:47
+DJI_RS3_MAX_JOYSTICK=200
+EOF
 ```
 
 Run foreground first, then install the bundled systemd unit:
@@ -40,6 +43,8 @@ sudo systemctl daemon-reload && sudo systemctl enable --now dji-bridge
 `--ble-address` overrides `DJI_RS3_BLE_ADDRESS`. The driver actively polls pose
 telemetry and sends a native stop plus three neutral joystick frames on every
 stop/close. Keep the Ronin app disconnected while the bridge owns the gimbal.
+`DJI_RS3_MAX_JOYSTICK` defaults to `200` and clamps to the RS3 safe protocol
+range `1..1000`; tune it only while viewing actual camera video.
 
 > **Historical CAN fallback only:** sections 1–11 below predate the RS3 BLE
 > deployment. Use the RS3 BLE deployment section above for active setup.

@@ -1,6 +1,7 @@
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
@@ -37,7 +38,30 @@ class DjiRsDriverTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_velocity_maps_normalized_pan_tilt_roll_to_rs3_axes(self):
         await self.driver.move_velocity(0.5, -0.25, 1.0)
-        self.assertEqual(payload(self.transport.frames[-1]), b"\xec\x03\x50\x04\x28\x04\0\0\x02")
+        self.assertEqual(payload(self.transport.frames[-1]), b"\xce\x03\xc8\x04\x64\x04\0\0\x02")
+
+    async def test_velocity_maps_normalized_extremes_to_configured_maximum(self):
+        await self.driver.move_velocity(1.0, -1.0, 0.0)
+        self.assertEqual(payload(self.transport.frames[-1]), b"\x38\x03\0\x04\xc8\x04\0\0\x02")
+
+    def test_joystick_max_defaults_to_200_and_constructor_overrides_environment(self):
+        with patch.dict("os.environ", {"DJI_RS3_MAX_JOYSTICK": "300"}, clear=False):
+            env_driver = DjiRsDriver("test", transport_factory=FakeTransport)
+            override_driver = DjiRsDriver("test", transport_factory=FakeTransport, max_joystick=400)
+        self.assertEqual(env_driver.max_joystick, 300)
+        self.assertEqual(override_driver.max_joystick, 400)
+
+        with patch.dict("os.environ", {"DJI_RS3_MAX_JOYSTICK": ""}, clear=False):
+            default_driver = DjiRsDriver("test", transport_factory=FakeTransport)
+        self.assertEqual(default_driver.max_joystick, 200)
+
+    def test_joystick_max_clamps_safe_range_and_rejects_invalid_values(self):
+        for configured, expected in (("-1", 1), ("1001", 1000), ("invalid", 200)):
+            with self.subTest(configured=configured), patch.dict(
+                "os.environ", {"DJI_RS3_MAX_JOYSTICK": configured}, clear=False
+            ):
+                driver = DjiRsDriver("test", transport_factory=FakeTransport)
+                self.assertEqual(driver.max_joystick, expected)
 
     async def test_active_pose_poll_translates_tilt_roll_pan_to_attitude(self):
         pose = await self.driver.get_position()

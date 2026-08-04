@@ -6,7 +6,8 @@ import { logger } from '../index';
 
 export interface AxisDef {
   byte: number;
-  type: 'int16' | 'int16le' | 'uint8' | 'uint16le';
+  type: 'int16' | 'int16le' | 'uint8' | 'uint16le' | 'uint12le';
+  bitOffset?: number;
   range: [number, number];
 }
 
@@ -29,6 +30,7 @@ export function detectConnectionType(device: HID.Device): 'usb' | 'bluetooth' {
   // On macOS, Bluetooth HID device paths typically contain 'Bluetooth'
   const p = (device.path ?? '').toLowerCase();
   if (p.includes('bluetooth')) return 'bluetooth';
+  if (/^(?:[0-9a-f]{2}:){5}[0-9a-f]{2}$/i.test(device.serialNumber ?? '')) return 'bluetooth';
   // Fallback: check vendor/product against known Bluetooth-only product IDs.
   // On modern macOS the path is "DevSrvsID:XXXXXXXXXX" for all HID devices
   // (USB and BT alike), so the path check above never fires — this list is the

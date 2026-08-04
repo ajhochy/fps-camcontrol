@@ -3,7 +3,7 @@ import http from 'http';
 import path from 'path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { AppState, CameraId } from '../app/state';
-import { AppConfig, MappingConfig, saveMappings, validateDevicesConfig, saveDevicesConfig } from '../config/configLoader';
+import { AppConfig, CameraConfig, MappingConfig, saveMappings, validateDevicesConfig, saveDevicesConfig } from '../config/configLoader';
 import { PresetManager } from '../model/presetManager';
 import { ActivityLog } from '../app/activityLog';
 import { ViscaDevice } from '../devices/viscaDevice';
@@ -128,7 +128,7 @@ export function createStatusServer(
 
   app.post('/api/config', (req, res) => {
     try {
-      const parsed = validateDevicesConfig(req.body);
+      const parsed = validateDevicesConfig(preserveNonViscaCameraFields(req.body, config.cameras));
 
       // Detect ATEM IP change before mutating config
       const atemIpChanged = parsed.atem.ip !== config.atem.ip;
@@ -221,6 +221,20 @@ export function createStatusServer(
   });
 
   return app;
+}
+
+export function preserveNonViscaCameraFields(raw: unknown, existingCameras: CameraConfig[]): unknown {
+  if (!raw || typeof raw !== 'object' || !Array.isArray((raw as { cameras?: unknown }).cameras)) return raw;
+  return {
+    ...raw as Record<string, unknown>,
+    cameras: (raw as { cameras: unknown[] }).cameras.map(camera => {
+      if (!camera || typeof camera !== 'object') return camera;
+      const current = existingCameras.find(existing => existing.id === (camera as { id?: unknown }).id);
+      return current?.protocol === 'dji-bridge'
+        ? { ...camera as Record<string, unknown>, protocol: current.protocol, bridge: current.bridge }
+        : camera;
+    }),
+  };
 }
 
 export function startStatusServer(
@@ -903,6 +917,8 @@ function cameraRowHtml(cam, idx) {
     '<span style="color:#7af;font-size:0.8rem">Camera ' + (idx+1) + '</span>' +
     '<button class="btn-sm" style="color:#f44;border-color:#800" data-rowid="' + id + '" onclick="removeCameraRow(this.dataset.rowid)">Remove</button>' +
     '</div>' +
+    '<input type="hidden" name="cam-protocol" value="' + esc(cam.protocol || 'visca') + '">' +
+    '<input type="hidden" name="cam-bridge" value="' + esc(JSON.stringify(cam.bridge || null)) + '">' +
     '<table style="width:100%"><tbody>' +
     '<tr><td style="color:#888;width:110px">ID</td><td><input class="cfg-input" name="cam-id" value="' + esc(cam.id) + '"></td></tr>' +
     '<tr><td style="color:#888">Label</td><td><input class="cfg-input" name="cam-label" value="' + esc(cam.label) + '"></td></tr>' +
@@ -969,14 +985,21 @@ async function saveDeviceConfig() {
   var rows = document.getElementById('cameras-editor').children;
   for (var i = 0; i < rows.length; i++) {
     var r = rows[i];
-    cameras.push({
+    var protocol = r.querySelector('[name="cam-protocol"]').value;
+    var camera = {
       id: r.querySelector('[name="cam-id"]').value.trim(),
       label: r.querySelector('[name="cam-label"]').value.trim(),
       cameraType: r.querySelector('[name="cam-type"]').value,
-      viscaIp: r.querySelector('[name="cam-ip"]').value.trim(),
-      viscaPort: parseInt(r.querySelector('[name="cam-port"]').value, 10) || 52381,
       inputId: parseInt(r.querySelector('[name="cam-input"]').value, 10) || 1,
-    });
+      protocol: protocol,
+    };
+    if (protocol === 'visca') {
+      camera.viscaIp = r.querySelector('[name="cam-ip"]').value.trim();
+      camera.viscaPort = parseInt(r.querySelector('[name="cam-port"]').value, 10) || 52381;
+    } else {
+      camera.bridge = JSON.parse(r.querySelector('[name="cam-bridge"]').value);
+    }
+    cameras.push(camera);
   }
   var statusEl = document.getElementById('config-save-status');
   statusEl.textContent = 'Saving…';

@@ -9,7 +9,8 @@ User=worship
 WorkingDirectory=/home/worship/dji-bridge
 Environment=PYTHONUNBUFFERED=1
 # Target deployment convention: /home/worship/dji-bridge -> repo pi-bridge/.
-# Create /etc/default/dji-bridge with DJI_RS3_BLE_ADDRESS=34:D2:62:15:A5:47.
+# Create /etc/default/dji-bridge with DJI_RS3_BLE_ADDRESS and optional
+# DJI_RS3_MAX_JOYSTICK=200 (safe range 1..1000; tune while viewing camera video).
 EnvironmentFile=-/etc/default/dji-bridge
 ExecStart=/home/worship/dji-bridge/.venv/bin/python3 /home/worship/dji-bridge/dji_bridge.py --host 0.0.0.0 --port 7878 --driver dji-rs3-ble
 Restart=on-failure

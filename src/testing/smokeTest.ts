@@ -1,5 +1,5 @@
 import { defaultState, AppState, CameraId } from '../app/state';
-import { AppConfig } from '../config/configLoader';
+import { AppConfig, validateDevicesConfig } from '../config/configLoader';
 import { VirtualAtem } from './virtualAtem';
 import { VirtualVisca } from './virtualVisca';
 import { AtemClient } from '../atem/atemClient';
@@ -265,8 +265,50 @@ async function runTests(): Promise<void> {
     });
   });
 
+  // ===== Switch Pro Controller and config save regressions =====
+  console.log('\nTest 10: Switch Pro Bluetooth profile and packed axes');
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { normalizeHIDReport } = require('../input/normalizers');
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { loadProfiles, detectConnectionType, detectProfile } = require('../input/profileDetector');
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { preserveNonViscaCameraFields } = require('../ui/statusServer');
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const path = require('path');
+  const switchProfile = loadProfiles(path.join(process.cwd(), 'controller-profiles')).find((p: any) => p.name === 'Nintendo Switch Pro Controller (Bluetooth)');
+  const switchDevice = { vendorId: 0x057e, productId: 0x2009, path: 'DevSrvsID:4297576981', serialNumber: '98:B6:E9:24:69:83' };
+  assert('Switch Pro MAC serial is detected as Bluetooth', detectConnectionType(switchDevice) === 'bluetooth');
+  assert('Switch Pro profile matches at startup', detectProfile(switchDevice, [switchProfile]) === switchProfile);
+  const idleSwitchReport = Buffer.from('30a48000000000f87f00f87f0c0ffdc6fe3111d4ffc9fffbff10fdc6fe3011d5ffcafffbff10fdc6fe3011d5ffcafffbff', 'hex');
+  const idleSwitchInput = normalizeHIDReport(idleSwitchReport, switchProfile);
+  assert('Switch Pro captured idle sticks normalize near zero', Object.values(idleSwitchInput.axes).every((axis: any) => Math.abs(axis) < 0.001));
+  const extremeSwitchReport = Buffer.alloc(49, 0);
+  function packSwitchStick(offset: number, x: number, y: number): void {
+    extremeSwitchReport[offset] = x & 0xff;
+    extremeSwitchReport[offset + 1] = ((x >> 8) & 0x0f) | ((y & 0x0f) << 4);
+    extremeSwitchReport[offset + 2] = y >> 4;
+  }
+  packSwitchStick(6, 0, 4095);
+  packSwitchStick(9, 4095, 0);
+  const extremeSwitchInput = normalizeHIDReport(extremeSwitchReport, switchProfile);
+  assert('Switch Pro packed 12-bit extremes normalize correctly', extremeSwitchInput.axes.leftStickX === -1 && extremeSwitchInput.axes.leftStickY === 1 && extremeSwitchInput.axes.rightStickX === 1 && extremeSwitchInput.axes.rightStickY === -1);
+
+  console.log('\nTest 11: config save preserves DJI bridge camera');
+  const djiCamera = {
+    id: 'cam4', label: 'DJI RS3', protocol: 'dji-bridge' as const, cameraType: 'generic' as const, inputId: 4,
+    bridge: { host: '192.168.10.150', port: 7878, gimbalModel: 'RS3', safetyTimeoutMs: 250, reconnectBackoffMs: [1000, 2000, 5000, 15000], rollEnabled: false },
+  };
+  const savedConfig = validateDevicesConfig(preserveNonViscaCameraFields({
+    atem: config.atem,
+    graphics: config.graphics,
+    cameras: [{ id: 'cam4', label: 'DJI RS3 renamed', cameraType: 'generic', inputId: 4, viscaIp: '' }],
+  }, [djiCamera]));
+  assert('config save keeps dji-bridge protocol', savedConfig.cameras[0].protocol === 'dji-bridge');
+  assert('config save preserves full DJI bridge object', JSON.stringify(savedConfig.cameras[0].bridge) === JSON.stringify(djiCamera.bridge));
+  assert('config save still applies DJI label and input edits', savedConfig.cameras[0].label === 'DJI RS3 renamed' && savedConfig.cameras[0].inputId === 4);
+
   // ===== DJI bridge device =====
-  console.log('\nTest 10: DJI bridge — hello, velocity, getPosition, moveTo, stop');
+  console.log('\nTest 12: DJI bridge — hello, velocity, getPosition, moveTo, stop');
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { VirtualDjiBridge } = require('./virtualDjiBridge');
   // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -352,7 +394,7 @@ async function runTests(): Promise<void> {
   await bridge.stop();
 
   // Roll capability gating
-  console.log('\nTest 11: Roll capability is opt-in via rollEnabled');
+  console.log('\nTest 13: Roll capability is opt-in via rollEnabled');
   const rollBridge = new VirtualDjiBridge({ capabilities: ['velocity', 'position', 'moveTo', 'roll'] });
   const rollPort = await rollBridge.start();
   const djiRollOff = new DjiBridgeDevice(
