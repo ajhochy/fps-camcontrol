@@ -1,18 +1,54 @@
 # Raspberry Pi Implementation — DJI RS Gimbal Bridge
 
-End-to-end build guide for the Pi side of the DJI RS gimbal integration. All
-software referenced here is already in the repo at [pi-bridge/](../pi-bridge/);
-the only code work still outstanding is the real DJI driver (step 11 below).
-For protocol-level detail and architectural rationale see
-[dji-gimbal-spec.md](./dji-gimbal-spec.md).
+End-to-end build guide for the Pi side of the DJI RS gimbal integration. The
+supported RS3 deployment is Bluetooth LE; it uses the self-contained driver in
+[pi-bridge/](../pi-bridge/) and keeps the existing WebSocket port `7878`.
 
-> **Hardware-side, this is plug-it-together work.** Steps 1–10 are pure assembly
-> and config. Step 11 is bounded software work against the DJI SDK PDF. Step 12
-> is soak testing.
+> **CAN/PiCAN3 sections below are historical fallback notes, superseded for the
+> RS3 by BLE.** Do not follow their bring-up or systemd instructions for this
+> deployment.
+
+## RS3 BLE deployment
+
+Install Bluetooth support and bridge dependencies:
+
+```bash
+sudo apt update && sudo apt install -y python3-pip python3-venv bluez
+sudo systemctl enable --now bluetooth
+python3 --version  # Python >=3.10 required by bleak>=3.0.2
+cd /home/worship/fps-camcontrol/pi-bridge
+python3 -m venv .venv
+.venv/bin/python3 -m pip install -r requirements.txt
+```
+
+Set the RS3 address (the validated target address is shown only as an example):
+
+```bash
+sudo install -m 600 /dev/null /etc/default/dji-bridge
+echo 'DJI_RS3_BLE_ADDRESS=34:D2:62:15:A5:47' | sudo tee /etc/default/dji-bridge
+```
+
+Run foreground first, then install the bundled systemd unit:
+
+```bash
+.venv/bin/python3 dji_bridge.py --host 0.0.0.0 --port 7878 --driver dji-rs3-ble
+ln -sfn /home/worship/fps-camcontrol/pi-bridge /home/worship/dji-bridge
+sudo cp systemd/dji-bridge.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now dji-bridge
+```
+
+`--ble-address` overrides `DJI_RS3_BLE_ADDRESS`. The driver actively polls pose
+telemetry and sends a native stop plus three neutral joystick frames on every
+stop/close. Keep the Ronin app disconnected while the bridge owns the gimbal.
+
+> **Historical CAN fallback only:** sections 1–11 below predate the RS3 BLE
+> deployment. Use the RS3 BLE deployment section above for active setup.
 
 ---
 
-## 1. Buy the parts
+## Historical CAN fallback (sections 1–11; not the active RS3 deployment)
+
+### 1. Buy the parts
 
 | Component | Purpose | Approx. cost |
 |---|---|---|
@@ -34,7 +70,7 @@ hard-codes against; not worth porting).
 
 ---
 
-## 2. Assemble
+### 2. Assemble
 
 1. Seat the PiCAN3 HAT on the Pi's GPIO header. Don't power up yet.
 2. Ethernet from the PoE++ switch → splitter input.
@@ -48,7 +84,7 @@ hard-codes against; not worth porting).
 
 ---
 
-## 3. Flash the OS
+### 3. Flash the OS
 
 1. Flash **Raspberry Pi OS Lite (64-bit)** to the SD card using Raspberry Pi
    Imager. In the imager's Advanced menu:
@@ -62,7 +98,7 @@ hard-codes against; not worth porting).
 
 ---
 
-## 4. Baseline system setup
+### 4. Baseline system setup
 
 ```bash
 sudo apt update && sudo apt full-upgrade -y
@@ -74,7 +110,7 @@ bring-up verification in step 6.
 
 ---
 
-## 5. Enable the PiCAN3
+### 5. Enable the PiCAN3
 
 Edit `/boot/firmware/config.txt` (or `/boot/config.txt` on older OS images) and
 add at the end:
@@ -96,7 +132,7 @@ sudo reboot
 
 ---
 
-## 6. Bring the CAN bus up and verify wiring
+### 6. Bring the CAN bus up and verify wiring
 
 ```bash
 # Bring up can0 at 1 Mbit (DJI RS SDK protocol v2.2 standard).
@@ -125,11 +161,10 @@ this assumes a working bus.
 
 ---
 
-## 7. Persist the CAN bring-up across reboots
+### 7. Persist the CAN bring-up across reboots
 
-Add to `/etc/systemd/network/80-can0.network` (or use a `pre-up` rule, or rely
-on the systemd unit's `ExecStartPre` which already does this — pick one
-approach, not all three):
+Add to `/etc/systemd/network/80-can0.network` (or use a `pre-up` rule; pick one
+approach, not both):
 
 ```ini
 # /etc/systemd/network/80-can0.network
@@ -140,27 +175,26 @@ Name=can0
 BitRate=1000000
 ```
 
-The bundled [dji-bridge.service](../pi-bridge/systemd/dji-bridge.service) also
-runs `ip link set can0 up type can bitrate 1000000` in `ExecStartPre`, so this
-network-unit approach is optional belt-and-suspenders.
+The current bundled service is BLE-only and has no CAN `ExecStartPre`; use this
+network-unit approach only if deliberately restoring the historical CAN path.
 
 ---
 
-## 8. Deploy the bridge code
+### 8. Historical CAN deployment example
 
 ```bash
-git clone https://github.com/ajhochy/fps-camcontrol /home/pi/fps-camcontrol
-cd /home/pi/fps-camcontrol/pi-bridge
+git clone https://github.com/ajhochy/fps-camcontrol /home/worship/fps-camcontrol
+cd /home/worship/fps-camcontrol/pi-bridge
 python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
+.venv/bin/python3 -m pip install -r requirements.txt
 
 # Stable symlink the systemd unit expects:
-sudo ln -s /home/pi/fps-camcontrol/pi-bridge /home/pi/dji-bridge
+ln -sfn /home/worship/fps-camcontrol/pi-bridge /home/worship/dji-bridge
 ```
 
 ---
 
-## 9. Smoke test in mock mode
+### 9. Smoke test in mock mode
 
 Validates the network path end-to-end before involving the real gimbal:
 
@@ -195,34 +229,18 @@ that goes wrong later is hardware/SDK, not the bridge plumbing.
 
 ---
 
-## 10. Install systemd unit
+### 10. Historical CAN systemd notes
 
-```bash
-sudo cp /home/pi/dji-bridge/systemd/dji-bridge.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now dji-bridge
-
-# Watch it:
-journalctl -u dji-bridge -f
-```
-
-The unit currently runs `--driver mock`. Edit `ExecStart` in the unit file
-once the real driver lands (step 11).
-
-If `systemctl status dji-bridge` shows `permission denied` running
-`ip link set can0`, give the unit's user passwordless sudo for that command:
-
-```bash
-echo 'pi ALL=(ALL) NOPASSWD: /sbin/ip link set can0 *' | sudo tee /etc/sudoers.d/dji-bridge-can
-```
+The current bundled unit is the RS3 BLE unit documented above; it runs as
+`worship` from `/home/worship/dji-bridge/.venv/bin/python3` and has no CAN
+bring-up command. Retain CAN startup only in a separate fallback unit.
 
 ---
 
-## 11. Write the real DJI driver (the one remaining code task)
+### 11. Historical CAN driver notes
 
-The bridge's mock driver and protocol skeleton are done. The only thing left
-is to translate the bridge's six methods into real CAN frames to the gimbal.
-Stub lives at [pi-bridge/drivers/dji_rs_driver.py](../pi-bridge/drivers/dji_rs_driver.py).
+The real RS3 BLE driver is implemented. The following CAN research is retained
+as a fallback reference only.
 
 ### Decide the path
 
@@ -274,8 +292,8 @@ sudo systemctl edit dji-bridge   # or edit /etc/systemd/system/dji-bridge.servic
 Change `ExecStart` to:
 
 ```
-ExecStart=/home/pi/dji-bridge/.venv/bin/python3 /home/pi/dji-bridge/dji_bridge.py \
-    --host 0.0.0.0 --port 7878 --driver dji-rs-sdk --can-iface can0
+ExecStart=/home/worship/dji-bridge/.venv/bin/python3 /home/worship/dji-bridge/dji_bridge.py \
+    --host 0.0.0.0 --port 7878 --driver dji-rs3-ble
 ```
 
 Then `sudo systemctl daemon-reload && sudo systemctl restart dji-bridge`.
@@ -308,8 +326,8 @@ Before trusting this in a live show:
    nothing wedges and no commands get dropped.
 
 5. **Firmware lock.** Note the gimbal's firmware version after step 4 passes.
-   **Pin that firmware** before live use — DJI firmware changes can alter the
-   CAN protocol. Re-soak before adopting any future firmware update.
+    **Pin that firmware** before live use — DJI firmware changes can alter BLE
+    protocol behavior. Re-soak before adopting any future firmware update.
 
 ---
 
@@ -317,11 +335,9 @@ Before trusting this in a live show:
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `candump can0` shows nothing | Pinout flipped | Rotate RSA connector 180° |
-| `candump can0` shows error frames only | Bus terminator missing or wrong bitrate | Enable PiCAN3 120 Ω jumper; re-verify 1 Mbit |
 | App shows cam4 red, bridge log shows hello timeout | Firewall blocking 7878 | `sudo ufw allow 7878/tcp` (or disable ufw entirely on the bridge) |
-| Bridge log: `ImportError: drivers.dji_rs_driver` | Trying `--driver dji-rs-sdk` before step 11 | Use `--driver mock` until the real driver is written |
-| Gimbal moves erratically | SDK speed unit mapping wrong | Check the Interface Diagram PDF's speed-byte range; the bridge sends `[-1.0, 1.0]` and your driver maps it |
+| Bridge log: `set --ble-address or DJI_RS3_BLE_ADDRESS` | RS3 address has not been configured | Set `DJI_RS3_BLE_ADDRESS` in `/etc/default/dji-bridge` or pass `--ble-address` |
+| Gimbal moves erratically | BLE joystick scaling or direction needs tuning | Center controls, then verify one axis at a time with the RS3 safely supported |
 | Safety stops firing during normal use | App not streaming velocity at expected rate | Check controller tick rate is ~33 Hz; check Pi's network jitter |
 | Bridge reconnects in a loop | Network/auth issue or mismatched protocol version | Check `journalctl`; bump `bridge.reconnectBackoffMs` in app config |
 
@@ -331,16 +347,16 @@ Before trusting this in a live show:
 
 | Component | Location | Source |
 |---|---|---|
-| Bridge daemon | `/home/pi/fps-camcontrol/pi-bridge/dji_bridge.py` | this repo |
-| Drivers | `/home/pi/fps-camcontrol/pi-bridge/drivers/` | this repo |
-| Python venv | `/home/pi/fps-camcontrol/pi-bridge/.venv/` | `requirements.txt` |
+| Bridge daemon | `/home/worship/dji-bridge/dji_bridge.py` | stable symlink to this repo |
+| Drivers | `/home/worship/dji-bridge/drivers/` | stable symlink to this repo |
+| Python venv | `/home/worship/dji-bridge/.venv/` | `requirements.txt` |
 | Systemd unit | `/etc/systemd/system/dji-bridge.service` | copied from `pi-bridge/systemd/` |
-| CAN bring-up | systemd unit's `ExecStartPre` | bundled |
+| RS3 transport | Bluetooth LE | bundled driver |
 | Logs | `journalctl -u dji-bridge` | systemd |
 
 Pull updates with:
 
 ```bash
-cd /home/pi/fps-camcontrol && git pull
+cd /home/worship/fps-camcontrol && git pull
 sudo systemctl restart dji-bridge
 ```

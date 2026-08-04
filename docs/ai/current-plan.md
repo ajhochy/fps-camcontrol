@@ -1,18 +1,28 @@
+---
+type: project
+---
+
 # Current Plan — fps-camcontrol
 
 ## Active plan
-Finish DJI RS-series gimbal support. App-side and Pi-bridge software are done (mock bridge, 36/36 smoke). The remaining work is hardware-blocked: acquire the Pi kit, bring up CAN, then write the one real driver.
+Finish the remaining live-use checks for the verified and deployed DJI RS3 BLE bridge. Implementation, formal verification, target-Pi BLE motion, app handshake, end-to-end pan streaming, watchdog stop, and clean disconnect behavior have passed.
 
 ## Next steps
-1. **Order parts (~$200):** Pi 5, PiCAN3 HAT, PoE++ splitter, RSA pigtail, microSD, enclosure + standoffs.
-2. **Assemble + flash** RPi OS Lite; baseline `apt` setup.
-3. **Enable PiCAN3** in `/boot/firmware/config.txt`; bring up `can0` at 1 Mbit.
-4. **Verify wiring** — `candump can0` must show DJI frames (hard gate before any further step).
-5. **Deploy bridge in mock mode** against the live app to prove the network path.
-6. **Write the real DJI driver** in `pi-bridge/drivers/dji_rs_driver.py` — six methods against `base.py`. If DJI's SDK has a Linux build, wrap via `ctypes`/`cffi`; if Windows-only, implement CAN directly with `python-can` against the RS Stabilizer External Interface Diagram PDF (~200–300 lines). The mock driver is a working lifecycle reference.
-7. **Verify before live use:** soak test per `docs/pi-implementation.md` §12 (30 min idle, 250 ms safety-timeout on Ethernet yank, heartbeat reconnect, 30 min mock show), then pin gimbal firmware.
 
-All hardware/bridge steps are documented step-by-step in `docs/pi-implementation.md`.
+1. Run a controller-driven live pan/tilt test through FPS CamControl.
+2. Verify preset `moveTo` and `recenter` against the physical RS3.
+3. Verify safe stop on bridge SIGTERM and Ethernet yank.
+4. Verify app/bridge recovery after reconnect and Pi reboot.
+5. Complete 30-minute idle and representative-show soaks.
+
+The deployed target is `dji-bridge.local` (`192.168.10.150`), user `worship`.
+The active and enabled `dji-bridge` service uses `/home/worship/dji-bridge`, a
+symlink to `/home/worship/fps-camcontrol/pi-bridge`; RS3 address
+`34:D2:62:15:A5:47` is set in `/etc/default/dji-bridge`. FPS CamControl `cam4`
+is enabled as DJI RS3.
+
+The `websockets.server` type-import deprecation warning is non-blocking cleanup,
+not a live-use gate.
 
 ## Post-hardware polish (not blockers)
 - Web UI editor for DJI devices — `statusHtml()` only exposes VISCA fields today; DJI cameras are YAML-only. ~30 min to add `protocol`, `bridge.host`, `bridge.port`, `rollEnabled`.
@@ -26,5 +36,5 @@ All hardware/bridge steps are documented step-by-step in `docs/pi-implementation
 - Save shot-zone presets (LB + hold A/B/X/Y) per camera.
 
 ## Out of scope / parked
-- Bluetooth gimbal control (DJI's protocol is closed, never reverse-engineered — not viable).
-- USB-C gimbal control (impossible on RS-series — CAN bus required).
+- CAN/PiCAN3 gimbal transport — retained as a fallback, superseded by the tested RS3 BLE path.
+- USB-C gimbal control (unsupported on RS-series; use BLE primary or CAN fallback).

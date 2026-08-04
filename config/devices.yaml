@@ -31,17 +31,16 @@ cameras:
     cameraAddress: 1
     speedScale: 0.5
 
-  # Example DJI RS4 Pro gimbal — uncomment and update host when Pi bridge is up
-  # - id: cam4
-  #   label: "DJI RS4 Pro"
-  #   protocol: "dji-bridge"
-  #   inputId: 4
-  #   bridge:
-  #     host: "192.168.50.40"
-  #     port: 7878
-  #     gimbalModel: "RS4Pro"
-  #     safetyTimeoutMs: 250
-  #     rollEnabled: false
+  - id: cam4
+    label: "DJI RS3"
+    protocol: "dji-bridge"
+    inputId: 4
+    bridge:
+      host: "192.168.10.150"
+      port: 7878
+      gimbalModel: "RS3"
+      safetyTimeoutMs: 250
+      rollEnabled: false
 
 graphics:
   type: dsk

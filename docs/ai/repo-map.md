@@ -1,3 +1,7 @@
+---
+type: project
+---
+
 # Repo Map — fps-camcontrol
 
 ## Key directories
@@ -21,9 +25,9 @@ fps-camcontrol/
 │   ├── ui/                   ← statusServer (Express status + config web UI), routes/
 │   ├── visca/                ← viscaClient (UDP + VISCA-IP header + inquiry parser), ptzActions, speedCurves
 │   └── index.ts              ← startup, wiring, connectivity probe summary
-├── pi-bridge/                ← Python WebSocket→CAN bridge for DJI gimbals (runs on a Raspberry Pi)
+├── pi-bridge/                ← Python WebSocket→RS3 Bluetooth LE bridge (runs on a Raspberry Pi)
 │   ├── dji_bridge.py         ← async websockets server; 250ms safety watchdog
-│   ├── drivers/              ← base.py (GimbalDriver protocol), mock_driver.py, dji_rs_driver.py (stub)
+│   ├── drivers/              ← base.py (GimbalDriver protocol), mock_driver.py, RS3 BLE driver
 │   └── systemd/              ← dji-bridge.service production unit
 ├── docs/                     ← dji-gimbal-spec.md, pi-implementation.md, Visca_command_list_new.pdf, ai/
 ├── AGENTS.md                 ← agent guidance
@@ -39,7 +43,7 @@ fps-camcontrol/
 ## Dependencies
 **Runtime:** `atem-connection`, `node-hid`, `express`, `js-yaml`, `zod`, `pino`, `pino-pretty`, `ws`
 **Dev:** `@types/express`, `@types/js-yaml`, `@types/node`, `@types/node-hid`, `@types/ws`, `ts-node`, `typescript`
-**Pi bridge:** Python `websockets`, `python-can` (for the real CAN driver)
+**Pi bridge:** Python `websockets`, `bleak` (for the RS3 BLE driver)
 
 ## Environment variables (from code scan)
 - `DEVICES_CONFIG` — path to devices.yaml (default `config/devices.yaml`)
@@ -47,6 +51,7 @@ fps-camcontrol/
 - `PRESETS_FILE` — path to presets.json (default `config/presets.json`)
 - `SPEEDS_FILE` — path to speeds.json (default `config/speeds.json`)
 - `STATUS_PORT` — Express status UI port (default `8080`)
+- `DJI_RS3_BLE_ADDRESS` — RS3 Linux BLE address (overridden by `--ble-address`)
 
 ## Hot files (auto-generated — snapshot)
 From the auto-generated repo map (single initial commit — all files at 1 change). Most likely to be touched in future work:
