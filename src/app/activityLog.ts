@@ -5,7 +5,7 @@ export interface ActivityEntry {
   device: string;
   input: string;
   command: string;
-  protocol: 'VISCA' | 'ATEM' | 'System';
+  protocol: 'VISCA' | 'ATEM' | 'DJI-BRIDGE' | 'System';
   message: string;
   targetName: string;
   targetIp: string;

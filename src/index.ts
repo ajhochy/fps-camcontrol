@@ -9,7 +9,8 @@ export const logger = (global as any).__testLogger ?? pino({
 import { loadConfig } from './config/configLoader';
 import { defaultState, AppState, CameraId } from './app/state';
 import { AtemClient } from './atem/atemClient';
-import { ViscaClient } from './visca/viscaClient';
+import { MotionDevice } from './devices/motionDevice';
+import { createMotionDevice } from './devices/deviceFactory';
 import { loadProfiles, findConnectedController } from './input/profileDetector';
 import { GamepadDevice } from './input/gamepad';
 import { normalizeHIDReport } from './input/normalizers';
@@ -39,18 +40,17 @@ async function main() {
   }
 
   // Step 2: Connect to cameras (non-blocking)
-  const viscaClients = new Map<CameraId, ViscaClient>();
+  const devices = new Map<CameraId, MotionDevice>();
   for (const cam of config.cameras) {
-    const client = new ViscaClient(cam.id, cam.viscaIp, cam.viscaPort, cam.cameraType, cam.cameraAddress);
-    client.setActivityLog(activityLog, cam.label);
-    client.on('connected', () => {
+    const device = createMotionDevice(cam, activityLog);
+    device.on('connected', () => {
       state.cameraConnected[cam.id as CameraId] = true;
     });
-    client.on('disconnected', () => {
+    device.on('disconnected', () => {
       state.cameraConnected[cam.id as CameraId] = false;
     });
-    viscaClients.set(cam.id as CameraId, client);
-    client.connect();
+    devices.set(cam.id as CameraId, device);
+    device.connect();
   }
 
   // Step 3 & 4: Detect controller and load profile
@@ -58,8 +58,8 @@ async function main() {
   const profiles = loadProfiles(profilesDir);
   const found = findConnectedController(profiles);
 
-  const presetManager = new PresetManager(state, config, viscaClients);
-  const machine = new ControlStateMachine(state, config, atem, viscaClients, activityLog);
+  const presetManager = new PresetManager(state, config, devices);
+  const machine = new ControlStateMachine(state, config, atem, devices, activityLog);
 
   if (found) {
     logger.info({ profile: found.profile.name, connectionType: found.connectionType }, 'controller profile loaded');
@@ -117,10 +117,10 @@ async function main() {
   startControllerLoop(machine);
 
   // Watchdog
-  startWatchdog(state, atem, viscaClients);
+  startWatchdog(state, atem, devices);
 
   // Step 10: Status UI
-  const app = createStatusServer(state, config, presetManager, activityLog, atem, viscaClients);
+  const app = createStatusServer(state, config, presetManager, activityLog, atem, devices);
   const port = parseInt(process.env.STATUS_PORT ?? '8080', 10);
   startStatusServer(app, activityLog, port);
 
@@ -130,7 +130,7 @@ async function main() {
   process.on('SIGINT', () => {
     logger.info('shutting down');
     atem.disconnect();
-    for (const [, client] of viscaClients) client.close();
+    for (const [, device] of devices) device.close();
     process.exit(0);
   });
 }

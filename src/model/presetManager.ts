@@ -1,20 +1,59 @@
 import fs from 'fs';
 import { z } from 'zod';
 import { AppState, CameraId, PresetSlot } from '../app/state';
-import { CameraConfig, AppConfig } from '../config/configLoader';
-import { ViscaClient } from '../visca/viscaClient';
-import { gotoAbsolutePosition, queryPosition, PTZPosition } from '../visca/ptzActions';
+import { AppConfig } from '../config/configLoader';
+import { MotionDevice, DevicePosition } from '../devices/motionDevice';
 import { logger } from '../index';
 
-const PTZPositionSchema = z.object({
+const ViscaPositionSchema = z.object({
+  kind: z.literal('visca'),
   pan: z.number(),
   tilt: z.number(),
   zoom: z.number(),
-}).nullable();
+});
 
-const PresetsDataSchema = z.record(z.string(), z.record(z.string(), PTZPositionSchema));
+const GimbalPositionSchema = z.object({
+  kind: z.literal('gimbal'),
+  yaw: z.number(),
+  pitch: z.number(),
+  roll: z.number(),
+  zoom: z.number().optional(),
+});
+
+const PositionSchema = z.union([ViscaPositionSchema, GimbalPositionSchema]).nullable();
+const PresetsDataSchema = z.record(z.string(), z.record(z.string(), PositionSchema));
 
 type PresetData = z.infer<typeof PresetsDataSchema>;
+
+// Legacy preset slots had shape {pan,tilt,zoom} without a kind discriminator.
+// Migrate them to {kind:'visca', ...} on first load.
+function migrateLegacy(raw: unknown): PresetData {
+  if (typeof raw !== 'object' || raw === null) return {};
+  const out: PresetData = {};
+  for (const [camId, slots] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof slots !== 'object' || slots === null) continue;
+    out[camId] = {};
+    for (const [slot, pos] of Object.entries(slots as Record<string, unknown>)) {
+      if (pos === null || pos === undefined) {
+        out[camId][slot] = null;
+        continue;
+      }
+      if (typeof pos !== 'object') {
+        out[camId][slot] = null;
+        continue;
+      }
+      const p = pos as Record<string, unknown>;
+      if (p.kind === 'visca' || p.kind === 'gimbal') {
+        out[camId][slot] = p as unknown as z.infer<typeof PositionSchema>;
+      } else if (typeof p.pan === 'number' && typeof p.tilt === 'number' && typeof p.zoom === 'number') {
+        out[camId][slot] = { kind: 'visca', pan: p.pan, tilt: p.tilt, zoom: p.zoom };
+      } else {
+        out[camId][slot] = null;
+      }
+    }
+  }
+  return out;
+}
 
 export class PresetManager {
   private presetsFile: string;
@@ -23,7 +62,7 @@ export class PresetManager {
   constructor(
     private state: AppState,
     private config: AppConfig,
-    private viscaClients: Map<CameraId, ViscaClient>
+    private devices: Map<CameraId, MotionDevice>
   ) {
     this.presetsFile = process.env.PRESETS_FILE ?? 'config/presets.json';
     this.data = this.loadPresets();
@@ -31,7 +70,9 @@ export class PresetManager {
 
   private loadPresets(): PresetData {
     try {
-      return JSON.parse(fs.readFileSync(this.presetsFile, 'utf8'));
+      const raw = JSON.parse(fs.readFileSync(this.presetsFile, 'utf8'));
+      const migrated = migrateLegacy(raw);
+      return PresetsDataSchema.parse(migrated);
     } catch {
       const empty: PresetData = {};
       for (const cam of this.config.cameras) {
@@ -51,20 +92,25 @@ export class PresetManager {
       logger.debug({ cameraId, slot }, 'preset slot empty, ignoring');
       return;
     }
-    const client = this.viscaClients.get(cameraId);
-    if (!client) return;
-    gotoAbsolutePosition(client, pos);
+    const device = this.devices.get(cameraId);
+    if (!device) return;
+    try {
+      await device.moveTo(pos);
+    } catch (err) {
+      logger.error({ err, cameraId, slot }, 'preset recall error');
+      return;
+    }
     this.state.lastPresetNotification = `${cameraId} → ${slot}`;
     logger.info({ cameraId, slot }, 'preset recalled');
   }
 
   async savePreset(cameraId: CameraId, slot: PresetSlot): Promise<void> {
-    const client = this.viscaClients.get(cameraId);
-    if (!client) throw new Error(`No VISCA client for camera ${cameraId}`);
+    const device = this.devices.get(cameraId);
+    if (!device) throw new Error(`No motion device for camera ${cameraId}`);
 
-    let pos: PTZPosition;
+    let pos: DevicePosition;
     try {
-      pos = await queryPosition(client);
+      pos = await device.getPosition();
     } catch (err) {
       const msg = 'Save failed — could not read camera position';
       this.state.lastPresetNotification = msg;

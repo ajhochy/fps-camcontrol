@@ -1,8 +1,7 @@
 import { AtemClient } from './atemClient';
 import { AppState, CameraId } from '../app/state';
 import { CameraConfig, AppConfig } from '../config/configLoader';
-import { ViscaClient } from '../visca/viscaClient';
-import { stopPTZ } from '../visca/ptzActions';
+import { MotionDevice } from '../devices/motionDevice';
 import { logger } from '../index';
 
 // After a take, the camera that just left air becomes both the standby (green)
@@ -13,7 +12,7 @@ import { logger } from '../index';
 function armPreviousProgramAsStandby(
   state: AppState,
   cameras: CameraConfig[],
-  viscaClients: Map<CameraId, ViscaClient>
+  devices: Map<CameraId, MotionDevice>
 ): void {
   const previousProgram = state.programCamera;
   const nowLive = state.controlledCamera;
@@ -24,8 +23,7 @@ function armPreviousProgramAsStandby(
 
   // The camera we just took goes live — stop any joystick PTZ so it doesn't
   // keep drifting on air once control hands off to the new standby.
-  const liveClient = viscaClients.get(nowLive);
-  if (liveClient) stopPTZ(liveClient);
+  devices.get(nowLive)?.stop();
 
   state.previewCamera = previousProgram;
   state.controlledCamera = previousProgram;
@@ -37,13 +35,13 @@ export async function cutControlledCameraLive(
   atem: AtemClient,
   state: AppState,
   cameras: CameraConfig[],
-  viscaClients: Map<CameraId, ViscaClient>
+  devices: Map<CameraId, MotionDevice>
 ): Promise<void> {
   const cam = cameras.find(c => c.id === state.controlledCamera);
   if (!cam) return;
   await atem.changePreviewInput(cam.inputId);
   await atem.cut();
-  armPreviousProgramAsStandby(state, cameras, viscaClients);
+  armPreviousProgramAsStandby(state, cameras, devices);
   logger.info({ program: state.programCamera, standby: state.previewCamera }, 'cut live');
 }
 
@@ -51,13 +49,13 @@ export async function autoTransitionControlledCamera(
   atem: AtemClient,
   state: AppState,
   cameras: CameraConfig[],
-  viscaClients: Map<CameraId, ViscaClient>
+  devices: Map<CameraId, MotionDevice>
 ): Promise<void> {
   const cam = cameras.find(c => c.id === state.controlledCamera);
   if (!cam) return;
   await atem.changePreviewInput(cam.inputId);
   await atem.autoTransition();
-  armPreviousProgramAsStandby(state, cameras, viscaClients);
+  armPreviousProgramAsStandby(state, cameras, devices);
   logger.info({ program: state.programCamera, standby: state.previewCamera }, 'auto transition');
 }
 

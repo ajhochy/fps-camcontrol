@@ -6,7 +6,9 @@ import { AppState, CameraId } from '../app/state';
 import { AppConfig, MappingConfig, saveMappings, validateDevicesConfig, saveDevicesConfig } from '../config/configLoader';
 import { PresetManager } from '../model/presetManager';
 import { ActivityLog } from '../app/activityLog';
-import { ViscaClient } from '../visca/viscaClient';
+import { ViscaDevice } from '../devices/viscaDevice';
+import { MotionDevice } from '../devices/motionDevice';
+import { createMotionDevice } from '../devices/deviceFactory';
 import { AtemClient } from '../atem/atemClient';
 import { loadProfiles, detectConnectionType } from '../input/profileDetector';
 import { eventBus } from '../app/eventBus';
@@ -18,7 +20,7 @@ export function createStatusServer(
   presetManager: PresetManager,
   activityLog: ActivityLog,
   atem: AtemClient,
-  viscaClients: Map<CameraId, ViscaClient>
+  devices: Map<CameraId, MotionDevice>
 ): express.Express {
   const app = express();
   app.use(express.json());
@@ -138,39 +140,40 @@ export function createStatusServer(
       config.atem = parsed.atem;
       config.graphics = parsed.graphics;
 
-      // Reconcile VISCA clients
-      const oldIds = new Set(viscaClients.keys());
+      // Reconcile motion devices
+      const oldIds = new Set(devices.keys());
       const newIds = new Set(parsed.cameras.map(c => c.id as CameraId));
 
       // Remove deleted cameras
       for (const id of oldIds) {
         if (!newIds.has(id)) {
-          viscaClients.get(id)?.close();
-          viscaClients.delete(id);
+          devices.get(id)?.close();
+          devices.delete(id);
           delete state.cameraConnected[id];
         }
       }
 
-      // Add or update cameras
+      // Add or update cameras via factory (VISCA or DJI bridge).
       for (const cam of parsed.cameras) {
         const id = cam.id as CameraId;
-        const existing = viscaClients.get(id);
+        const existing = devices.get(id);
         const oldCam = config.cameras.find(c => c.id === cam.id);
         const changed = !existing || !oldCam ||
+          oldCam.protocol !== cam.protocol ||
           oldCam.viscaIp !== cam.viscaIp ||
           oldCam.viscaPort !== cam.viscaPort ||
           oldCam.cameraType !== cam.cameraType ||
-          oldCam.cameraAddress !== cam.cameraAddress;
+          oldCam.cameraAddress !== cam.cameraAddress ||
+          JSON.stringify(oldCam.bridge) !== JSON.stringify(cam.bridge);
 
         if (changed) {
           existing?.close();
-          const client = new ViscaClient(cam.id, cam.viscaIp, cam.viscaPort, cam.cameraType, cam.cameraAddress);
-          client.setActivityLog(activityLog, cam.label);
-          client.on('connected', () => { state.cameraConnected[id] = true; });
-          client.on('disconnected', () => { state.cameraConnected[id] = false; });
-          viscaClients.set(id, client);
-          client.connect();
-        } else if (existing && oldCam && oldCam.label !== cam.label) {
+          const device = createMotionDevice(cam, activityLog);
+          device.on('connected', () => { state.cameraConnected[id] = true; });
+          device.on('disconnected', () => { state.cameraConnected[id] = false; });
+          devices.set(id, device);
+          device.connect();
+        } else if (existing && existing instanceof ViscaDevice && oldCam && oldCam.label !== cam.label) {
           existing.setActivityLog(activityLog, cam.label);
         }
       }
@@ -201,10 +204,10 @@ export function createStatusServer(
   });
 
   app.post('/api/reconnect/camera/:id', (req, res) => {
-    const client = viscaClients.get(req.params.id as CameraId);
-    if (!client) { res.status(404).json({ error: 'unknown camera' }); return; }
-    client.close();
-    client.connect();
+    const device = devices.get(req.params.id as CameraId);
+    if (!device) { res.status(404).json({ error: 'unknown camera' }); return; }
+    device.close();
+    device.connect();
     res.json({ ok: true });
   });
 

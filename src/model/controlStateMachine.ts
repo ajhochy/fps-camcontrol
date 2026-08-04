@@ -1,29 +1,25 @@
-import { AppState, CameraId } from '../app/state';
-import { CameraConfig, AppConfig } from '../config/configLoader';
+import { AppState, CameraId, PresetSlot } from '../app/state';
+import { AppConfig } from '../config/configLoader';
 import { AtemClient } from '../atem/atemClient';
-import { ViscaClient } from '../visca/viscaClient';
+import { MotionDevice } from '../devices/motionDevice';
 import { NormalizedInput } from '../input/normalizers';
 import { EdgeState, createEdgeState, risingEdge } from '../input/edgeTriggers';
 import { CameraSelector } from './cameraSelector';
+import { PresetManager } from './presetManager';
 import { SpeedManager } from './speedManager';
 import { autoTransitionControlledCamera, toggleLowerThirds } from '../atem/switcherActions';
-import { panTilt, zoom, stopPTZ } from '../visca/ptzActions';
 import { applyCurve, applyDeadzone, clamp } from '../visca/speedCurves';
 import { emergencyStopAll } from '../safety/emergencyStop';
 import { ActivityLog } from '../app/activityLog';
 import { logger } from '../index';
 
-// Ignore trigger noise below this before it counts as a zoom command.
 const TRIGGER_DEADZONE = 0.05;
-
-// Face-button camera hotkeys. Each button arms the camera at the matching
-// index in the configured camera list as standby — same effect as a left-stick
-// flick, just direct. Order: X→cam[0], A→cam[1], B→cam[2], Y→cam[3].
 const FACE_CAMERA_BUTTONS = ['X', 'A', 'B', 'Y'] as const;
+const INPUT_STALE_MS = 250;
+const PTZ_HEARTBEAT_MS = 250;
 
 const INPUT_LABELS: Record<string, string> = {
   rightStick: 'Right Stick',
-  leftStickY: 'Left Stick Y',
   leftStickX: 'Left Stick X',
   rightTrigger: 'Right Trigger',
   RB: 'RB Button',
@@ -33,22 +29,13 @@ const INPUT_LABELS: Record<string, string> = {
   Y: 'Y Button',
   dpadUp: 'D-pad Up',
   dpadDown: 'D-pad Down',
-  dpadLeft: 'D-pad Left',
-  dpadRight: 'D-pad Right',
   back: 'Back Button',
 };
 
-const INPUT_STALE_MS = 250;
-// PTZ throttling: VISCA cameras process commands sequentially. Sending fresh
-// pan/tilt frames every 16ms (60Hz) overflows the camera's input queue and
-// causes the eventual stop to wait behind ~60 queued moves — felt as ~1s
-// release latency. We send a new frame only when the encoded speed/direction
-// bytes change, with a heartbeat every PTZ_HEARTBEAT_MS to keep the camera
-// moving (some firmwares auto-stop after ~500ms of silence).
-const PTZ_HEARTBEAT_MS = 250;
-
 interface LastSent {
-  pan: number; tilt: number; ts: number;
+  pan: number;
+  tilt: number;
+  ts: number;
 }
 
 export class ControlStateMachine {
@@ -56,22 +43,24 @@ export class ControlStateMachine {
   private lastInput: NormalizedInput | null = null;
   private lastInputTs = 0;
   private cameraSelector: CameraSelector;
+  private presetManager: PresetManager;
   private speedManager: SpeedManager;
   private wasMovingPT = false;
   private wasMovingZoom = false;
-  private lastPanTilt: Map<CameraId, LastSent> = new Map();
-  private lastZoom: Map<CameraId, { speed: number; ts: number }> = new Map();
+  private lastPanTilt = new Map<CameraId, LastSent>();
+  private lastZoom = new Map<CameraId, { speed: number; ts: number }>();
   private activityLog: ActivityLog | null;
 
   constructor(
     private state: AppState,
     private config: AppConfig,
     private atem: AtemClient,
-    private viscaClients: Map<CameraId, ViscaClient>,
+    private devices: Map<CameraId, MotionDevice>,
     activityLog: ActivityLog | null = null
   ) {
     this.activityLog = activityLog;
-    this.cameraSelector = new CameraSelector(state, config.cameras, atem, viscaClients);
+    this.cameraSelector = new CameraSelector(state, config.cameras, atem, devices);
+    this.presetManager = new PresetManager(state, config, devices);
     this.speedManager = new SpeedManager(state, config);
   }
 
@@ -84,100 +73,81 @@ export class ControlStateMachine {
     const input = this.lastInput;
     if (!input) return;
 
-    // Safety: if controller isn't reporting fresh data, force-stop any in-flight PTZ
-    // motion and skip the rest of the tick. Prevents stale axis values from being
-    // re-sent at 60Hz when the HID device closes or hangs.
-    const stale = !this.state.controllerConnected || Date.now() - this.lastInputTs > INPUT_STALE_MS;
-    if (stale) {
-      if (this.wasMovingPT || this.wasMovingZoom) {
-        const currentClient = this.viscaClients.get(this.state.controlledCamera);
-        if (currentClient) {
-          stopPTZ(currentClient);
-          zoom(currentClient, 0);
-        }
-        this.wasMovingPT = false;
-        this.wasMovingZoom = false;
+    const currentDevice = this.devices.get(this.state.controlledCamera);
+    if (!this.state.controllerConnected || Date.now() - this.lastInputTs > INPUT_STALE_MS) {
+      if (currentDevice && (this.wasMovingPT || this.wasMovingZoom)) {
+        currentDevice.stop();
+        currentDevice.setZoom(0);
       }
+      this.wasMovingPT = false;
+      this.wasMovingZoom = false;
+      this.lastPanTilt.clear();
+      this.lastZoom.clear();
       return;
     }
 
-    const device = this.state.activeControllerProfile ?? 'Unknown';
-
-    // Left-stick click = Precision Mode (slow, fine control). Sprint removed.
+    const controller = this.state.activeControllerProfile ?? 'Unknown';
     this.state.precisionMode = input.buttons['LS'] ?? false;
     this.state.sprintMode = false;
 
-    // Camera selector — left stick X flick
     const leftX = applyDeadzone(input.axes['leftStickX'] ?? 0);
-    const prevCamera = this.state.controlledCamera;
+    const previousCamera = this.state.controlledCamera;
     this.cameraSelector.handleLeftStickX(leftX);
-    if (this.state.controlledCamera !== prevCamera) {
-      const camLabel = this.config.cameras.find(c => c.id === this.state.controlledCamera)?.label ?? this.state.controlledCamera;
-      this.activityLog?.setContext(device, INPUT_LABELS['leftStickX'], `Cam → ${camLabel}`);
-      this.activityLog?.addSystemEntry(`Cam → ${camLabel}`, '—');
+    if (this.state.controlledCamera !== previousCamera) {
+      const label = this.config.cameras.find(c => c.id === this.state.controlledCamera)?.label ?? this.state.controlledCamera;
+      this.activityLog?.setContext(controller, INPUT_LABELS.leftStickX, `Cam → ${label}`);
+      this.activityLog?.addSystemEntry(`Cam → ${label}`, '—');
     }
 
-    // PTZ — right stick (pan/tilt) + triggers (zoom: RT = in/tele, LT = out/wide)
-    const rightX = applyDeadzone(input.axes['rightStickX'] ?? 0);
-    const rightY = applyDeadzone(input.axes['rightStickY'] ?? 0);
-    const rt = input.triggers['rightTrigger'] ?? 0;
-    const lt = input.triggers['leftTrigger'] ?? 0;
-    // Combined analog zoom axis: positive = zoom in, negative = zoom out. If both
-    // triggers are pressed they cancel. Speed follows how hard the trigger is
-    // pulled, scaled by the D-pad speed preset (and Precision if LS is held).
-    const zoomAxis = (rt > TRIGGER_DEADZONE ? rt : 0) - (lt > TRIGGER_DEADZONE ? lt : 0);
+    const device = this.devices.get(this.state.controlledCamera);
+    const rightX = applyDeadzone(input.axes.rightStickX ?? 0);
+    const rightY = applyDeadzone(input.axes.rightStickY ?? 0);
+    const rightTrigger = input.triggers.rightTrigger ?? 0;
+    const leftTrigger = input.triggers.leftTrigger ?? 0;
+    const zoomAxis = (rightTrigger > TRIGGER_DEADZONE ? rightTrigger : 0)
+      - (leftTrigger > TRIGGER_DEADZONE ? leftTrigger : 0);
     const movingPT = rightX !== 0 || rightY !== 0;
     const movingZoom = zoomAxis !== 0;
 
-    const currentClient = this.viscaClients.get(this.state.controlledCamera);
-    if (currentClient) {
-      const camId = this.state.controlledCamera;
+    if (device) {
+      const cameraId = this.state.controlledCamera;
       const now = Date.now();
 
       if (movingPT && !this.wasMovingPT) {
-        this.activityLog?.setContext(device, INPUT_LABELS['rightStick'], 'Pan/Tilt Start');
-      }
-      if (!movingPT && this.wasMovingPT) {
-        this.activityLog?.setContext(device, INPUT_LABELS['rightStick'], 'Pan/Tilt Stop');
-        stopPTZ(currentClient);
-        this.lastPanTilt.delete(camId);
+        this.activityLog?.setContext(controller, INPUT_LABELS.rightStick, 'Pan/Tilt Start');
+      } else if (!movingPT && this.wasMovingPT) {
+        this.activityLog?.setContext(controller, INPUT_LABELS.rightStick, 'Pan/Tilt Stop');
+        device.stop();
+        this.lastPanTilt.delete(cameraId);
       }
       if (movingPT) {
-        // Throttle: only resend panTilt when the *normalized* speed/direction
-        // delta crosses a meaningful threshold or the heartbeat interval expired.
-        const newPan = this.getEffectiveSpeed(rightX);
-        const newTilt = this.getEffectiveSpeed(-rightY);
-        const last = this.lastPanTilt.get(camId);
-        const changed = !last
-          || Math.abs(newPan - last.pan) > 0.05
-          || Math.abs(newTilt - last.tilt) > 0.05
-          || Math.sign(newPan) !== Math.sign(last.pan)
-          || Math.sign(newTilt) !== Math.sign(last.tilt);
-        const stale = last && now - last.ts >= PTZ_HEARTBEAT_MS;
-        if (changed || stale) {
-          panTilt(currentClient, newPan, newTilt);
-          this.lastPanTilt.set(camId, { pan: newPan, tilt: newTilt, ts: now });
+        const pan = this.getEffectiveSpeed(rightX);
+        const tilt = this.getEffectiveSpeed(-rightY);
+        const last = this.lastPanTilt.get(cameraId);
+        const changed = !last || Math.abs(pan - last.pan) > 0.05 || Math.abs(tilt - last.tilt) > 0.05
+          || Math.sign(pan) !== Math.sign(last.pan) || Math.sign(tilt) !== Math.sign(last.tilt);
+        const heartbeatDue = !!last && now - last.ts >= PTZ_HEARTBEAT_MS;
+        if (device.protocol !== 'visca' || changed || heartbeatDue) {
+          device.setPanTilt(pan, tilt);
+          this.lastPanTilt.set(cameraId, { pan, tilt, ts: now });
         }
       }
 
       if (movingZoom && !this.wasMovingZoom) {
-        this.activityLog?.setContext(device, zoomAxis > 0 ? 'Right Trigger' : 'Left Trigger', zoomAxis > 0 ? 'Zoom In' : 'Zoom Out');
-      }
-      if (!movingZoom && this.wasMovingZoom) {
-        this.activityLog?.setContext(device, 'Triggers', 'Zoom Stop');
-        zoom(currentClient, 0);
-        this.lastZoom.delete(camId);
+        this.activityLog?.setContext(controller, zoomAxis > 0 ? 'Right Trigger' : 'Left Trigger', zoomAxis > 0 ? 'Zoom In' : 'Zoom Out');
+      } else if (!movingZoom && this.wasMovingZoom) {
+        this.activityLog?.setContext(controller, 'Triggers', 'Zoom Stop');
+        device.setZoom(0);
+        this.lastZoom.delete(cameraId);
       }
       if (movingZoom) {
-        const newZoom = this.getEffectiveSpeed(zoomAxis);
-        const last = this.lastZoom.get(camId);
-        const changed = !last
-          || Math.abs(newZoom - last.speed) > 0.05
-          || Math.sign(newZoom) !== Math.sign(last.speed);
-        const stale = last && now - last.ts >= PTZ_HEARTBEAT_MS;
-        if (changed || stale) {
-          zoom(currentClient, newZoom);
-          this.lastZoom.set(camId, { speed: newZoom, ts: now });
+        const speed = this.getEffectiveSpeed(zoomAxis);
+        const last = this.lastZoom.get(cameraId);
+        const changed = !last || Math.abs(speed - last.speed) > 0.05 || Math.sign(speed) !== Math.sign(last.speed);
+        const heartbeatDue = !!last && now - last.ts >= PTZ_HEARTBEAT_MS;
+        if (device.protocol !== 'visca' || changed || heartbeatDue) {
+          device.setZoom(speed);
+          this.lastZoom.set(cameraId, { speed, ts: now });
         }
       }
     }
@@ -185,71 +155,71 @@ export class ControlStateMachine {
     this.wasMovingPT = movingPT;
     this.wasMovingZoom = movingZoom;
 
-    // Take Live — RB / Auto Transition (the hard cut on RT was removed; RT/LT now zoom)
-    if (risingEdge('RB', input.buttons['RB'] ?? false, this.edgeState)) {
-      this.activityLog?.setContext(device, INPUT_LABELS['RB'], 'Auto Transition');
-      autoTransitionControlledCamera(this.atem, this.state, this.config.cameras, this.viscaClients).catch(err => {
-        logger.error({ err }, 'auto transition error');
-      });
+    if (risingEdge('RB', input.buttons.RB ?? false, this.edgeState)) {
+      const recenterDevice = this.devices.get(this.state.controlledCamera);
+      if (input.buttons.LB && recenterDevice?.recenter) {
+        this.activityLog?.setContext(controller, 'LB + RB', 'Recenter');
+        recenterDevice.recenter().catch(err => logger.error({ err }, 'recenter error'));
+      } else {
+        this.activityLog?.setContext(controller, INPUT_LABELS.RB, 'Auto Transition');
+        autoTransitionControlledCamera(this.atem, this.state, this.config.cameras, this.devices)
+          .catch(err => logger.error({ err }, 'auto transition error'));
+      }
     }
 
-    // Face buttons A/B/X/Y — arm a camera as standby directly (hotkeys).
-    FACE_CAMERA_BUTTONS.forEach((btn, idx) => {
-      if (idx >= this.config.cameras.length) return;
-      if (risingEdge(btn, input.buttons[btn] ?? false, this.edgeState)) {
-        const prevCamera = this.state.controlledCamera;
-        this.cameraSelector.selectByIndex(idx);
-        if (this.state.controlledCamera !== prevCamera) {
-          const camLabel = this.config.cameras[idx].label;
-          this.activityLog?.setContext(device, INPUT_LABELS[btn], `Cam → ${camLabel}`);
-          this.activityLog?.addSystemEntry(`Cam → ${camLabel}`, '—');
-        }
+    FACE_CAMERA_BUTTONS.forEach((button, index) => {
+      if (!risingEdge(button, input.buttons[button] ?? false, this.edgeState)) return;
+      if (input.buttons.LB) {
+        const slot = button as PresetSlot;
+        this.activityLog?.setContext(controller, `LB + ${slot}`, `Preset ${slot} Save`);
+        this.presetManager.savePreset(this.state.controlledCamera, slot)
+          .catch(err => logger.error({ err }, 'preset save error'));
+        return;
+      }
+      if (index >= this.config.cameras.length) return;
+      const before = this.state.controlledCamera;
+      this.cameraSelector.selectByIndex(index);
+      if (this.state.controlledCamera !== before) {
+        const label = this.config.cameras[index].label;
+        this.activityLog?.setContext(controller, INPUT_LABELS[button], `Cam → ${label}`);
+        this.activityLog?.addSystemEntry(`Cam → ${label}`, '—');
       }
     });
 
-    // Speed presets — D-pad up/down
-    if (risingEdge('dpadUp', input.buttons['dpadUp'] ?? false, this.edgeState)) {
+    if (risingEdge('dpadUp', input.buttons.dpadUp ?? false, this.edgeState)) {
       this.speedManager.increment();
       const name = this.config.speeds.presets[this.state.speedPreset]?.name ?? String(this.state.speedPreset);
-      this.activityLog?.setContext(device, INPUT_LABELS['dpadUp'], 'Speed Up');
+      this.activityLog?.setContext(controller, INPUT_LABELS.dpadUp, 'Speed Up');
       this.activityLog?.addSystemEntry('Speed Up', `Speed → ${name}`);
     }
-    if (risingEdge('dpadDown', input.buttons['dpadDown'] ?? false, this.edgeState)) {
+    if (risingEdge('dpadDown', input.buttons.dpadDown ?? false, this.edgeState)) {
       this.speedManager.decrement();
       const name = this.config.speeds.presets[this.state.speedPreset]?.name ?? String(this.state.speedPreset);
-      this.activityLog?.setContext(device, INPUT_LABELS['dpadDown'], 'Speed Down');
+      this.activityLog?.setContext(controller, INPUT_LABELS.dpadDown, 'Speed Down');
       this.activityLog?.addSystemEntry('Speed Down', `Speed → ${name}`);
     }
 
-    // Lower thirds — D-pad left or right
-    const ltToggle =
-      risingEdge('dpadLeft', input.buttons['dpadLeft'] ?? false, this.edgeState) ||
-      risingEdge('dpadRight', input.buttons['dpadRight'] ?? false, this.edgeState);
-    if (ltToggle) {
-      const newState = !this.state.lowerThirdsActive;
-      this.activityLog?.setContext(device, 'D-pad Left/Right', `Lower Thirds ${newState ? 'ON' : 'OFF'}`);
-      toggleLowerThirds(this.atem, this.state, this.config).catch(err => {
-        logger.error({ err }, 'lower thirds toggle error');
-      });
+    const toggleKey = risingEdge('dpadLeft', input.buttons.dpadLeft ?? false, this.edgeState)
+      || risingEdge('dpadRight', input.buttons.dpadRight ?? false, this.edgeState);
+    if (toggleKey) {
+      this.activityLog?.setContext(controller, 'D-pad Left/Right', `Lower Thirds ${this.state.lowerThirdsActive ? 'OFF' : 'ON'}`);
+      toggleLowerThirds(this.atem, this.state, this.config)
+        .catch(err => logger.error({ err }, 'lower thirds toggle error'));
     }
 
-    // Emergency stop — back button
-    if (risingEdge('back', input.buttons['back'] ?? false, this.edgeState)) {
-      this.activityLog?.setContext(device, INPUT_LABELS['back'], 'Emergency Stop');
+    if (risingEdge('back', input.buttons.back ?? false, this.edgeState)) {
+      this.activityLog?.setContext(controller, INPUT_LABELS.back, 'Emergency Stop');
       this.activityLog?.addSystemEntry('Emergency Stop', 'All cameras stopped, PTZ halted');
-      emergencyStopAll(this.state, this.config, this.atem, this.viscaClients).catch(err => {
-        logger.error({ err }, 'emergency stop error');
-      });
+      emergencyStopAll(this.state, this.config, this.atem, this.devices)
+        .catch(err => logger.error({ err }, 'emergency stop error'));
     }
   }
 
   private getEffectiveSpeed(raw: number): number {
-    const activeMultiplier = this.config.speeds.presets[this.state.speedPreset].multiplier;
-    const cam = this.config.cameras.find(c => c.id === this.state.controlledCamera);
-    const camScale = cam?.speedScale ?? 1.0;
-    let speed = applyCurve(raw) * activeMultiplier * camScale;
+    const multiplier = this.config.speeds.presets[this.state.speedPreset].multiplier;
+    const cameraScale = this.config.cameras.find(c => c.id === this.state.controlledCamera)?.speedScale ?? 1;
+    let speed = applyCurve(raw) * multiplier * cameraScale;
     if (this.state.precisionMode) speed *= 0.25;
-    if (this.state.sprintMode) speed *= 1.75;
     return clamp(speed, -1, 1);
   }
 }
