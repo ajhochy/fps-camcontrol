@@ -1,5 +1,5 @@
 import { defaultState, AppState, CameraId } from '../app/state';
-import { AppConfig } from '../config/configLoader';
+import { AppConfig, resolveProfile } from '../config/configLoader';
 import { VirtualAtem } from './virtualAtem';
 import { VirtualVisca } from './virtualVisca';
 import { AtemClient } from '../atem/atemClient';
@@ -574,6 +574,42 @@ async function runTests(): Promise<void> {
     !explainOpenFailure({ kind: 'openDenied', err: null }, 'usb').includes('USB cable'));
 
   supervisor.stop();
+
+  // Test 14: environment profiles resolve into camera slots.
+  // Slot order defines cam1..camN, which is also the X/A/B/Y hotkey order, so a
+  // profile swap must renumber slots without touching anything downstream.
+  console.log('\nTest 14: profiles resolve devices into camera slots');
+  const inventory = {
+    vbot: { label: 'V-BOT', protocol: 'visca' as const, cameraType: 'vbot' as const, viscaIp: '10.0.0.1', viscaPort: 52381, cameraAddress: 1, speedScale: 2 },
+    rs3: { label: 'DJI RS3', protocol: 'dji-bridge' as const, cameraType: 'generic' as const, viscaPort: 52381, cameraAddress: 1, speedScale: 1,
+           bridge: { host: 'pi.local', port: 7878, safetyTimeoutMs: 250, reconnectBackoffMs: [1000], rollEnabled: false } },
+    rs3proA: { label: 'RS3 Pro A', protocol: 'dji-bridge' as const, cameraType: 'generic' as const, viscaPort: 52381, cameraAddress: 1, speedScale: 1,
+               bridge: { host: 'pi.local', port: 7879, safetyTimeoutMs: 250, reconnectBackoffMs: [1000], rollEnabled: false } },
+  };
+
+  const prod = resolveProfile(inventory, { slots: [{ device: 'vbot', inputId: 6 }, { device: 'rs3', inputId: 4 }] });
+  assert('resolves one camera per slot', prod.length === 2);
+  assert('slot 1 becomes cam1', prod[0].id === 'cam1');
+  assert('slot 2 becomes cam2', prod[1].id === 'cam2');
+  assert('carries the device label', prod[0].label === 'V-BOT');
+  assert('takes inputId from the slot, not the device', prod[1].inputId === 4);
+  assert('carries device tuning (speedScale)', prod[0].speedScale === 2);
+  assert('carries visca address', prod[0].viscaIp === '10.0.0.1');
+  assert('carries the gimbal bridge port', prod[1].bridge?.port === 7878);
+
+  // Same devices, different slots: the gimbal moves to cam1 and gets the X hotkey.
+  const alt = resolveProfile(inventory, { slots: [{ device: 'rs3proA', inputId: 9 }, { device: 'vbot', inputId: 6 }] });
+  assert('a device can occupy a different slot in another profile', alt[0].label === 'RS3 Pro A' && alt[0].id === 'cam1');
+  assert('routing follows the slot (bridge port 7879 now cam1)', alt[0].bridge?.port === 7879);
+  assert('same device keeps its tuning across profiles', alt[1].speedScale === 2);
+
+  let profileErr = '';
+  try {
+    resolveProfile(inventory, { slots: [{ device: 'ghost', inputId: 1 }] });
+  } catch (e) {
+    profileErr = String((e as Error).message);
+  }
+  assert('unknown device in a slot throws instead of silently dropping', profileErr.includes('ghost'));
 
   // Results
   console.log('\n=== Results ===');

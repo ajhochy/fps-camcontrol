@@ -2,51 +2,108 @@ atem:
   ip: 192.168.50.153
   defaultTransition: cut
   meIndex: 0
-cameras:
-  - id: cam1
-    label: "V-BOT"
-    protocol: "visca"
-    cameraType: "vbot"
-    inputId: 6
-    viscaIp: "192.168.50.15"
-    viscaPort: 52381
-    cameraAddress: 1
-    speedScale: 2
-  - id: cam2
-    label: "BirdDog 1"
-    protocol: "visca"
-    cameraType: "birddog"
-    inputId: 7
-    viscaIp: "192.168.50.16"
-    viscaPort: 52381
-    cameraAddress: 1
-    speedScale: 0.5
-  - id: cam3
-    label: "BirdDog 2"
-    protocol: "visca"
-    cameraType: "birddog"
-    inputId: 8
-    viscaIp: "192.168.50.17"
-    viscaPort: 52381
-    cameraAddress: 1
-    speedScale: 0.5
-
-  - id: cam4
-    label: "DJI RS3"
-    protocol: "dji-bridge"
-    inputId: 4
-    bridge:
-      # Hostname (mDNS) rather than a hard IP: the Pi's DHCP address changes when
-      # it's moved to a different switch/port. Was 192.168.10.150, now resolves
-      # to 192.168.50.151. Set a DHCP reservation if you want a fixed IP instead.
-      host: "dji-bridge.local"
-      port: 7878
-      gimbalModel: "RS3"
-      safetyTimeoutMs: 250
-      rollEnabled: false
 
 graphics:
   type: dsk
   dskIndex: 0
   uskIndex: 0
   meIndex: 0
+  # Fade duration in frames for the KEY (slides/lyrics) on/off. 0 = hard cut.
+  fadeFrames: 15
+
+# ---------------------------------------------------------------------------
+# Device inventory — every piece of hardware we own, described once, whether or
+# not a camera slot currently uses it. Slots live in `profiles` below; a device
+# here has no camera id and no ATEM input, because those depend on the slot it
+# is placed in.
+# ---------------------------------------------------------------------------
+devices:
+  vbot:
+    label: "V-BOT"
+    protocol: "visca"
+    cameraType: "vbot"
+    viscaIp: "192.168.50.15"
+    viscaPort: 52381
+    cameraAddress: 1
+    speedScale: 2
+
+  birddog1:
+    label: "BirdDog 1"
+    protocol: "visca"
+    cameraType: "birddog"
+    viscaIp: "192.168.50.16"
+    viscaPort: 52381
+    cameraAddress: 1
+    speedScale: 0.5
+
+  birddog2:
+    label: "BirdDog 2"
+    protocol: "visca"
+    cameraType: "birddog"
+    viscaIp: "192.168.50.17"
+    viscaPort: 52381
+    cameraAddress: 1
+    speedScale: 0.5
+
+  # The three DJI gimbals share one Pi. Each has its own bridge instance on its
+  # own port (systemd: dji-bridge@rs3 / @rs3pro-a / @rs3pro-b), which is how
+  # commands are routed to the right gimbal. Addressed by hostname because the
+  # Pi's DHCP address changes when it is moved between switches.
+  rs3:
+    label: "DJI RS3"
+    protocol: "dji-bridge"
+    bridge:
+      host: "dji-bridge.local"
+      port: 7878
+      gimbalModel: "RS3"
+      safetyTimeoutMs: 250
+      rollEnabled: false
+
+  rs3pro-a:
+    label: "DJI RS3 Pro A"
+    protocol: "dji-bridge"
+    bridge:
+      host: "dji-bridge.local"
+      port: 7879
+      gimbalModel: "RS3Pro"
+      safetyTimeoutMs: 250
+      rollEnabled: false
+
+  rs3pro-b:
+    label: "DJI RS3 Pro B"
+    protocol: "dji-bridge"
+    bridge:
+      host: "dji-bridge.local"
+      port: 7880
+      gimbalModel: "RS3Pro"
+      safetyTimeoutMs: 250
+      rollEnabled: false
+
+# ---------------------------------------------------------------------------
+# Environment profiles — pick which devices fill the four camera slots.
+# Slot order IS cam1..cam4, which is also the face-button hotkey order:
+#   slot 1 = cam1 = X    slot 2 = cam2 = A    slot 3 = cam3 = B    slot 4 = cam4 = Y
+# Switch environments by changing `activeProfile` and restarting.
+# ---------------------------------------------------------------------------
+activeProfile: production
+
+profiles:
+  production:
+    label: "Production — V-BOT + BirdDogs + RS3"
+    slots:
+      - { device: vbot,     inputId: 6 }   # cam1 / X
+      - { device: birddog1, inputId: 7 }   # cam2 / A
+      - { device: birddog2, inputId: 8 }   # cam3 / B
+      - { device: rs3,      inputId: 4 }   # cam4 / Y
+
+  test:
+    label: "Test — V-BOT + 3 Gimbals"
+    slots:
+      - { device: vbot,     inputId: 6 }   # cam1 / X
+      - { device: rs3,      inputId: 4 }   # cam2 / A
+      # TODO: set these two to the ATEM inputs the RS3 Pro cameras are actually
+      # wired to. 9 and 10 are placeholders on a free input (ATEM 1 M/E
+      # Constellation 4K); switching to these cameras will show the wrong source
+      # until corrected. Everything else about the profile works.
+      - { device: rs3pro-a, inputId: 9 }   # cam3 / B
+      - { device: rs3pro-b, inputId: 10 }  # cam4 / Y

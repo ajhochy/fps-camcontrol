@@ -50,11 +50,82 @@ const AtemSchema = z.object({
   meIndex: z.number().default(0),
 });
 
+// An entry in the device inventory: a piece of hardware that exists, described
+// once, independent of which camera slot (if any) currently uses it. Deliberately
+// has no `id` or `inputId` — those belong to the slot a profile puts it in.
+const InventoryDeviceSchema = z.object({
+  label: z.string(),
+  protocol: z.enum(['visca', 'dji-bridge']).default('visca'),
+  cameraType: z.enum(['vbot', 'birddog', 'generic']).default('generic'),
+  viscaIp: z.string().optional(),
+  viscaPort: z.number().default(52381),
+  cameraAddress: z.number().min(0).max(7).default(1),
+  speedScale: z.number().min(0.1).max(5).default(1.0),
+  bridge: BridgeSchema.optional(),
+}).superRefine((dev, ctx) => {
+  if (dev.protocol === 'visca' && !dev.viscaIp) {
+    ctx.addIssue({ code: 'custom', message: `device ${dev.label}: viscaIp required when protocol=visca`, path: ['viscaIp'] });
+  }
+  if (dev.protocol === 'dji-bridge' && !dev.bridge) {
+    ctx.addIssue({ code: 'custom', message: `device ${dev.label}: bridge required when protocol=dji-bridge`, path: ['bridge'] });
+  }
+});
+
+// One camera slot in a profile: which inventory device fills it, and which ATEM
+// input that device's video arrives on. Slot order defines cam1..camN, which is
+// what the face-button hotkeys (X/A/B/Y) and the left-stick selector address.
+const SlotSchema = z.object({
+  device: z.string(),
+  inputId: z.number(),
+});
+
+const ProfileSchema = z.object({
+  label: z.string().optional(),
+  slots: z.array(SlotSchema).min(1).max(8),
+});
+
 const DevicesSchema = z.object({
   atem: AtemSchema,
-  cameras: z.array(CameraSchema),
+  // Legacy/direct form: an explicit camera list. Still supported so existing
+  // configs keep working; profiles resolve into exactly this shape.
+  cameras: z.array(CameraSchema).optional(),
+  devices: z.record(z.string(), InventoryDeviceSchema).optional(),
+  profiles: z.record(z.string(), ProfileSchema).optional(),
+  activeProfile: z.string().optional(),
   graphics: GraphicsSchema.optional(),
   lowerThirds: z.object({ type: z.string(), dskIndex: z.number() }).optional(),
+}).superRefine((cfg, ctx) => {
+  const hasProfiles = !!cfg.profiles && !!cfg.activeProfile;
+  if (!hasProfiles && !cfg.cameras) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'config must define either `cameras:` or `devices:` + `profiles:` + `activeProfile:`',
+      path: ['cameras'],
+    });
+    return;
+  }
+  if (!hasProfiles) return;
+
+  const profile = cfg.profiles![cfg.activeProfile!];
+  if (!profile) {
+    ctx.addIssue({
+      code: 'custom',
+      message: `activeProfile "${cfg.activeProfile}" is not defined in profiles (have: ${Object.keys(cfg.profiles!).join(', ')})`,
+      path: ['activeProfile'],
+    });
+    return;
+  }
+  // Every slot must reference a device that actually exists in the inventory,
+  // otherwise the profile silently resolves to a camera that can't connect.
+  profile.slots.forEach((slot, i) => {
+    if (!cfg.devices || !cfg.devices[slot.device]) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `profile "${cfg.activeProfile}" slot ${i + 1} references unknown device "${slot.device}" (have: ${Object.keys(cfg.devices ?? {}).join(', ')})`,
+        path: ['profiles', cfg.activeProfile!, 'slots', i, 'device'],
+      });
+    }
+  });
 });
 
 const SpeedPresetsSchema = z.object({
@@ -86,13 +157,50 @@ const MappingSchema = z.object({
 export type CameraConfig = z.infer<typeof CameraSchema>;
 export type GraphicsConfig = z.infer<typeof GraphicsSchema>;
 export type MappingConfig = z.infer<typeof MappingSchema>;
+export type InventoryDevice = z.infer<typeof InventoryDeviceSchema>;
+export type Profile = z.infer<typeof ProfileSchema>;
 
 export interface AppConfig {
   atem: { ip: string; defaultTransition: string; meIndex: number };
+  /** The resolved camera slots (cam1..camN) the whole app operates on. */
   cameras: CameraConfig[];
   graphics: GraphicsConfig;
   speeds: z.infer<typeof SpeedPresetsSchema>;
   mappings: MappingConfig;
+  /** Inventory of all known hardware, whether or not a slot currently uses it. */
+  devices?: Record<string, InventoryDevice>;
+  profiles?: Record<string, Profile>;
+  activeProfile?: string;
+}
+
+/**
+ * Turn a profile's slots into the flat `cameras` list the rest of the app uses.
+ *
+ * Everything downstream (control state machine, camera selector, hotkeys, UI,
+ * presets) reads `config.cameras`, so resolving here means profiles are purely a
+ * config-authoring convenience and need no changes anywhere else. Slot order
+ * defines cam1..camN and therefore the X/A/B/Y hotkey order.
+ */
+export function resolveProfile(
+  devices: Record<string, InventoryDevice>,
+  profile: Profile
+): CameraConfig[] {
+  return profile.slots.map((slot, i) => {
+    const dev = devices[slot.device];
+    if (!dev) throw new Error(`unknown device "${slot.device}" in profile slot ${i + 1}`);
+    return CameraSchema.parse({
+      id: `cam${i + 1}`,
+      label: dev.label,
+      protocol: dev.protocol,
+      cameraType: dev.cameraType,
+      inputId: slot.inputId,
+      viscaIp: dev.viscaIp,
+      viscaPort: dev.viscaPort,
+      cameraAddress: dev.cameraAddress,
+      speedScale: dev.speedScale,
+      bridge: dev.bridge,
+    });
+  });
 }
 
 export function loadConfig(): AppConfig {
@@ -119,7 +227,21 @@ export function loadConfig(): AppConfig {
     mappings = MappingSchema.parse({});
   }
 
-  return { atem: devices.atem, cameras: devices.cameras, graphics, speeds, mappings };
+  // Profiles win when present; otherwise fall back to the explicit camera list.
+  const cameras = devices.profiles && devices.activeProfile
+    ? resolveProfile(devices.devices ?? {}, devices.profiles[devices.activeProfile])
+    : devices.cameras ?? [];
+
+  return {
+    atem: devices.atem,
+    cameras,
+    graphics,
+    speeds,
+    mappings,
+    devices: devices.devices,
+    profiles: devices.profiles,
+    activeProfile: devices.activeProfile,
+  };
 }
 
 export function validateDevicesConfig(raw: unknown): Pick<AppConfig, 'atem' | 'cameras' | 'graphics'> {
@@ -127,12 +249,58 @@ export function validateDevicesConfig(raw: unknown): Pick<AppConfig, 'atem' | 'c
   const graphics = GraphicsSchema.parse(
     devices.graphics ?? { type: devices.lowerThirds?.type ?? 'dsk', dskIndex: devices.lowerThirds?.dskIndex ?? 0 }
   );
-  return { atem: devices.atem, cameras: devices.cameras, graphics };
+  const cameras = devices.profiles && devices.activeProfile
+    ? resolveProfile(devices.devices ?? {}, devices.profiles[devices.activeProfile])
+    : devices.cameras ?? [];
+  return { atem: devices.atem, cameras, graphics };
 }
 
 export function saveDevicesConfig(config: Pick<AppConfig, 'atem' | 'cameras' | 'graphics'>): void {
   const devicesPath = process.env.DEVICES_CONFIG ?? path.join(process.cwd(), 'config/devices.yaml');
-  fs.writeFileSync(devicesPath, yaml.dump({ atem: config.atem, cameras: config.cameras, graphics: config.graphics }, { lineWidth: 120 }), 'utf8');
+
+  // Merge into the existing file rather than replacing it. `cameras` is derived
+  // from the active profile, so a blind write of {atem, cameras, graphics} would
+  // delete the whole `devices:` inventory and every profile.
+  let existing: Record<string, unknown> = {};
+  try {
+    existing = (yaml.load(fs.readFileSync(devicesPath, 'utf8')) as Record<string, unknown>) ?? {};
+  } catch {
+    existing = {};
+  }
+
+  const out: Record<string, unknown> = { ...existing, atem: config.atem, graphics: config.graphics };
+  const profiles = existing.profiles as Record<string, z.infer<typeof ProfileSchema>> | undefined;
+  const activeProfile = existing.activeProfile as string | undefined;
+  const inventory = existing.devices as Record<string, Record<string, unknown>> | undefined;
+
+  if (profiles && activeProfile && profiles[activeProfile] && inventory) {
+    // Profile-driven: push each edited camera back onto the inventory device that
+    // fills its slot (and the slot's ATEM input), so UI edits persist to the real
+    // source of truth instead of being silently discarded on next load.
+    const slots = profiles[activeProfile].slots;
+    config.cameras.forEach((cam, i) => {
+      const slot = slots[i];
+      if (!slot) return;
+      const dev = inventory[slot.device];
+      if (!dev) return;
+      dev.label = cam.label;
+      dev.protocol = cam.protocol;
+      dev.cameraType = cam.cameraType;
+      dev.cameraAddress = cam.cameraAddress;
+      dev.speedScale = cam.speedScale;
+      if (cam.viscaIp !== undefined) dev.viscaIp = cam.viscaIp;
+      dev.viscaPort = cam.viscaPort;
+      if (cam.bridge !== undefined) dev.bridge = cam.bridge;
+      slot.inputId = cam.inputId;
+    });
+    out.devices = inventory;
+    out.profiles = profiles;
+    delete out.cameras; // stays derived; keeping a stale copy would be misleading
+  } else {
+    out.cameras = config.cameras;
+  }
+
+  fs.writeFileSync(devicesPath, yaml.dump(out, { lineWidth: 120 }), 'utf8');
 }
 
 export function saveMappings(mappings: MappingConfig): void {
