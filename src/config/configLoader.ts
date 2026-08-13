@@ -260,6 +260,51 @@ export function validateDevicesConfig(raw: unknown): Pick<AppConfig, 'atem' | 'c
   return { atem: devices.atem, cameras, graphics };
 }
 
+function readDevicesYaml(): Record<string, unknown> {
+  const devicesPath = process.env.DEVICES_CONFIG ?? path.join(process.cwd(), 'config/devices.yaml');
+  try {
+    return (yaml.load(fs.readFileSync(devicesPath, 'utf8')) as Record<string, unknown>) ?? {};
+  } catch {
+    return {};
+  }
+}
+
+function writeDevicesYaml(data: Record<string, unknown>): void {
+  const devicesPath = process.env.DEVICES_CONFIG ?? path.join(process.cwd(), 'config/devices.yaml');
+  fs.writeFileSync(devicesPath, yaml.dump(data, { lineWidth: 120 }), 'utf8');
+}
+
+/** Persist which profile is active, leaving the rest of the file untouched. */
+export function saveActiveProfile(profileName: string): void {
+  const existing = readDevicesYaml();
+  const profiles = existing.profiles as Record<string, unknown> | undefined;
+  if (!profiles || !profiles[profileName]) {
+    throw new Error(`unknown profile "${profileName}" (have: ${Object.keys(profiles ?? {}).join(', ') || 'none'})`);
+  }
+  existing.activeProfile = profileName;
+  writeDevicesYaml(existing);
+}
+
+/** Persist profile slot definitions, validating them before touching the file. */
+export function saveProfiles(profiles: Record<string, Profile>): void {
+  const existing = readDevicesYaml();
+  const inventory = (existing.devices ?? {}) as Record<string, unknown>;
+  for (const [name, profile] of Object.entries(profiles)) {
+    ProfileSchema.parse(profile);
+    profile.slots.forEach((slot, i) => {
+      if (!inventory[slot.device]) {
+        throw new Error(`profile "${name}" slot ${i + 1}: unknown device "${slot.device}" (have: ${Object.keys(inventory).join(', ')})`);
+      }
+    });
+  }
+  existing.profiles = profiles;
+  // If the active profile was deleted, fall back to one that still exists so the
+  // next load doesn't fail validation.
+  const active = existing.activeProfile as string | undefined;
+  if (active && !profiles[active]) existing.activeProfile = Object.keys(profiles)[0];
+  writeDevicesYaml(existing);
+}
+
 export function saveDevicesConfig(config: Pick<AppConfig, 'atem' | 'cameras' | 'graphics'>): void {
   const devicesPath = process.env.DEVICES_CONFIG ?? path.join(process.cwd(), 'config/devices.yaml');
 

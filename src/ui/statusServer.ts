@@ -3,7 +3,14 @@ import http from 'http';
 import path from 'path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { AppState, CameraId } from '../app/state';
-import { AppConfig, MappingConfig, saveMappings, validateDevicesConfig, saveDevicesConfig } from '../config/configLoader';
+// NOTE: "profile" is overloaded in this codebase — profileDetector deals with
+// *controller* profiles (Xbox, Wii U Pro). Camera environment profiles are
+// aliased here as CameraProfile to keep the two apart.
+import {
+  AppConfig, MappingConfig, saveMappings, validateDevicesConfig, saveDevicesConfig,
+  resolveProfile, saveActiveProfile, saveProfiles, CameraConfig,
+  type Profile as CameraProfile,
+} from '../config/configLoader';
 import { PresetManager } from '../model/presetManager';
 import { ActivityLog } from '../app/activityLog';
 import { ViscaDevice } from '../devices/viscaDevice';
@@ -136,6 +143,123 @@ export function createStatusServer(
     res.json({ ok: true, message: 'Controller switching requires restart' });
   });
 
+  /**
+   * Bring the live MotionDevice map in line with a new camera list, reusing
+   * devices whose connection details are unchanged. Shared by the Device Config
+   * save and by profile switching, so both take the same, tested path.
+   */
+  function reconcileCameras(newCameras: AppConfig['cameras']): void {
+    const oldIds = new Set(devices.keys());
+    const newIds = new Set(newCameras.map(c => c.id as CameraId));
+
+    // Remove cameras the new list no longer has.
+    for (const id of oldIds) {
+      if (!newIds.has(id)) {
+        devices.get(id)?.close();
+        devices.delete(id);
+        delete state.cameraConnected[id];
+      }
+    }
+
+    // Add or rebuild cameras via the factory (VISCA or DJI bridge).
+    for (const cam of newCameras) {
+      const id = cam.id as CameraId;
+      const existing = devices.get(id);
+      const oldCam = config.cameras.find(c => c.id === cam.id);
+      const changed = !existing || !oldCam ||
+        oldCam.protocol !== cam.protocol ||
+        oldCam.viscaIp !== cam.viscaIp ||
+        oldCam.viscaPort !== cam.viscaPort ||
+        oldCam.cameraType !== cam.cameraType ||
+        oldCam.cameraAddress !== cam.cameraAddress ||
+        JSON.stringify(oldCam.bridge) !== JSON.stringify(cam.bridge);
+
+      if (changed) {
+        existing?.close();
+        const device = createMotionDevice(cam, activityLog);
+        device.on('connected', () => { state.cameraConnected[id] = true; });
+        device.on('disconnected', () => { state.cameraConnected[id] = false; });
+        devices.set(id, device);
+        device.connect();
+      } else if (existing && existing instanceof ViscaDevice && oldCam && oldCam.label !== cam.label) {
+        existing.setActivityLog(activityLog, cam.label);
+      }
+    }
+
+    // Mutate the existing cameras array in place rather than reassigning, so
+    // anything that captured a reference at startup (e.g. CameraSelector)
+    // sees the new entries without being rebuilt.
+    config.cameras.length = 0;
+    for (const cam of newCameras) config.cameras.push(cam);
+  }
+
+  // GET /api/profiles — inventory + profile definitions + which one is active.
+  app.get('/api/profiles', (_req, res) => {
+    res.json({
+      activeProfile: config.activeProfile ?? null,
+      profiles: config.profiles ?? {},
+      devices: config.devices ?? {},
+    });
+  });
+
+  // POST /api/profiles/active — switch environments live.
+  app.post('/api/profiles/active', (req, res) => {
+    try {
+      const name = (req.body as { profile?: string })?.profile;
+      if (!name) { res.status(400).json({ ok: false, error: 'missing "profile"' }); return; }
+      const profile = config.profiles?.[name];
+      if (!profile) {
+        res.status(400).json({ ok: false, error: `unknown profile "${name}"` });
+        return;
+      }
+
+      const newCameras = resolveProfile(config.devices ?? {}, profile);
+      saveActiveProfile(name);
+      config.activeProfile = name;
+      reconcileCameras(newCameras);
+
+      // Point control at a camera that exists in the new profile. Prefer one
+      // whose video is actually wired so we never arm a dead input.
+      const target = newCameras.find(c => c.inputId !== undefined) ?? newCameras[0];
+      if (target) {
+        state.controlledCamera = target.id as CameraId;
+        state.cameraIndex = newCameras.indexOf(target);
+        if (target.inputId !== undefined) {
+          state.previewCamera = target.id as CameraId;
+          atem.changePreviewInput(target.inputId).catch(err =>
+            logger.warn({ err }, 'failed to set ATEM preview after profile switch'));
+        }
+      }
+
+      logger.info({ profile: name, cameras: newCameras.map(c => c.label) }, 'active profile switched');
+      activityLog?.addSystemEntry(`Profile → ${name}`, newCameras.map(c => c.label).join(', '));
+      res.json({ ok: true, activeProfile: name, cameras: newCameras });
+    } catch (err) {
+      logger.error({ err }, 'profile switch failed');
+      res.status(400).json({ ok: false, error: String(err) });
+    }
+  });
+
+  // POST /api/profiles — save slot assignments for one or more profiles.
+  app.post('/api/profiles', (req, res) => {
+    try {
+      const body = req.body as { profiles?: Record<string, CameraProfile> };
+      if (!body?.profiles) { res.status(400).json({ ok: false, error: 'missing "profiles"' }); return; }
+      saveProfiles(body.profiles);
+      config.profiles = body.profiles;
+
+      // If the profile being edited is the live one, apply the edit immediately.
+      const active = config.activeProfile;
+      if (active && body.profiles[active]) {
+        reconcileCameras(resolveProfile(config.devices ?? {}, body.profiles[active]));
+      }
+      res.json({ ok: true });
+    } catch (err) {
+      logger.error({ err }, 'profile save failed');
+      res.status(400).json({ ok: false, error: String(err) });
+    }
+  });
+
   app.post('/api/config', (req, res) => {
     try {
       const parsed = validateDevicesConfig(req.body);
@@ -150,49 +274,7 @@ export function createStatusServer(
       config.atem = parsed.atem;
       config.graphics = parsed.graphics;
 
-      // Reconcile motion devices
-      const oldIds = new Set(devices.keys());
-      const newIds = new Set(parsed.cameras.map(c => c.id as CameraId));
-
-      // Remove deleted cameras
-      for (const id of oldIds) {
-        if (!newIds.has(id)) {
-          devices.get(id)?.close();
-          devices.delete(id);
-          delete state.cameraConnected[id];
-        }
-      }
-
-      // Add or update cameras via factory (VISCA or DJI bridge).
-      for (const cam of parsed.cameras) {
-        const id = cam.id as CameraId;
-        const existing = devices.get(id);
-        const oldCam = config.cameras.find(c => c.id === cam.id);
-        const changed = !existing || !oldCam ||
-          oldCam.protocol !== cam.protocol ||
-          oldCam.viscaIp !== cam.viscaIp ||
-          oldCam.viscaPort !== cam.viscaPort ||
-          oldCam.cameraType !== cam.cameraType ||
-          oldCam.cameraAddress !== cam.cameraAddress ||
-          JSON.stringify(oldCam.bridge) !== JSON.stringify(cam.bridge);
-
-        if (changed) {
-          existing?.close();
-          const device = createMotionDevice(cam, activityLog);
-          device.on('connected', () => { state.cameraConnected[id] = true; });
-          device.on('disconnected', () => { state.cameraConnected[id] = false; });
-          devices.set(id, device);
-          device.connect();
-        } else if (existing && existing instanceof ViscaDevice && oldCam && oldCam.label !== cam.label) {
-          existing.setActivityLog(activityLog, cam.label);
-        }
-      }
-
-      // Mutate the existing cameras array in place rather than reassigning, so
-      // anything that captured a reference at startup (e.g. CameraSelector)
-      // sees the new entries without being rebuilt.
-      config.cameras.length = 0;
-      for (const cam of parsed.cameras) config.cameras.push(cam);
+      reconcileCameras(parsed.cameras);
 
       // Reconnect ATEM if IP changed
       if (atemIpChanged) {
@@ -755,6 +837,7 @@ function statusHtml(): string {
   <button class="tab-btn active" onclick="switchTab('status',this)">Status</button>
   <button class="tab-btn" onclick="switchTab('log',this)">Activity Log</button>
   <button class="tab-btn" onclick="switchTab('config',this)">Device Config</button>
+  <button class="tab-btn" onclick="switchTab('profiles',this)">Profiles</button>
   <button class="tab-btn" onclick="switchTab('controllers',this)">Controllers</button>
 </div>
 
@@ -792,6 +875,14 @@ function statusHtml(): string {
     <span id="config-save-status" style="font-size:0.78rem;color:var(--text-2)"></span>
   </div>
   <div id="device-config-content">Loading&hellip;</div>
+</div>
+
+<div class="panel tab-panel" id="tab-profiles" data-editing="false">
+  <div class="log-meta">
+    <h2 style="margin:0">Environment Profiles</h2>
+    <span id="profiles-save-status" style="font-size:0.78rem;color:var(--text-2)"></span>
+  </div>
+  <div id="profiles-content">Loading&hellip;</div>
 </div>
 
 <div class="panel tab-panel" id="tab-controllers">
@@ -863,9 +954,160 @@ function renderStatus(s, c) {
   document.getElementById('status-content').innerHTML = camGrid + '<div class="mode-row">' + modes + '</div>';
 }
 
+// ---- Environment profiles ----
+var HOTKEY_FOR_SLOT = ['X', 'A', 'B', 'Y'];
+var profilesData = null;
+
+async function refreshProfiles() {
+  // Don't clobber in-progress edits under the 5s poll.
+  if (document.getElementById('tab-profiles').dataset.editing === 'true') return;
+  try {
+    var data = await fetch('/api/profiles').then(function(r) { return r.json(); });
+    profilesData = data;
+    renderProfiles(data);
+  } catch(e) { /* ignore */ }
+}
+
+function markProfilesEditing() {
+  document.getElementById('tab-profiles').dataset.editing = 'true';
+}
+
+function discardProfileEdits() {
+  document.getElementById('tab-profiles').dataset.editing = 'false';
+  document.getElementById('profiles-save-status').textContent = '';
+  refreshProfiles();
+}
+
+function renderProfiles(d) {
+  var names = Object.keys(d.profiles || {});
+  var devKeys = Object.keys(d.devices || {});
+  if (!names.length) {
+    document.getElementById('profiles-content').innerHTML =
+      '<p style="color:var(--text-2)">No profiles defined. Add a <code>profiles:</code> block to config/devices.yaml.</p>';
+    return;
+  }
+
+  var html = '';
+  html += '<p style="color:var(--text-2);font-size:0.82rem;margin:0 0 10px">' +
+    'A profile decides which device fills each camera slot. Slot order is the face-button order ' +
+    '(1=X, 2=A, 3=B, 4=Y). Leave <em>ATEM Input</em> blank when a camera&#39;s video is not wired to the ' +
+    'switcher: motion still works, but it cannot be taken live.</p>';
+
+  for (var n = 0; n < names.length; n++) {
+    var name = names[n];
+    var p = d.profiles[name];
+    var isActive = (name === d.activeProfile);
+
+    html += '<div class="section-header" style="display:flex;align-items:center;gap:8px">' +
+      '<span>' + esc(name) + '</span>' +
+      (isActive
+        ? '<span class="s-tile s-tile--live" style="padding:1px 6px;font-size:0.7rem">ACTIVE</span>'
+        : '<button class="btn-sm" data-profile="' + esc(name) + '" onclick="loadProfile(this.dataset.profile,this)">Load</button>') +
+      (p.label ? '<span style="color:var(--text-2);font-weight:400;font-size:0.78rem">' + esc(p.label) + '</span>' : '') +
+      '</div>';
+
+    html += '<table style="width:100%;margin-bottom:10px" data-profile="' + esc(name) + '"><tbody>';
+    html += '<tr style="color:#888;font-size:0.75rem"><td style="width:90px">Slot</td><td>Device</td><td style="width:130px">ATEM Input</td></tr>';
+    for (var i = 0; i < 4; i++) {
+      var slot = (p.slots && p.slots[i]) ? p.slots[i] : null;
+      html += '<tr class="slot-row">';
+      html += '<td style="color:var(--text-2)">cam' + (i+1) + ' / <strong>' + HOTKEY_FOR_SLOT[i] + '</strong></td>';
+      html += '<td><select class="cfg-input" name="slot-device" onchange="markProfilesEditing()" style="width:100%">';
+      html += '<option value=""' + (!slot ? ' selected' : '') + '>&mdash; empty &mdash;</option>';
+      for (var k = 0; k < devKeys.length; k++) {
+        var dk = devKeys[k];
+        var dl = (d.devices[dk] && d.devices[dk].label) ? d.devices[dk].label : dk;
+        html += '<option value="' + esc(dk) + '"' + (slot && slot.device === dk ? ' selected' : '') + '>' + esc(dl) + '</option>';
+      }
+      html += '</select></td>';
+      var iv = (slot && slot.inputId != null) ? slot.inputId : '';
+      html += '<td><input class="cfg-input" name="slot-input" type="number" min="1" placeholder="not wired" oninput="markProfilesEditing()" value="' + iv + '" style="width:100%"></td>';
+      html += '</tr>';
+    }
+    html += '</tbody></table>';
+  }
+
+  html += '<div style="display:flex;gap:8px;margin-top:6px">' +
+    '<button class="btn" onclick="saveProfileSlots(this)">Save Profiles</button>' +
+    '<button class="btn" onclick="discardProfileEdits()">Discard Changes</button>' +
+    '</div>';
+
+  document.getElementById('profiles-content').innerHTML = html;
+}
+
+async function loadProfile(name, btn) {
+  if (!confirm('Switch the active profile to "' + name + '"? This reconnects cameras and changes what the X/A/B/Y buttons select.')) return;
+  var old = btn.textContent;
+  btn.textContent = 'Loading...';
+  btn.disabled = true;
+  try {
+    var r = await fetch('/api/profiles/active', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profile: name }),
+    }).then(function(x) { return x.json(); });
+    if (!r.ok) throw new Error(r.error || 'switch failed');
+    document.getElementById('profiles-save-status').textContent = 'Switched to ' + name;
+    document.getElementById('tab-profiles').dataset.editing = 'false';
+    await refreshProfiles();
+  } catch(e) {
+    alert('Could not switch profile: ' + e.message);
+    btn.textContent = old;
+    btn.disabled = false;
+  }
+}
+
+async function saveProfileSlots(btn) {
+  var out = {};
+  var tables = document.querySelectorAll('#profiles-content table[data-profile]');
+  for (var t = 0; t < tables.length; t++) {
+    var name = tables[t].getAttribute('data-profile');
+    var existing = (profilesData && profilesData.profiles[name]) ? profilesData.profiles[name] : {};
+    var rows = tables[t].querySelectorAll('tr.slot-row');
+    var slots = [];
+    for (var i = 0; i < rows.length; i++) {
+      var dev = rows[i].querySelector('[name="slot-device"]').value;
+      if (!dev) continue;  // empty slot: omit entirely
+      var raw = rows[i].querySelector('[name="slot-input"]').value.trim();
+      var slot = { device: dev };
+      // Blank stays blank — do NOT default to an input, or an unwired camera
+      // would silently become takeable to air.
+      if (raw !== '') {
+        var num = parseInt(raw, 10);
+        if (!isNaN(num) && num > 0) slot.inputId = num;
+      }
+      slots.push(slot);
+    }
+    if (!slots.length) { alert('Profile "' + name + '" needs at least one slot.'); return; }
+    out[name] = { label: existing.label, slots: slots };
+  }
+
+  btn.disabled = true;
+  var st = document.getElementById('profiles-save-status');
+  st.textContent = 'Saving...';
+  try {
+    var r = await fetch('/api/profiles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profiles: out }),
+    }).then(function(x) { return x.json(); });
+    if (!r.ok) throw new Error(r.error || 'save failed');
+    st.textContent = 'Saved';
+    document.getElementById('tab-profiles').dataset.editing = 'false';
+    await refreshProfiles();
+  } catch(e) {
+    st.textContent = '';
+    alert('Could not save profiles: ' + e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+refreshProfiles();
 setInterval(refresh, 1000);
 setInterval(refreshControllers, 2000);
 setInterval(refreshDeviceConfig, 5000);
+setInterval(refreshProfiles, 5000);
 refresh();
 refreshControllers();
 refreshDeviceConfig();
@@ -942,7 +1184,7 @@ function cameraRowHtml(cam, idx) {
     '<tr><td style="color:#888">VISCA Port</td><td><input class="cfg-input" name="cam-port" type="number" min="1" max="65535" value="' + cam.viscaPort + '"></td></tr>' +
     '<tr><td style="color:#888">Camera Addr</td><td><input class="cfg-input" name="cam-addr" type="number" min="0" max="7" value="' + (cam.cameraAddress != null ? cam.cameraAddress : 1) + '" title="VISCA bus address (Camera ID in Companion). Default 1."></td></tr>' +
     '<tr><td style="color:#888">Speed Scale</td><td><input class="cfg-input" name="cam-speed" type="number" min="0.1" max="5" step="0.1" value="' + (cam.speedScale != null ? cam.speedScale : 1.0) + '" title="Per-camera speed multiplier. 1.0 = same as global preset; >1 = faster (use for slow cams like V-BOT)."></td></tr>' +
-    '<tr><td style="color:#888">ATEM Input</td><td><input class="cfg-input" name="cam-input" type="number" min="1" placeholder="not wired" title="Leave blank if this camera\'s video is not connected to the switcher: motion still works, but it cannot be taken live." value="' + (cam.inputId != null ? cam.inputId : '') + '"></td></tr>' +
+    '<tr><td style="color:#888">ATEM Input</td><td><input class="cfg-input" name="cam-input" type="number" min="1" placeholder="not wired" title="Leave blank if this camera video is not connected to the switcher: motion still works, but it cannot be taken live." value="' + (cam.inputId != null ? cam.inputId : '') + '"></td></tr>' +
     '</tbody></table></div>';
 }
 
