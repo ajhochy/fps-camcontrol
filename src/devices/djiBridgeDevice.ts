@@ -182,7 +182,13 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
     if (!this.capabilities.position) {
       throw new Error(`${this.id}: bridge does not advertise position capability`);
     }
-    const res = await this.request('getPosition', {}, 1000);
+    // Must exceed the bridge's own read budget (POSE_READ_TIMEOUT_S = 3s), so a
+    // genuine failure comes back as the bridge's explanatory error rather than an
+    // opaque client timeout. 1000ms was too tight: attitude arrives as a ~1Hz
+    // push, so a read issued right after a motion command waits up to ~1.15s for a
+    // pose newer than that command. Typical reads still return in <10ms; this only
+    // covers the worst case, and preset save depends on this call succeeding.
+    const res = await this.request('getPosition', {}, 3500);
     const r = res as { yaw: number; pitch: number; roll: number };
     const pos: DevicePosition = { kind: 'gimbal', yaw: r.yaw, pitch: r.pitch, roll: r.roll };
     this.lastPos = pos;
