@@ -20,6 +20,9 @@ NOTIFY_UUID = "0000fff4-0000-1000-8000-00805f9b34fb"
 WRITE_UUID = "0000fff5-0000-1000-8000-00805f9b34fb"
 CENTER = 1024
 MAX_JOYSTICK = 80
+# How long to look for the gimbal's advertisement before giving up on one attempt.
+# Kept short because the caller holds a host-wide BLE lock while this runs.
+SCAN_TIMEOUT_S = 8.0
 POLL_PAYLOADS = (
     bytes.fromhex("660cc01d108401000e000c000050000000000000000010"),
     bytes.fromhex("660cc01d103e010000000c000050"),
@@ -45,10 +48,23 @@ class _BleakTransport:
 
     async def connect(self) -> None:
         try:
-            from bleak import BleakClient
+            from bleak import BleakClient, BleakScanner
         except ImportError as exc:
             raise GimbalError("bleak is required for --driver dji-rs3-ble") from exc
-        self.client = BleakClient(self.address, timeout=self.timeout)
+        # Discover before connecting. On Linux/BlueZ, BleakClient(<bare address>)
+        # only works when BlueZ already has the device cached; a gimbal that was
+        # asleep at startup (or that slept and woke) is not cached, so connect
+        # fails with "Device ... was not found" forever even once it is awake.
+        # Scanning first is the supported pattern and makes powering a gimbal on
+        # mid-service actually reconnect. Callers serialise this (BlueZ allows
+        # only one connect/scan operation at a time per adapter).
+        device = await BleakScanner.find_device_by_address(self.address, timeout=SCAN_TIMEOUT_S)
+        if device is None:
+            raise GimbalError(
+                f"gimbal {self.address} is not advertising (powered off, asleep, "
+                "out of range, or already connected to another host)"
+            )
+        self.client = BleakClient(device, timeout=self.timeout)
         await self.client.connect()
 
     async def disconnect(self) -> None:

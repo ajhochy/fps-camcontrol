@@ -14,6 +14,7 @@ Usage:
 
 import argparse
 import asyncio
+import fcntl
 import json
 import logging
 import signal
@@ -30,6 +31,12 @@ from drivers.mock_driver import MockDriver
 PROTOCOL_VERSION = 1
 DEFAULT_SAFETY_TIMEOUT_MS = 250
 STATUS_INTERVAL_S = 0.5
+# Shared by every bridge instance on this host; serialises BLE connects so
+# concurrent attempts don't fail with org.bluez.Error.InProgress.
+BLE_CONNECT_LOCK = "/tmp/dji-bridge-ble-connect.lock"
+GIMBAL_RETRY_MIN_S = 2.0
+GIMBAL_RETRY_MAX_S = 30.0
+GIMBAL_POLL_S = 2.0
 
 log = logging.getLogger("dji-bridge")
 
@@ -189,8 +196,60 @@ class Session:
             pass
 
 
+async def _hold_ble_lock() -> Any:
+    """Acquire the host-wide BLE connect lock (blocking, off the event loop).
+
+    BlueZ serialises connection *attempts* per adapter: two concurrent connects
+    fail with `org.bluez.Error.InProgress`. Multiple established links are fine,
+    so we only serialise the connect itself. The lock is a file lock so it works
+    across the separate bridge processes (one per gimbal), not just within one.
+    """
+    def _acquire() -> Any:
+        fh = open(BLE_CONNECT_LOCK, "a+")
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        return fh
+
+    return await asyncio.to_thread(_acquire)
+
+
+def _release_ble_lock(fh: Any) -> None:
+    try:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+    finally:
+        fh.close()
+
+
+async def maintain_gimbal(driver: GimbalDriver) -> None:
+    """Keep the gimbal connected, retrying forever, without killing the server.
+
+    The bridge must stay reachable even when the gimbal is off: the app treats a
+    refused port as "the whole Pi is down". Previously `serve()` awaited
+    `driver.connect()` before binding the listener, so an absent gimbal raised
+    GimbalError -> exit(1) -> systemd restart, and port 7878 never opened.
+    """
+    backoff = GIMBAL_RETRY_MIN_S
+    while True:
+        if not driver.connected:
+            lock = await _hold_ble_lock()
+            try:
+                await driver.connect()
+            except Exception as exc:  # noqa: BLE001
+                log.warning("gimbal connect failed: %s (retry in %.0fs)", exc, backoff)
+                _release_ble_lock(lock)
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, GIMBAL_RETRY_MAX_S)
+                continue
+            else:
+                _release_ble_lock(lock)
+                log.info("gimbal connected (%s)", driver.model)
+                backoff = GIMBAL_RETRY_MIN_S
+        await asyncio.sleep(GIMBAL_POLL_S)
+
+
 async def serve(host: str, port: int, driver: GimbalDriver, safety_timeout_ms: int) -> None:
-    await driver.connect()
+    # Bind the listener FIRST, then bring the gimbal up in the background, so the
+    # bridge is always reachable and reports gimbal state instead of vanishing.
+    connector = asyncio.create_task(maintain_gimbal(driver))
 
     async def handler(ws: WebSocketServerProtocol) -> None:
         log.info("client connected: %s", ws.remote_address)
@@ -201,14 +260,20 @@ async def serve(host: str, port: int, driver: GimbalDriver, safety_timeout_ms: i
             log.info("client disconnected: %s", ws.remote_address)
 
     log.info("DJI bridge listening on ws://%s:%d (driver=%s)", host, port, driver.name)
-    async with websockets.serve(handler, host, port):
-        stop = asyncio.Event()
-        loop = asyncio.get_running_loop()
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig, stop.set)
-        await stop.wait()
-
-    await driver.close()
+    try:
+        async with websockets.serve(handler, host, port):
+            stop = asyncio.Event()
+            loop = asyncio.get_running_loop()
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                loop.add_signal_handler(sig, stop.set)
+            await stop.wait()
+    finally:
+        connector.cancel()
+        try:
+            await connector
+        except asyncio.CancelledError:
+            pass
+        await driver.close()
 
 
 def build_driver(name: str, args: argparse.Namespace) -> GimbalDriver:
