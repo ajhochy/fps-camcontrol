@@ -21,6 +21,8 @@ export interface AppState {
   controllerConnected: boolean;
   activeControllerProfile: string | null;
   activeConnectionType: 'usb' | 'bluetooth' | null;
+  // Why a detected controller is not delivering input, if that is the case.
+  controllerStatusDetail: string | null;
   lastPresetNotification: string | null;
   presetSaveProgress: PresetSaveProgress | null;
 }
@@ -39,6 +41,7 @@ export const defaultState: AppState = {
   controllerConnected: false,
   activeControllerProfile: null,
   activeConnectionType: null,
+  controllerStatusDetail: null,
   lastPresetNotification: null,
   presetSaveProgress: null,
 };

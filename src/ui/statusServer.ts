@@ -43,7 +43,11 @@ export function createStatusServer(
   });
 
   // GET /api/controllers
-  // Returns all HID devices that match known profiles, plus unrecognized gamepad-like devices
+  // Returns all HID devices that match known profiles, plus unrecognized gamepad-like devices.
+  // `detected` means the OS enumerates it; `connected` means the app is actually
+  // receiving HID packets from it. Those are different things — a pad can be
+  // detected while delivering no data (e.g. denied macOS Input Monitoring), and
+  // reporting that as connected made this tab contradict the home screen.
   app.get('/api/controllers', (_req, res) => {
     try {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -74,7 +78,11 @@ export function createStatusServer(
             profileName: profile?.name ?? 'unknown',
             vendorId: dev.vendorId,
             productId: dev.productId,
-            connected: true,
+            detected: true,
+            connected:
+              state.controllerConnected &&
+              profile !== null &&
+              profile.name === state.activeControllerProfile,
             connectionType: detectConnectionType(dev),
           };
         })
@@ -96,6 +104,8 @@ export function createStatusServer(
     res.json({
       connected: state.controllerConnected,
       profileName: state.activeControllerProfile ?? null,
+      connectionType: state.activeConnectionType ?? null,
+      statusDetail: state.controllerStatusDetail ?? null,
     });
   });
 
@@ -1074,7 +1084,7 @@ function renderControllers(controllers, active, mappings) {
   var html = '';
 
   // --- Connected Controllers ---
-  html += '<div class="section-header">Connected Controllers</div>';
+  html += '<div class="section-header">Detected Controllers</div>';
   if (!controllers || controllers.length === 0) {
     html += '<div style="color:#666;font-size:0.85rem">No controllers detected</div>';
   } else {
@@ -1089,10 +1099,21 @@ function renderControllers(controllers, active, mappings) {
       html += '<div style="display:flex;align-items:center;gap:8px;padding:6px 0">';
       html += '<span class="badge' + (isActive ? ' active-ctrl' : '') + '">' + esc(c.label) + '</span>';
       html += connBadge;
-      if (isActive) html += '<span class="ctrl-active-tag">Active</span>';
+      // Detected by the OS is not the same as delivering data. Say which it is,
+      // so this tab agrees with the home-screen Controller tile.
+      if (isActive) {
+        html += '<span class="ctrl-active-tag">Active</span>';
+      } else {
+        html += '<span style="color:#888;font-size:0.75rem">Detected — no input data</span>';
+      }
       html += '</div>';
     }
     html += '</div>';
+    // A detected-but-silent pad is the confusing case: say why, not just that.
+    if (!active.connected && active.statusDetail) {
+      html += '<div style="margin-top:6px;color:#e0a030;font-size:0.8rem;line-height:1.35">'
+        + esc(active.statusDetail) + '</div>';
+    }
   }
 
   // --- Button Mappings ---

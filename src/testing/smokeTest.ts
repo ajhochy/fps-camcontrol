@@ -11,6 +11,7 @@ import { CameraSelector } from '../model/cameraSelector';
 import { ControlStateMachine } from '../model/controlStateMachine';
 import { emergencyStopAll } from '../safety/emergencyStop';
 import { EdgeState, createEdgeState, risingEdge } from '../input/edgeTriggers';
+import { ControllerSupervisor, explainOpenFailure } from '../input/controllerSupervisor';
 import { applyCurve, applyDeadzone, clamp } from '../visca/speedCurves';
 import { panTilt, zoom } from '../visca/ptzActions';
 import { autoTransitionControlledCamera, toggleLowerThirds } from '../atem/switcherActions';
@@ -481,6 +482,98 @@ async function runTests(): Promise<void> {
   assert('rollEnabled:true + bridge advertises roll → capabilities.roll true', djiRollOn.capabilities.roll === true);
   djiRollOn.close();
   await rollBridge.stop();
+
+  // Test 12: Controller hot-plug — a pad that appears AFTER startup must attach.
+  // Regression guard: detection used to be one-shot at boot, so a controller
+  // paired later was never picked up and the home screen stayed "Not Connected"
+  // even though the OS (and the Controller tab) listed the device.
+  console.log('\nTest 12: Controller supervisor attaches a pad that appears after startup');
+  const hotplugProfile = {
+    name: 'Test Pad',
+    vendorIds: [0x045e],
+    productIds: [0x0b13],
+    connectionType: 'bluetooth' as const,
+    axes: {},
+    buttons: {},
+  };
+  const hotplugDevice = { vendorId: 0x045e, productId: 0x0b13, path: 'test:pad' } as any;
+
+  let padPresent = false;
+  const virtualPad = new (require('events').EventEmitter)();
+  let padOpened = 0;
+  let padClosed = 0;
+  virtualPad.open = () => { padOpened++; };
+  virtualPad.close = () => { padClosed++; };
+
+  const supervisor = new ControllerSupervisor([hotplugProfile], 60000, {
+    detect: () => (padPresent
+      ? { device: hotplugDevice, profile: hotplugProfile, connectionType: 'bluetooth' as const }
+      : null),
+    enumerate: () => (padPresent ? [hotplugDevice] : []),
+    createGamepad: () => virtualPad,
+  });
+
+  const events: string[] = [];
+  for (const e of ['attached', 'detached', 'connected', 'disconnected']) {
+    supervisor.on(e, () => events.push(e));
+  }
+  let padData = 0;
+  supervisor.on('data', () => { padData++; });
+
+  supervisor.start(); // pad absent at "startup"
+  assert('supervisor not attached when no pad is present at startup', !supervisor.isAttached());
+  assert('no attach event fired with no pad present', !events.includes('attached'));
+
+  padPresent = true;
+  supervisor.poll();
+  assert('supervisor attaches a pad that appears after startup', supervisor.isAttached());
+  assert('attach opens the gamepad', padOpened === 1);
+  assert('attach reports the matched profile', supervisor.activeProfile?.name === 'Test Pad');
+  assert('attach emits an attached event', events.includes('attached'));
+
+  // Data only counts as "connected" once packets actually arrive — that is what
+  // the home-screen Controller tile reflects.
+  virtualPad.emit('connected');
+  virtualPad.emit('data', Buffer.from([0x00]));
+  assert('supervisor forwards the connected event', events.includes('connected'));
+  assert('supervisor forwards HID data', padData === 1);
+
+  // Unpair the pad: one missed poll must not tear down a working device.
+  padPresent = false;
+  supervisor.poll();
+  assert('a single missed enumeration does not detach', supervisor.isAttached());
+  supervisor.poll();
+  assert('two consecutive missed enumerations detach the pad', !supervisor.isAttached());
+  assert('detach closes the gamepad', padClosed === 1);
+  assert('detach emits a detached event', events.includes('detached'));
+  assert('detach clears the active profile', supervisor.activeProfile === null);
+
+  // …and it must be re-attachable, not permanently lost.
+  padPresent = true;
+  supervisor.poll();
+  assert('a re-paired pad attaches again', supervisor.isAttached());
+  assert('re-attach opens the gamepad again', padOpened === 2);
+
+  // A pad macOS refuses to hand over must explain itself rather than fail silently.
+  let lastDetail: string | null = null;
+  supervisor.on('statusDetail', (d: string) => { lastDetail = d; });
+  virtualPad.emit('openFailed', { kind: 'openDenied', err: new Error('cannot open device') });
+  assert('open denial surfaces a status detail', typeof lastDetail === 'string');
+  assert('Bluetooth open denial mentions exclusive-access contention',
+    (lastDetail ?? '').includes('exclusively'));
+  assert('supervisor exposes the status detail', supervisor.statusDetail === lastDetail);
+
+  virtualPad.emit('connected');
+  assert('a working connection clears the status detail', supervisor.statusDetail === null);
+
+  // An idle pad is not a broken pad — the advice must say so before blaming permissions.
+  const noDataDetail = explainOpenFailure({ kind: 'noData', err: null }, 'usb');
+  assert('opened-but-silent pad says to move a stick first', noDataDetail.includes('Move a stick'));
+  assert('opened-but-silent pad still points at Input Monitoring', noDataDetail.includes('Input Monitoring'));
+  assert('USB open denial does not suggest a USB cable',
+    !explainOpenFailure({ kind: 'openDenied', err: null }, 'usb').includes('USB cable'));
+
+  supervisor.stop();
 
   // Results
   console.log('\n=== Results ===');

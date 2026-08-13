@@ -42,15 +42,22 @@ export class GamepadDevice extends EventEmitter {
       // permission is denied — the constructor returns but no 'data' events ever
       // fire. Defer the 'connected' state until we actually receive a packet,
       // and surface a clear warning if nothing arrives within the handshake window.
+      //
+      // Do NOT tear the device down when the window expires. Some pads (a
+      // Bluetooth Xbox controller among them) send no reports at all while
+      // untouched, so closing and reopening every 2s just churns the device and
+      // restarts the window — an idle controller could never come up. Reopening
+      // cannot fix a denied-permission device either. Keep listening instead and
+      // let the first real packet promote us to 'connected'.
       let gotFirstPacket = false;
       const handshakeTimer = setTimeout(() => {
         if (gotFirstPacket) return;
         throttledLog.warn(
           'gamepad-no-hid', 30000,
           { vendorId: this.vendorId, productId: this.productId, path: this.path },
-          'gamepad opened but no HID data within 2s — likely missing macOS Input Monitoring permission'
+          'gamepad opened but no HID data within 2s — still listening; move a stick, or check macOS Input Monitoring permission'
         );
-        this.scheduleReconnect();
+        this.emit('openFailed', { kind: 'noData', err: null });
       }, 2000);
 
       this.device.on('data', (data: Buffer) => {
@@ -70,6 +77,7 @@ export class GamepadDevice extends EventEmitter {
       });
     } catch (err) {
       throttledLog.warn('gamepad-open-fail', 30000, { err }, 'gamepad open failed, scheduling reconnect');
+      this.emit('openFailed', { kind: 'openDenied', err });
       this.scheduleReconnect();
     }
   }
