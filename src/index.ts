@@ -108,28 +108,31 @@ async function main() {
   }
 
   // Step 6 & 7: Read ATEM program/preview, set controlled camera
+  // Cameras whose video isn't wired to the switcher have no inputId. They must
+  // never match an ATEM input here — `undefined === undefined` would otherwise
+  // pick an unwired camera as the live/preview source.
+  const byInput = (inputId: number | undefined) =>
+    inputId === undefined ? undefined : config.cameras.find(c => c.inputId === inputId);
+  const firstWired = config.cameras.find(c => c.inputId !== undefined);
+  const fallback = firstWired ?? config.cameras[0];
+
   if (atem.connected) {
-    const previewInputId = atem.getPreviewInput() ?? config.cameras[1].inputId;
-    const cam = config.cameras.find(c => c.inputId === previewInputId);
+    const cam = byInput(atem.getPreviewInput()) ?? fallback;
     if (cam) {
       state.controlledCamera = cam.id as CameraId;
       state.cameraIndex = config.cameras.indexOf(cam);
-    } else {
-      state.controlledCamera = 'cam2';
-      state.cameraIndex = 1;
     }
-    const programInputId = atem.getProgramInput() ?? config.cameras[1].inputId;
-    const pgmCam = config.cameras.find(c => c.inputId === programInputId);
+    const pgmCam = byInput(atem.getProgramInput());
     if (pgmCam) state.programCamera = pgmCam.id as CameraId;
-  } else {
-    state.controlledCamera = 'cam2';
-    state.cameraIndex = 1;
+  } else if (fallback) {
+    state.controlledCamera = fallback.id as CameraId;
+    state.cameraIndex = config.cameras.indexOf(fallback);
   }
   state.previewCamera = state.controlledCamera;
 
   // Step 8: Sync ATEM preview to controlledCamera
   const controlledCam = config.cameras.find(c => c.id === state.controlledCamera);
-  if (controlledCam && atem.connected) {
+  if (controlledCam?.inputId !== undefined && atem.connected) {
     await atem.changePreviewInput(controlledCam.inputId);
   }
 

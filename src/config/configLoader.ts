@@ -17,7 +17,10 @@ const CameraSchema = z.object({
   label: z.string(),
   protocol: z.enum(['visca', 'dji-bridge']).default('visca'),
   cameraType: z.enum(['vbot', 'birddog', 'generic']).default('generic'),
-  inputId: z.number(),
+  // Omit when the camera's video is not wired to the switcher yet: the app will
+  // still drive its motion, but will not move the ATEM preview bus to it and
+  // will refuse to take it live (taking an unwired input cuts black to air).
+  inputId: z.number().optional(),
   viscaIp: z.string().optional(),
   viscaPort: z.number().default(52381),
   cameraAddress: z.number().min(0).max(7).default(1),
@@ -76,7 +79,9 @@ const InventoryDeviceSchema = z.object({
 // what the face-button hotkeys (X/A/B/Y) and the left-stick selector address.
 const SlotSchema = z.object({
   device: z.string(),
-  inputId: z.number(),
+  // Optional: a slot whose camera is not wired to the switcher is control-only
+  // (motion works, switching does not). See CameraSchema.inputId.
+  inputId: z.number().optional(),
 });
 
 const ProfileSchema = z.object({

@@ -101,9 +101,9 @@ profiles:
     slots:
       - { device: vbot,     inputId: 6 }   # cam1 / X
       - { device: rs3,      inputId: 4 }   # cam2 / A
-      # TODO: set these two to the ATEM inputs the RS3 Pro cameras are actually
-      # wired to. 9 and 10 are placeholders on a free input (ATEM 1 M/E
-      # Constellation 4K); switching to these cameras will show the wrong source
-      # until corrected. Everything else about the profile works.
-      - { device: rs3pro-a, inputId: 9 }   # cam3 / B
-      - { device: rs3pro-b, inputId: 10 }  # cam4 / Y
+      # The two RS3 Pro cameras are not wired to the switcher yet, so these slots
+      # deliberately have no inputId: motion control works, but the app will not
+      # move the preview bus to them and will refuse to take them live (taking an
+      # unwired input would cut black to air). Add `inputId:` once they're wired.
+      - { device: rs3pro-a }               # cam3 / B — control-only
+      - { device: rs3pro-b }               # cam4 / Y — control-only

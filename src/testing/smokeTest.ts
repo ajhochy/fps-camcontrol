@@ -611,6 +611,50 @@ async function runTests(): Promise<void> {
   }
   assert('unknown device in a slot throws instead of silently dropping', profileErr.includes('ghost'));
 
+  // Test 15: control-only cameras (video not wired to the switcher).
+  // Taking an unwired input would cut BLACK to air, so selecting such a camera
+  // must hand over motion control without arming it, and takes must be refused.
+  console.log('\nTest 15: unwired camera is control-only and cannot be taken live');
+  const unwiredCams = resolveProfile(
+    { ...inventory, rs3proA: inventory.rs3proA },
+    { slots: [{ device: 'vbot', inputId: 6 }, { device: 'rs3proA' }] } // slot 2: no inputId
+  );
+  assert('unwired slot resolves with inputId undefined', unwiredCams[1].inputId === undefined);
+  assert('wired slot keeps its inputId', unwiredCams[0].inputId === 6);
+
+  const unwiredDevices = new Map<CameraId, MotionDevice>();
+  for (const c of unwiredCams) {
+    unwiredDevices.set(c.id as CameraId, new ViscaDevice(virtualViscas.cam1 as unknown as ViscaClient, c.id, c.label));
+  }
+  const uState: AppState = { ...defaultState, controlledCamera: 'cam1', programCamera: 'cam1', previewCamera: 'cam1', cameraIndex: 0 };
+
+  // Selecting the unwired camera: control moves, preview bus must NOT.
+  virtualAtem.log = [];
+  const uSelector = new CameraSelector(uState, unwiredCams, atemProxy, unwiredDevices);
+  uSelector.selectByIndex(1);
+  assert('selecting unwired camera still takes motion control', uState.controlledCamera === 'cam2');
+  assert('selecting unwired camera does NOT move the preview bus',
+    !virtualAtem.log.some(l => l.includes('changePreviewInput')));
+  assert('preview stays on the wired camera', uState.previewCamera === 'cam1');
+
+  // Taking it live must be refused on both paths.
+  virtualAtem.log = [];
+  const pgmBefore = uState.programCamera;
+  await autoTransitionControlledCamera(atemProxy, uState, unwiredCams, unwiredDevices);
+  assert('RB take on unwired camera is refused (no autoTransition)',
+    !virtualAtem.log.some(l => l.includes('autoTransition')));
+  assert('program is unchanged after refused take', uState.programCamera === pgmBefore);
+
+  // And the wired camera still works normally, so the guard is not over-broad.
+  virtualAtem.log = [];
+  uSelector.selectByIndex(0);
+  assert('wired camera still moves the preview bus',
+    virtualAtem.log.some(l => l.includes('changePreviewInput(6)')));
+  virtualAtem.log = [];
+  await autoTransitionControlledCamera(atemProxy, uState, unwiredCams, unwiredDevices);
+  assert('wired camera can still be taken live',
+    virtualAtem.log.some(l => l.includes('autoTransition')));
+
   // Results
   console.log('\n=== Results ===');
   console.log(`Passed: ${passed}`);

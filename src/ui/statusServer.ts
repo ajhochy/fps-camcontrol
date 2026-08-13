@@ -942,7 +942,7 @@ function cameraRowHtml(cam, idx) {
     '<tr><td style="color:#888">VISCA Port</td><td><input class="cfg-input" name="cam-port" type="number" min="1" max="65535" value="' + cam.viscaPort + '"></td></tr>' +
     '<tr><td style="color:#888">Camera Addr</td><td><input class="cfg-input" name="cam-addr" type="number" min="0" max="7" value="' + (cam.cameraAddress != null ? cam.cameraAddress : 1) + '" title="VISCA bus address (Camera ID in Companion). Default 1."></td></tr>' +
     '<tr><td style="color:#888">Speed Scale</td><td><input class="cfg-input" name="cam-speed" type="number" min="0.1" max="5" step="0.1" value="' + (cam.speedScale != null ? cam.speedScale : 1.0) + '" title="Per-camera speed multiplier. 1.0 = same as global preset; >1 = faster (use for slow cams like V-BOT)."></td></tr>' +
-    '<tr><td style="color:#888">ATEM Input</td><td><input class="cfg-input" name="cam-input" type="number" min="1" value="' + cam.inputId + '"></td></tr>' +
+    '<tr><td style="color:#888">ATEM Input</td><td><input class="cfg-input" name="cam-input" type="number" min="1" placeholder="not wired" title="Leave blank if this camera\'s video is not connected to the switcher: motion still works, but it cannot be taken live." value="' + (cam.inputId != null ? cam.inputId : '') + '"></td></tr>' +
     '</tbody></table></div>';
 }
 
@@ -1016,7 +1016,11 @@ async function saveDeviceConfig() {
       viscaPort: parseInt(r.querySelector('[name="cam-port"]').value, 10) || 52381,
       cameraAddress: addrVal,
       speedScale: speedVal,
-      inputId: parseInt(r.querySelector('[name="cam-input"]').value, 10) || 1,
+      // Blank means "not wired to the switcher" — send undefined rather than
+      // defaulting to input 1, which would silently make it takeable to air.
+      inputId: r.querySelector('[name="cam-input"]').value.trim() === ''
+        ? undefined
+        : (parseInt(r.querySelector('[name="cam-input"]').value, 10) || undefined),
     });
   }
   var statusEl = document.getElementById('config-save-status');

@@ -39,6 +39,10 @@ export async function cutControlledCameraLive(
 ): Promise<void> {
   const cam = cameras.find(c => c.id === state.controlledCamera);
   if (!cam) return;
+  if (cam.inputId === undefined) {
+    logger.warn({ camera: cam.id, label: cam.label }, 'refusing cut: camera has no ATEM input (not wired) — would put black on program');
+    return;
+  }
   await atem.changePreviewInput(cam.inputId);
   await atem.cut();
   armPreviousProgramAsStandby(state, cameras, devices);
@@ -53,6 +57,10 @@ export async function autoTransitionControlledCamera(
 ): Promise<void> {
   const cam = cameras.find(c => c.id === state.controlledCamera);
   if (!cam) return;
+  if (cam.inputId === undefined) {
+    logger.warn({ camera: cam.id, label: cam.label }, 'refusing take: camera has no ATEM input (not wired) — would put black on program');
+    return;
+  }
   await atem.changePreviewInput(cam.inputId);
   await atem.autoTransition();
   armPreviousProgramAsStandby(state, cameras, devices);
