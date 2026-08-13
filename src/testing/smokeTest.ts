@@ -290,8 +290,15 @@ async function runTests(): Promise<void> {
         res.end(JSON.stringify({ cameras: [
           { id: 'AA:BB:CC:DD:EE:01', model: 'ILCE-7SM3 A', connected: true, connectionType: 'USB' },
           { id: 'AA:BB:CC:DD:EE:02', model: 'ILME-FX3 B', connected: true, connectionType: 'Wi-Fi' },
-          { id: 'AA:BB:CC:DD:EE:03', model: 'Offline', connected: false, connectionType: 'USB' },
+          { id: 'AA:BB:CC:DD:EE:03', model: 'ILCE-7IV C', connected: true, connectionType: 'USB' },
+          { id: 'AA:BB:CC:DD:EE:04', model: 'ILME-FX30 D', connected: true, connectionType: 'Wi-Fi' },
+          { id: 'AA:BB:CC:DD:EE:05', model: 'Offline', connected: false, connectionType: 'USB' },
         ] }));
+      } else if (req.url?.endsWith('/connection') && req.method === 'GET') {
+        res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({
+          camera: req.url.includes('AA:BB:CC:DD:EE:01') ? { id: 'AA:BB:CC:DD:EE:01', model: 'ILCE-7SM3 A', connected: true } : { connected: /EE:0[2-4]/.test(req.url) },
+          data: req.url.includes('AA:BB:CC:DD:EE:01') ? { mode: 'remote' } : {},
+        }));
       } else if (req.url?.endsWith('/properties/all')) {
         res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ data: sonyProperties }));
       } else if (req.url?.endsWith('/live-view/frame')) {
@@ -337,12 +344,23 @@ async function runTests(): Promise<void> {
   assert('Sony preview aria-live updates only on loading/ready/stale/recovered transitions', home.text.includes("previewAnnouncementState:'loading'") && home.text.includes("state.previewAnnouncementState === 'loading') sonyStatus(id, 'Live preview ready.'") && home.text.includes("state.previewAnnouncementState === 'stale') sonyStatus(id, 'Live preview recovered.'") && home.text.includes("state.previewAnnouncementState !== 'stale') sonyStatus(id, 'Live preview stale.'") && !home.text.includes("sonyStatus(id, recovered ?"));
   assert('Sony discovery and connect failures clear stale state and report accessibly', home.text.includes('sonyDiscovered = [];') && home.text.includes('sony-device-status') && home.text.includes("if (!response.ok) throw new Error('Connect failed')"));
   assert('Sony controls alone have 44px targets', home.text.includes('.sony-widget select, .sony-widget input, .sony-widget button { min-height:44px; }'));
+  assert('Sony desktop layout has four equal widget columns with 16:9 previews', home.text.includes('grid-template-columns:repeat(4,minmax(0,1fr))') && home.text.includes('aspect-ratio:16 / 9'));
+  assert('Sony layout uses two widget columns on tablet and one on mobile', home.text.includes('@media (max-width:1100px)') && home.text.includes('@media (max-width:700px)'));
+  assert('Sony settings remain a compact two-column grid at desktop widths', home.text.includes('.sony-controls { display:grid; grid-template-columns:repeat(2,minmax(0,1fr));'));
   assert('Every Sony widget has a heading labeling its article and preview', (home.text.match(/aria-labelledby="sony-heading-/g) || []).length === 2 && home.text.includes('<h3 class="sony-widget__title" id="sony-heading-'));
   assert('Browser code only references CamControl Sony API', !home.text.includes(`127.0.0.1:${fakeSonyPort}`) && !home.text.includes('127.0.0.1:8181'));
 
   const camerasResult = await sonyGet('/api/sony/cameras');
   const camerasJson = JSON.parse(camerasResult.text);
-  assert('Sony proxy returns discovery data for two connected camera fixtures', camerasJson.cameras.filter((camera: any) => camera.connected).length === 2);
+  assert('Sony proxy returns four connected plus one disconnected fixtures', camerasJson.cameras.filter((camera: any) => camera.connected).length === 4 && camerasJson.cameras.filter((camera: any) => !camera.connected).length === 1);
+  // Regression: discovery can hang after the first scan; known cameras must be
+  // checked individually and retain the nested live connection response shape.
+  const discoveryRequests = () => upstreamRequests.filter(request => request.url === '/api/cameras').length;
+  const discoveredOnce = discoveryRequests();
+  await sonyGet('/api/sony/cameras/AA:BB:CC:DD:EE:01/connect', { method: 'POST' });
+  const refreshedCameras = JSON.parse((await sonyGet('/api/sony/cameras')).text);
+  assert('Sony repeated list reuses cached identities without rediscovery', discoveryRequests() === discoveredOnce);
+  assert('Sony connection checks merge nested camera and data fields', refreshedCameras.cameras[0]?.mode === 'remote' && refreshedCameras.cameras[0]?.connected === true);
   const badId = await sonyGet('/api/sony/cameras/not-a-mac/properties');
   assert('Sony proxy rejects non-MAC camera IDs', badId.response.status === 400);
   const badProperty = await sonyGet('/api/sony/cameras/AA:BB:CC:DD:EE:01/properties/evil', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ value: 1 }) });
