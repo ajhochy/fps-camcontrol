@@ -7,7 +7,7 @@ export const logger = (global as any).__testLogger ?? pino({
 });
 
 import { loadConfig } from './config/configLoader';
-import { defaultState, AppState, CameraId } from './app/state';
+import { createInitialState, AppState, CameraId, trackDeviceLinkState } from './app/state';
 import { AtemClient } from './atem/atemClient';
 import { MotionDevice } from './devices/motionDevice';
 import { createMotionDevice } from './devices/deviceFactory';
@@ -28,7 +28,7 @@ async function main() {
   logger.info('FPS CamControl starting…');
 
   const config = loadConfig();
-  const state: AppState = { ...defaultState };
+  const state: AppState = createInitialState();
   const activityLog = new ActivityLog();
 
   // Step 1: Connect to ATEM
@@ -44,12 +44,7 @@ async function main() {
   const devices = new Map<CameraId, MotionDevice>();
   for (const cam of config.cameras) {
     const device = createMotionDevice(cam, activityLog);
-    device.on('connected', () => {
-      state.cameraConnected[cam.id as CameraId] = true;
-    });
-    device.on('disconnected', () => {
-      state.cameraConnected[cam.id as CameraId] = false;
-    });
+    trackDeviceLinkState(state, cam.id, device);
     devices.set(cam.id as CameraId, device);
     device.connect();
   }

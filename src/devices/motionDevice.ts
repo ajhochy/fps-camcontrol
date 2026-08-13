@@ -16,7 +16,22 @@ export interface MotionDevice {
   readonly label: string;
   readonly protocol: string;
   readonly capabilities: DeviceCapabilities;
+  /**
+   * The transport to this device is up. For a two-stage link this means only
+   * "we can talk to the bridge" — see `gimbalAttached`.
+   */
   readonly connected: boolean;
+
+  /**
+   * Whether motion hardware is actually attached at the far end of a two-stage
+   * link (app → Pi bridge → gimbal over BLE).
+   *
+   * `undefined` means the device has no second stage: a VISCA camera *is* the
+   * far end of its own socket, so `connected` already says everything and this
+   * property is deliberately absent rather than false. Consumers must treat
+   * `undefined` as "not applicable", never as "detached".
+   */
+  readonly gimbalAttached?: boolean;
 
   connect(): void;
   close(): void;

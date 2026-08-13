@@ -1,4 +1,4 @@
-import { defaultState, AppState, CameraId } from '../app/state';
+import { createInitialState, trackDeviceLinkState, AppState, CameraId } from '../app/state';
 import { AppConfig, resolveProfile } from '../config/configLoader';
 import { VirtualAtem } from './virtualAtem';
 import { VirtualVisca } from './virtualVisca';
@@ -71,13 +71,14 @@ const config: AppConfig = {
 };
 
 // ---- Build state ----
-const state: AppState = {
-  ...defaultState,
+// createInitialState, not { ...defaultState }: the latter is a shallow copy, so
+// every test state would share one cameraConnected object and leak into the next.
+const state: AppState = createInitialState({
   controlledCamera: 'cam2',
   programCamera: 'cam2',
   previewCamera: 'cam2',
   cameraIndex: 1,
-};
+});
 
 // ---- Wire virtual VISCA clients via duck-typing through ViscaDevice ----
 // VirtualVisca only implements sendPayload, so we keep the raw map around for
@@ -423,7 +424,7 @@ async function runTests(): Promise<void> {
   // preset save/recall via PresetManager on a DJI device
   const djiDevices = new Map<CameraId, any>();
   djiDevices.set('cam4' as CameraId, dji);
-  const djiState: AppState = { ...defaultState, controlledCamera: 'cam4' };
+  const djiState: AppState = createInitialState({ controlledCamera: 'cam4' });
   const djiConfig: AppConfig = {
     ...config,
     cameras: [
@@ -626,7 +627,7 @@ async function runTests(): Promise<void> {
   for (const c of unwiredCams) {
     unwiredDevices.set(c.id as CameraId, new ViscaDevice(virtualViscas.cam1 as unknown as ViscaClient, c.id, c.label));
   }
-  const uState: AppState = { ...defaultState, controlledCamera: 'cam1', programCamera: 'cam1', previewCamera: 'cam1', cameraIndex: 0 };
+  const uState: AppState = createInitialState({ controlledCamera: 'cam1', programCamera: 'cam1', previewCamera: 'cam1', cameraIndex: 0 });
 
   // Selecting the unwired camera: control moves, preview bus must NOT.
   virtualAtem.log = [];
@@ -654,6 +655,156 @@ async function runTests(): Promise<void> {
   await autoTransitionControlledCamera(atemProxy, uState, unwiredCams, unwiredDevices);
   assert('wired camera can still be taken live',
     virtualAtem.log.some(l => l.includes('autoTransition')));
+
+  // Test 17: a reachable bridge with no gimbal is NOT a connected camera.
+  // Regression guard for issue #16: `connected` fired on the `hello` handshake,
+  // so a gimbal whose BLE link was gone still showed green and could be taken
+  // live. Two behaviours were measured on the real Pi and are modelled by the
+  // virtual bridge here: a bridge with no gimbal keeps acking hello/ping and
+  // emits NO `status` frames at all (it never sends gimbalConnected:false), but
+  // it rejects any gimbal-touching call instantly with `sdk_error`.
+  console.log('\nTest 17: bridge reachable but gimbal detached reports as disconnected');
+
+  // Short quiet window so the check fires in test time; the real device waits
+  // 10s against a ~2s telemetry cadence.
+  const gimbalBridge = new VirtualDjiBridge({ statusIntervalMs: 100, safetyTimeoutMs: 250 });
+  const gimbalPort = await gimbalBridge.start();
+  const gDev = new DjiBridgeDevice(
+    {
+      host: '127.0.0.1', port: gimbalPort, safetyTimeoutMs: 250,
+      reconnectBackoffMs: [50], rollEnabled: false, gimbalStatusTimeoutMs: 600,
+    },
+    'cam2', 'DJI RS3',
+  );
+
+  const gState = createInitialState({ controlledCamera: 'cam2' });
+  trackDeviceLinkState(gState, 'cam2', gDev as unknown as MotionDevice);
+
+  await new Promise<void>((resolve) => { gDev.once('connected', () => resolve()); gDev.connect(); });
+  await new Promise(r => setTimeout(r, 300)); // let a status frame or two land
+
+  assert('attached gimbal: device reports gimbalAttached', gDev.gimbalAttached === true);
+  assert('attached gimbal: cameraConnected true', gState.cameraConnected['cam2'] === true);
+  assert('attached gimbal: bridge recorded as reachable', gState.cameraBridgeReachable['cam2'] === true);
+  assert('attached gimbal: gimbal recorded as attached', gState.cameraGimbalAttached['cam2'] === true);
+
+  // Power the gimbal off. The WebSocket stays up and pings keep acking; the
+  // status stream simply stops — exactly what the Pi does. Detection therefore
+  // has to come from the active check the quiet window triggers.
+  gimbalBridge.setGimbalConnected(false);
+  const detached = await new Promise<boolean>((resolve) => {
+    const t = setTimeout(() => resolve(false), 5000);
+    gDev.once('gimbalDetached', () => { clearTimeout(t); resolve(true); });
+  });
+  assert('silent telemetry plus a rejected check detects a detached gimbal', detached);
+  assert('detached gimbal: cameraConnected flips to false', gState.cameraConnected['cam2'] === false);
+  assert('detached gimbal: bridge still reported REACHABLE (distinguishable)',
+    gState.cameraBridgeReachable['cam2'] === true);
+  assert('detached gimbal: gimbal reported as not attached', gState.cameraGimbalAttached['cam2'] === false);
+  assert('detached gimbal: bridge socket really is still up', gDev.connected === true);
+  assert('detached gimbal: ping still round-trips to the bridge', (await gDev.probe(1000)) === true);
+
+  // Powering it back on returns to connected.
+  gimbalBridge.setGimbalConnected(true);
+  const reattached = await new Promise<boolean>((resolve) => {
+    const t = setTimeout(() => resolve(false), 5000);
+    gDev.once('gimbalAttached', () => { clearTimeout(t); resolve(true); });
+  });
+  assert('gimbal powered back on returns to attached', reattached);
+  assert('re-attached gimbal: cameraConnected true again', gState.cameraConnected['cam2'] === true);
+
+  // A bridge that DOES report gimbalConnected:false explicitly must be honoured
+  // too, so this keeps working if the Pi later grows a heartbeat status frame.
+  gimbalBridge.explicitDetachedStatus = true;
+  gimbalBridge.setGimbalConnected(false);
+  const explicit = await new Promise<boolean>((resolve) => {
+    const t = setTimeout(() => resolve(false), 5000);
+    gDev.once('gimbalDetached', () => { clearTimeout(t); resolve(true); });
+  });
+  assert('explicit gimbalConnected:false is honoured immediately', explicit);
+  assert('explicit detach: cameraConnected false', gState.cameraConnected['cam2'] === false);
+
+  // A failing motion command is the fastest and most direct evidence there is —
+  // it is literally the operator's "I pressed the stick and nothing moved". It
+  // must not wait for the quiet window.
+  gimbalBridge.explicitDetachedStatus = false;
+  gimbalBridge.setGimbalConnected(true);
+  await new Promise<void>((resolve) => {
+    if (gDev.gimbalAttached) return resolve();
+    gDev.once('gimbalAttached', () => resolve());
+  });
+  gimbalBridge.setGimbalConnected(false);
+  const failedCommandDetect = await new Promise<boolean>((resolve) => {
+    const t = setTimeout(() => resolve(false), 1000);
+    gDev.once('gimbalDetached', () => { clearTimeout(t); resolve(true); });
+    gDev.setPanTilt(0.5, 0); // nacked with sdk_error by a bridge with no gimbal
+  });
+  assert('a rejected motion command detects the detached gimbal at once', failedCommandDetect);
+  assert('rejected command: cameraConnected false', gState.cameraConnected['cam2'] === false);
+
+  // The inverse must NOT happen: a gimbal that is merely SLOW must never be
+  // reported as absent. On a shared bridge a healthy gimbal's pose poll was
+  // measured at 13.6s, so an unanswered check has to stay inconclusive.
+  const slowBridge = new VirtualDjiBridge({ statusIntervalMs: 100, safetyTimeoutMs: 250 });
+  const slowPort = await slowBridge.start();
+  const slowDev = new DjiBridgeDevice(
+    {
+      host: '127.0.0.1', port: slowPort, safetyTimeoutMs: 250,
+      reconnectBackoffMs: [50], rollEnabled: false, gimbalStatusTimeoutMs: 300,
+    },
+    'cam3', 'DJI slow',
+  );
+  await new Promise<void>((resolve) => { slowDev.once('connected', () => resolve()); slowDev.connect(); });
+  await new Promise(r => setTimeout(r, 250));
+  assert('slow bridge: starts attached', slowDev.gimbalAttached === true);
+  // Telemetry stops and the bridge answers NOTHING (not even a rejection) —
+  // the contended-but-healthy case, which must leave the verdict untouched.
+  slowBridge.goSilent();
+  await new Promise(r => setTimeout(r, 3000));
+  assert('an unanswered gimbal check leaves a healthy gimbal attached',
+    slowDev.gimbalAttached === true);
+  assert('slow bridge: still reported connected', slowDev.connected === true);
+  slowDev.close();
+  await slowBridge.stop();
+
+  // Now the OTHER failure: the bridge itself goes away. This must look different
+  // from a detached gimbal, because the remedy is different.
+  gDev.close();
+  await gimbalBridge.stop();
+  await new Promise(r => setTimeout(r, 50));
+  assert('unreachable bridge: cameraConnected false', gState.cameraConnected['cam2'] === false);
+  assert('unreachable bridge: bridge reported NOT reachable (vs. true when only the gimbal is off)',
+    gState.cameraBridgeReachable['cam2'] === false);
+  assert('unreachable bridge: device transport is down', gDev.connected === false);
+
+  // VISCA must be unaffected: no second stage, so no gimbal keys at all, and a
+  // missing key must never be read as "detached".
+  const viscaState = createInitialState();
+  const viscaDev = new ViscaDevice(virtualViscas.cam1 as unknown as ViscaClient, 'cam1', 'V-BOT');
+  trackDeviceLinkState(viscaState, 'cam1', viscaDev);
+  assert('VISCA device exposes no gimbalAttached notion',
+    (viscaDev as MotionDevice).gimbalAttached === undefined);
+  assert('VISCA camera gets no gimbal detail key',
+    !Object.prototype.hasOwnProperty.call(viscaState.cameraGimbalAttached, 'cam1'));
+  assert('VISCA camera gets no bridge detail key',
+    !Object.prototype.hasOwnProperty.call(viscaState.cameraBridgeReachable, 'cam1'));
+  assert('VISCA cameraConnected still tracks the socket',
+    viscaState.cameraConnected['cam1'] === viscaDev.connected);
+
+  // Taking a gimbal-off camera live is deliberately ALLOWED (its video is fine,
+  // only motion is dead) — unlike an unwired camera, whose take cuts black.
+  // Blocking it would mean a sleeping gimbal silently swallows the operator's
+  // take and leaves the wrong camera on air.
+  const gimbalOffCams = resolveProfile(inventory, { slots: [{ device: 'vbot', inputId: 6 }, { device: 'rs3', inputId: 4 }] });
+  const offDevices = new Map<CameraId, MotionDevice>();
+  offDevices.set('cam1' as CameraId, new ViscaDevice(virtualViscas.cam1 as unknown as ViscaClient, 'cam1', 'V-BOT'));
+  offDevices.set('cam2' as CameraId, gDev as unknown as MotionDevice); // detached gimbal
+  const offState = createInitialState({ controlledCamera: 'cam2', programCamera: 'cam1', previewCamera: 'cam2', cameraIndex: 1 });
+  virtualAtem.log = [];
+  await autoTransitionControlledCamera(atemProxy, offState, gimbalOffCams, offDevices);
+  assert('take on a gimbal-off camera is allowed (video is still valid)',
+    virtualAtem.log.some(l => l.includes('autoTransition')));
+  assert('take on a gimbal-off camera still updates program', offState.programCamera === 'cam2');
 
   // Results
   console.log('\n=== Results ===');

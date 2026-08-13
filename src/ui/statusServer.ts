@@ -2,7 +2,7 @@ import express from 'express';
 import http from 'http';
 import path from 'path';
 import { WebSocketServer, WebSocket } from 'ws';
-import { AppState, CameraId } from '../app/state';
+import { AppState, CameraId, trackDeviceLinkState, clearCameraLinkState } from '../app/state';
 // NOTE: "profile" is overloaded in this codebase — profileDetector deals with
 // *controller* profiles (Xbox, Wii U Pro). Camera environment profiles are
 // aliased here as CameraProfile to keep the two apart.
@@ -32,6 +32,12 @@ export function createStatusServer(
   const app = express();
   app.use(express.json());
 
+  // GET /api/status
+  // `cameraConnected` answers only "can this camera be moved?". For cameras
+  // behind a Pi bridge, `cameraBridgeReachable` and `cameraGimbalAttached` say
+  // WHICH stage is down, because the remedies differ (fix the Pi/network vs.
+  // switch the gimbal on). Both maps omit direct-link cameras (VISCA) entirely:
+  // a missing key means "no second stage", not "broken".
   app.get('/api/status', (_req, res) => {
     res.json(state);
   });
@@ -157,7 +163,7 @@ export function createStatusServer(
       if (!newIds.has(id)) {
         devices.get(id)?.close();
         devices.delete(id);
-        delete state.cameraConnected[id];
+        clearCameraLinkState(state, id);
       }
     }
 
@@ -177,8 +183,7 @@ export function createStatusServer(
       if (changed) {
         existing?.close();
         const device = createMotionDevice(cam, activityLog);
-        device.on('connected', () => { state.cameraConnected[id] = true; });
-        device.on('disconnected', () => { state.cameraConnected[id] = false; });
+        trackDeviceLinkState(state, id, device);
         devices.set(id, device);
         device.connect();
       } else if (existing && existing instanceof ViscaDevice && oldCam && oldCam.label !== cam.label) {
@@ -595,6 +600,16 @@ function statusHtml(): string {
   .cam-card--ok .cam-card__status { color: var(--ok-text); }
   .cam-card--err .cam-card__led   { background: var(--err-text); box-shadow: 0 0 5px var(--err-text); }
   .cam-card--err .cam-card__status{ color: var(--err-text); }
+  /* Amber, not red: the camera is unusable either way, but the remedy differs
+     (switch the gimbal on) and it is not the network's fault. */
+  .cam-card--warn .cam-card__led   { background: var(--warn-text); box-shadow: 0 0 5px var(--warn-text); }
+  .cam-card--warn .cam-card__status{ color: var(--warn-text); }
+  .cam-card__hint {
+    font-size: 0.64rem;
+    letter-spacing: 0.04em;
+    color: var(--text-2);
+    padding-left: 16px;
+  }
 
   /* Mode chips */
   .mode-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
@@ -917,6 +932,28 @@ function tile(label, value, cls) {
   return '<div class="s-tile s-tile--' + cls + '"><span class="s-tile__label">' + label + '</span><span class="s-tile__value">' + esc(value) + '</span></div>';
 }
 
+// Turn the three camera-keyed maps in /api/status into one label per camera.
+// A camera reached through a Pi bridge has two things that can be broken and
+// they need different remedies, so "Disconnected" alone is not good enough:
+// a missing bridge means fix the network or the Pi, a missing gimbal means go
+// switch it on. Cameras with no entry in cameraGimbalAttached (VISCA) have no
+// second stage at all and keep the plain connected/disconnected wording.
+function cameraLinkState(s, id) {
+  const attachedMap = s.cameraGimbalAttached || {};
+  const connected = !!(s.cameraConnected && s.cameraConnected[id]);
+  if (!Object.prototype.hasOwnProperty.call(attachedMap, id)) {
+    return { cls: connected ? 'ok' : 'err', text: connected ? 'Connected' : 'Disconnected', hint: '' };
+  }
+  const bridgeUp = !!(s.cameraBridgeReachable && s.cameraBridgeReachable[id]);
+  if (!bridgeUp) {
+    return { cls: 'err', text: 'Bridge Offline', hint: 'Cannot reach the Pi bridge' };
+  }
+  if (!attachedMap[id]) {
+    return { cls: 'warn', text: 'Gimbal Off', hint: 'Bridge up, no gimbal attached' };
+  }
+  return { cls: 'ok', text: 'Connected', hint: '' };
+}
+
 function renderStatus(s, c) {
   const cams = c.cameras || [];
   const camLabel = id => (cams.find(x => x.id === id) || {}).label || id;
@@ -934,11 +971,12 @@ function renderStatus(s, c) {
   let camGrid = '<div class="cam-grid">';
   for (var i = 0; i < cams.length; i++) {
     const cam = cams[i];
-    const ok = s.cameraConnected && s.cameraConnected[cam.id];
+    const link = cameraLinkState(s, cam.id);
     camGrid +=
-      '<div class="cam-card cam-card--' + (ok ? 'ok' : 'err') + '">' +
+      '<div class="cam-card cam-card--' + link.cls + '">' +
         '<div class="cam-card__header"><span class="cam-card__led"></span><span class="cam-card__name">' + esc(cam.label) + '</span></div>' +
-        '<span class="cam-card__status">' + (ok ? 'Connected' : 'Disconnected') + '</span>' +
+        '<span class="cam-card__status">' + esc(link.text) + '</span>' +
+        (link.hint ? '<span class="cam-card__hint">' + esc(link.hint) + '</span>' : '') +
       '</div>';
   }
   camGrid += '</div>';
