@@ -69,7 +69,12 @@ class Session:
                 self.safety_task.cancel()
             if self.status_task and not self.status_task.done():
                 self.status_task.cancel()
-            await self.driver.stop()
+            # A gimbal whose link just dropped cannot be stopped; that must not
+            # turn into an unhandled error on the way out.
+            try:
+                await self.driver.stop()
+            except Exception as e:  # noqa: BLE001
+                log.warning("stop on client disconnect failed: %s", e)
 
     async def _handle(self, raw: Any) -> None:
         try:
@@ -148,7 +153,10 @@ class Session:
     async def _safety_fire(self) -> None:
         try:
             await asyncio.sleep(self.safety_timeout_ms / 1000.0)
-            await self.driver.stop()
+            try:
+                await self.driver.stop()
+            except Exception as e:  # noqa: BLE001
+                log.warning("safety stop could not reach the gimbal: %s", e)
             await self._emit("safetyStop", {"reason": "app_timeout"})
             log.warning("safety stop: app_timeout")
         except asyncio.CancelledError:
@@ -161,16 +169,18 @@ class Session:
                 try:
                     pos = await self.driver.get_position()
                 except Exception:  # noqa: BLE001
-                    continue
-                await self._emit(
-                    "status",
-                    {
-                        "gimbalConnected": self.driver.connected,
-                        "sdkConnected": self.driver.connected,
-                        "mode": self.driver.mode,
-                        "position": {"yaw": pos.yaw, "pitch": pos.pitch, "roll": pos.roll},
-                    },
-                )
+                    pos = None
+                # Still report status when the read failed, otherwise a gimbal that
+                # dropped its link looks like a gimbal that is simply quiet and the
+                # app never learns that it is disconnected.
+                params: Dict[str, Any] = {
+                    "gimbalConnected": self.driver.connected,
+                    "sdkConnected": self.driver.connected,
+                    "mode": self.driver.mode,
+                }
+                if pos is not None:
+                    params["position"] = {"yaw": pos.yaw, "pitch": pos.pitch, "roll": pos.roll}
+                await self._emit("status", params)
         except asyncio.CancelledError:
             pass
 
@@ -226,23 +236,37 @@ async def maintain_gimbal(driver: GimbalDriver) -> None:
     refused port as "the whole Pi is down". Previously `serve()` awaited
     `driver.connect()` before binding the listener, so an absent gimbal raised
     GimbalError -> exit(1) -> systemd restart, and port 7878 never opened.
+
+    This loop is also what recovers a gimbal that drops its link mid-service (DJI
+    gimbals sleep on their own). That only works because the driver now clears
+    `connected` when the link goes away instead of leaving it True forever.
     """
     backoff = GIMBAL_RETRY_MIN_S
+    was_connected = False
     while True:
-        if not driver.connected:
-            lock = await _hold_ble_lock()
-            try:
-                await driver.connect()
-            except Exception as exc:  # noqa: BLE001
-                log.warning("gimbal connect failed: %s (retry in %.0fs)", exc, backoff)
-                _release_ble_lock(lock)
-                await asyncio.sleep(backoff)
-                backoff = min(backoff * 2, GIMBAL_RETRY_MAX_S)
-                continue
-            else:
-                _release_ble_lock(lock)
-                log.info("gimbal connected (%s)", driver.model)
-                backoff = GIMBAL_RETRY_MIN_S
+        if driver.connected:
+            was_connected = True
+            await asyncio.sleep(GIMBAL_POLL_S)
+            continue
+        if was_connected:
+            # Dropped after a good connect: reconnect immediately, no backoff.
+            log.warning("gimbal link lost — reconnecting")
+            was_connected = False
+            backoff = GIMBAL_RETRY_MIN_S
+        lock = await _hold_ble_lock()
+        try:
+            await driver.connect()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("gimbal connect failed: %s (retry in %.0fs)", exc, backoff)
+            _release_ble_lock(lock)
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, GIMBAL_RETRY_MAX_S)
+            continue
+        else:
+            _release_ble_lock(lock)
+            log.info("gimbal connected (%s)", driver.model)
+            was_connected = True
+            backoff = GIMBAL_RETRY_MIN_S
         await asyncio.sleep(GIMBAL_POLL_S)
 
 
