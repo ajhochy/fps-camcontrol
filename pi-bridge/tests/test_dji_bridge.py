@@ -1,4 +1,5 @@
 import asyncio
+import json
 import sys
 import types
 import unittest
@@ -46,11 +47,68 @@ class Driver:
         self.stops += 1
 
 
+class IdleSocket:
+    """Stays open (so the status loop runs) and records what was sent."""
+
+    remote_address = "test"
+
+    def __init__(self):
+        self.sent = []
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        await asyncio.sleep(3600)
+
+    async def send(self, raw):
+        self.sent.append(json.loads(raw))
+
+
+class DeadLinkDriver:
+    """A gimbal whose BLE link has gone away: reads fail, stop is a no-op."""
+
+    mode = "follow"
+    model = "RS3"
+    capabilities = ()
+    connected = False
+
+    async def get_position(self):
+        raise RuntimeError("RS3 is not connected")
+
+    async def stop(self):
+        pass
+
+
 class SessionTests(unittest.IsolatedAsyncioTestCase):
     async def test_abrupt_connection_close_stops_driver_without_escaping(self):
         driver = Driver()
         await Session(AbruptSocket(), driver, 250).run()
         self.assertEqual(driver.stops, 1)
+
+    async def test_status_still_reports_a_gimbal_whose_link_is_gone(self):
+        """A failed read used to skip the status event entirely, so the app never
+        learned that the gimbal had dropped — it just saw stale position data."""
+        original = dji_bridge.STATUS_INTERVAL_S
+        dji_bridge.STATUS_INTERVAL_S = 0.01
+        try:
+            ws = IdleSocket()
+            task = asyncio.create_task(Session(ws, DeadLinkDriver(), 250).run())
+            for _ in range(200):
+                await asyncio.sleep(0.01)
+                if any(frame.get("method") == "status" for frame in ws.sent):
+                    break
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        finally:
+            dji_bridge.STATUS_INTERVAL_S = original
+        statuses = [frame for frame in ws.sent if frame.get("method") == "status"]
+        self.assertTrue(statuses, "status must be emitted even when the position read fails")
+        self.assertFalse(statuses[0]["params"]["gimbalConnected"])
+        self.assertNotIn("position", statuses[0]["params"], "no position is better than a stale one")
 
 
 class FlakyDriver:
@@ -106,6 +164,30 @@ class MaintainGimbalTests(unittest.IsolatedAsyncioTestCase):
             pass
         self.assertTrue(driver.connected, "should eventually connect once the gimbal appears")
         self.assertGreater(driver.attempts, 3, "should have retried past the failures")
+
+    async def test_link_lost_after_a_good_connect_is_reconnected(self):
+        """Issue #15: the RS3 slept mid-service, `connected` stayed True, and the
+        maintainer never retried — it stayed dead until systemctl restart."""
+        driver = FlakyDriver(fail_times=0)
+        task = asyncio.create_task(maintain_gimbal(driver))
+        for _ in range(200):
+            await asyncio.sleep(0.01)
+            if driver.connected:
+                break
+        self.assertEqual(driver.attempts, 1)
+
+        driver.connected = False  # what the BLE disconnect callback does
+        for _ in range(200):
+            await asyncio.sleep(0.01)
+            if driver.attempts > 1:
+                break
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        self.assertEqual(driver.attempts, 2, "a dropped link must be reconnected without a restart")
+        self.assertTrue(driver.connected)
 
     async def test_connect_failure_never_propagates(self):
         driver = FlakyDriver(fail_times=10**6)  # never succeeds
