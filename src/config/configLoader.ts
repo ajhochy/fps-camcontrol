@@ -1,10 +1,34 @@
 import fs from 'fs';
 import path from 'path';
-import yaml from 'js-yaml';
+// The `yaml` package (not js-yaml) is used here on purpose: its Document API
+// round-trips comments, which is what keeps devices.yaml's hand-written
+// documentation alive across a UI save. See writeDevicesYaml().
+import * as YAML from 'yaml';
 import { z } from 'zod';
 
+// The string forms of JavaScript's nullish values. A UI that interpolates an
+// absent field into a text input produces the literal string "undefined", which
+// is a perfectly good non-empty string and so used to pass validation and get
+// written to disk as a camera's IP address (issue #18). No real config contains
+// these, so reject them at the schema boundary.
+const PLACEHOLDER_HOST = /^(undefined|null|nan|none)$/i;
+
+/** A hostname or IP as typed by a human or produced by a form. */
+const HostString = z.string().trim().refine(
+  (v) => v.length > 0 && !PLACEHOLDER_HOST.test(v),
+  { message: 'must be a real hostname or IP address (got an empty value or a placeholder like "undefined")' },
+);
+
+// An ATEM input number, or "this camera's video is not wired to the switcher".
+// `null` is accepted as an explicit "not wired" because JSON.stringify drops
+// undefined properties entirely, leaving a client no way to say "clear this".
+// Both null and absent resolve to undefined = control-only.
+const OptionalInputId = z.union([z.number(), z.null()])
+  .transform((v) => (v === null ? undefined : v))
+  .optional();
+
 const BridgeSchema = z.object({
-  host: z.string(),
+  host: HostString,
   port: z.number().default(7878),
   gimbalModel: z.string().optional(),
   safetyTimeoutMs: z.number().default(250),
@@ -20,8 +44,8 @@ const CameraSchema = z.object({
   // Omit when the camera's video is not wired to the switcher yet: the app will
   // still drive its motion, but will not move the ATEM preview bus to it and
   // will refuse to take it live (taking an unwired input cuts black to air).
-  inputId: z.number().optional(),
-  viscaIp: z.string().optional(),
+  inputId: OptionalInputId,
+  viscaIp: HostString.optional(),
   viscaPort: z.number().default(52381),
   cameraAddress: z.number().min(0).max(7).default(1),
   // Per-camera speed multiplier. 1.0 = same speed as the global preset; raise
@@ -48,7 +72,7 @@ const GraphicsSchema = z.object({
 });
 
 const AtemSchema = z.object({
-  ip: z.string(),
+  ip: HostString,
   defaultTransition: z.enum(['cut', 'auto']),
   meIndex: z.number().default(0),
 });
@@ -60,7 +84,7 @@ const InventoryDeviceSchema = z.object({
   label: z.string(),
   protocol: z.enum(['visca', 'dji-bridge']).default('visca'),
   cameraType: z.enum(['vbot', 'birddog', 'generic']).default('generic'),
-  viscaIp: z.string().optional(),
+  viscaIp: HostString.optional(),
   viscaPort: z.number().default(52381),
   cameraAddress: z.number().min(0).max(7).default(1),
   speedScale: z.number().min(0.1).max(5).default(1.0),
@@ -81,7 +105,7 @@ const SlotSchema = z.object({
   device: z.string(),
   // Optional: a slot whose camera is not wired to the switcher is control-only
   // (motion works, switching does not). See CameraSchema.inputId.
-  inputId: z.number().optional(),
+  inputId: OptionalInputId,
 });
 
 const ProfileSchema = z.object({
@@ -213,7 +237,7 @@ export function loadConfig(): AppConfig {
   const speedsPath = process.env.SPEEDS_FILE ?? path.join(process.cwd(), 'config/speeds.json');
   const mappingsPath = process.env.MAPPINGS_FILE ?? path.join(process.cwd(), 'config/mappings.yaml');
 
-  const devicesRaw = yaml.load(fs.readFileSync(devicesPath, 'utf8'));
+  const devicesRaw = YAML.parse(fs.readFileSync(devicesPath, 'utf8'));
   const devices = DevicesSchema.parse(devicesRaw);
 
   // Normalize graphics: support legacy lowerThirds key
@@ -226,7 +250,7 @@ export function loadConfig(): AppConfig {
 
   let mappings: MappingConfig;
   try {
-    const mappingsRaw = yaml.load(fs.readFileSync(mappingsPath, 'utf8')) ?? {};
+    const mappingsRaw = YAML.parse(fs.readFileSync(mappingsPath, 'utf8')) ?? {};
     mappings = MappingSchema.parse(mappingsRaw);
   } catch {
     mappings = MappingSchema.parse({});
@@ -249,29 +273,184 @@ export function loadConfig(): AppConfig {
   };
 }
 
-export function validateDevicesConfig(raw: unknown): Pick<AppConfig, 'atem' | 'cameras' | 'graphics'> {
-  const devices = DevicesSchema.parse(raw);
+/**
+ * One camera slot as a client sent it — only the fields that client actually
+ * carried. Kept alongside the validated cameras so the writer can tell
+ * "change this to X" (key present) from "leave this alone" (key absent).
+ */
+export type CameraPatch = Record<string, unknown>;
+
+export interface ValidatedDevicesConfig extends Pick<AppConfig, 'atem' | 'cameras' | 'graphics'> {
+  /** Raw per-slot payloads, index-aligned with `cameras`. Absent for whole-file payloads. */
+  cameraPatches?: CameraPatch[];
+}
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+/**
+ * Take the validated values, but only for the keys the client actually sent.
+ * Keeps schema defaults for fields nobody edited out of the hand-written file.
+ */
+function carriedKeys(validated: Record<string, unknown>, sent: unknown): Record<string, unknown> {
+  if (!isPlainObject(sent)) return { ...validated };
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(validated)) {
+    if (Object.prototype.hasOwnProperty.call(sent, key) && sent[key] !== undefined) out[key] = validated[key];
+  }
+  return out;
+}
+
+/** Copy of `obj` without keys whose value is undefined (null is kept: it means "clear"). */
+function definedEntries(obj: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj)) if (v !== undefined) out[k] = v;
+  return out;
+}
+
+/**
+ * Fill in what a camera-slot payload did not say, from the inventory device that
+ * currently fills that slot.
+ *
+ * The Device Config tab edits the *resolved* camera list, so its payload is a
+ * flat list of slots with no notion of `protocol` or `bridge`. Before this, an
+ * omitted `protocol` fell through to the schema default `visca`, which turned
+ * every DJI gimbal into a VISCA camera on save (issue #18). Hydrating from the
+ * inventory first means an omitted field keeps the device's current value, and
+ * only fields the client actually sent can change anything.
+ */
+function hydrateCameraPatches(patches: CameraPatch[]): Record<string, unknown>[] {
+  const existing = readDevicesYaml();
+  const inventory = existing.devices as Record<string, Record<string, unknown>> | undefined;
+  const profiles = existing.profiles as Record<string, { slots?: { device?: string; inputId?: number }[] }> | undefined;
+  const activeProfile = existing.activeProfile as string | undefined;
+  const slots = (activeProfile && profiles?.[activeProfile]?.slots) || [];
+
+  return patches.map((patch, i) => {
+    const sent = definedEntries(isPlainObject(patch) ? patch : {});
+    const slot = slots[i];
+    const device = slot?.device ? inventory?.[slot.device] : undefined;
+    if (!device) return { id: `cam${i + 1}`, ...sent };
+    // A partial bridge (the UI sends host + port) must not wipe the fields it
+    // does not render, e.g. gimbalModel / safetyTimeoutMs / rollEnabled.
+    if (isPlainObject(sent.bridge) && isPlainObject(device.bridge)) {
+      sent.bridge = { ...device.bridge, ...definedEntries(sent.bridge) };
+    }
+    return { id: `cam${i + 1}`, inputId: slot.inputId, ...device, ...sent };
+  });
+}
+
+export function validateDevicesConfig(raw: unknown): ValidatedDevicesConfig {
+  const body = isPlainObject(raw) ? raw : {};
+  const sentCameras = Array.isArray(body.cameras) ? (body.cameras as CameraPatch[]) : undefined;
+  // A whole-file payload carries its own profiles; per-slot patches only make
+  // sense for the flat camera list the Device Config tab sends.
+  const isSlotPayload = !!sentCameras && !body.profiles;
+
+  const devices = DevicesSchema.parse(
+    isSlotPayload ? { ...body, cameras: hydrateCameraPatches(sentCameras!) } : body
+  );
   const graphics = GraphicsSchema.parse(
     devices.graphics ?? { type: devices.lowerThirds?.type ?? 'dsk', dskIndex: devices.lowerThirds?.dskIndex ?? 0 }
   );
   const cameras = devices.profiles && devices.activeProfile
     ? resolveProfile(devices.devices ?? {}, devices.profiles[devices.activeProfile])
     : devices.cameras ?? [];
-  return { atem: devices.atem, cameras, graphics };
+  return {
+    atem: devices.atem,
+    cameras,
+    graphics,
+    cameraPatches: isSlotPayload ? sentCameras : undefined,
+  };
+}
+
+function devicesConfigPath(): string {
+  return process.env.DEVICES_CONFIG ?? path.join(process.cwd(), 'config/devices.yaml');
 }
 
 function readDevicesYaml(): Record<string, unknown> {
-  const devicesPath = process.env.DEVICES_CONFIG ?? path.join(process.cwd(), 'config/devices.yaml');
   try {
-    return (yaml.load(fs.readFileSync(devicesPath, 'utf8')) as Record<string, unknown>) ?? {};
+    return (YAML.parse(fs.readFileSync(devicesConfigPath(), 'utf8')) as Record<string, unknown>) ?? {};
   } catch {
     return {};
   }
 }
 
+/**
+ * Merge `value` into the YAML document at `path`, touching as few nodes as
+ * possible: unchanged scalars are left exactly as written, and maps/sequences
+ * are walked key-by-key instead of being replaced.
+ *
+ * That is what preserves comments. In the `yaml` document model a comment
+ * belongs to a node (`commentBefore` on the key of a map entry, `comment` for a
+ * trailing one), so anything that survives the merge keeps its documentation.
+ */
+function applyToDocument(doc: YAML.Document, nodePath: (string | number)[], value: unknown): void {
+  const node: unknown = nodePath.length === 0 ? doc.contents : doc.getIn(nodePath, true);
+
+  if (value === undefined) {
+    if (nodePath.length) doc.deleteIn(nodePath);
+    return;
+  }
+
+  if (isPlainObject(value) && YAML.isMap(node)) {
+    for (const [key, child] of Object.entries(value)) applyToDocument(doc, [...nodePath, key], child);
+    const keys = node.items.map((item) => (YAML.isScalar(item.key) ? String(item.key.value) : String(item.key)));
+    for (const key of keys) {
+      if (!Object.prototype.hasOwnProperty.call(value, key)) doc.deleteIn([...nodePath, key]);
+    }
+    return;
+  }
+
+  if (Array.isArray(value) && YAML.isSeq(node)) {
+    for (let i = 0; i < value.length; i++) applyToDocument(doc, [...nodePath, i], value[i]);
+    // Trim surplus entries from the end so the surviving indices keep their nodes.
+    for (let i = node.items.length - 1; i >= value.length; i--) doc.deleteIn([...nodePath, i]);
+    return;
+  }
+
+  if (YAML.isScalar(node) && node.value === value) return; // unchanged: leave the node alone
+  if (nodePath.length === 0) return; // root shape change is handled by the caller
+  doc.setIn(nodePath, stripUndefined(value));
+}
+
+/** Deep copy with undefined-valued keys removed, so they are not emitted as null. */
+function stripUndefined(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripUndefined);
+  if (isPlainObject(value)) {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) if (v !== undefined) out[k] = stripUndefined(v);
+    return out;
+  }
+  return value;
+}
+
+/**
+ * Write devices.yaml by merging into the file's existing YAML document rather
+ * than re-serializing it from scratch.
+ *
+ * devices.yaml is the main hand-edited config, and its comments carry things
+ * the data cannot say: the slot-to-hotkey mapping (1=X, 2=A, 3=B, 4=Y), why the
+ * gimbals share one Pi on three ports, and why a slot deliberately has no
+ * inputId. A dump()-style write erases all of that on the first UI save
+ * (issue #14), because comments are not part of the parsed value at all.
+ */
 function writeDevicesYaml(data: Record<string, unknown>): void {
-  const devicesPath = process.env.DEVICES_CONFIG ?? path.join(process.cwd(), 'config/devices.yaml');
-  fs.writeFileSync(devicesPath, yaml.dump(data, { lineWidth: 120 }), 'utf8');
+  const devicesPath = devicesConfigPath();
+  let doc: YAML.Document | null = null;
+  try {
+    doc = YAML.parseDocument(fs.readFileSync(devicesPath, 'utf8'));
+  } catch {
+    doc = null;
+  }
+  // No parsable mapping to merge into (missing or empty file): nothing to preserve.
+  if (!doc || !YAML.isMap(doc.contents)) {
+    fs.writeFileSync(devicesPath, YAML.stringify(stripUndefined(data), { lineWidth: 120 }), 'utf8');
+    return;
+  }
+  applyToDocument(doc, [], data);
+  fs.writeFileSync(devicesPath, doc.toString({ lineWidth: 120 }), 'utf8');
 }
 
 /** Persist which profile is active, leaving the rest of the file untouched. */
@@ -305,18 +484,11 @@ export function saveProfiles(profiles: Record<string, Profile>): void {
   writeDevicesYaml(existing);
 }
 
-export function saveDevicesConfig(config: Pick<AppConfig, 'atem' | 'cameras' | 'graphics'>): void {
-  const devicesPath = process.env.DEVICES_CONFIG ?? path.join(process.cwd(), 'config/devices.yaml');
-
+export function saveDevicesConfig(config: ValidatedDevicesConfig): void {
   // Merge into the existing file rather than replacing it. `cameras` is derived
   // from the active profile, so a blind write of {atem, cameras, graphics} would
   // delete the whole `devices:` inventory and every profile.
-  let existing: Record<string, unknown> = {};
-  try {
-    existing = (yaml.load(fs.readFileSync(devicesPath, 'utf8')) as Record<string, unknown>) ?? {};
-  } catch {
-    existing = {};
-  }
+  const existing = readDevicesYaml();
 
   const out: Record<string, unknown> = { ...existing, atem: config.atem, graphics: config.graphics };
   const profiles = existing.profiles as Record<string, z.infer<typeof ProfileSchema>> | undefined;
@@ -333,15 +505,35 @@ export function saveDevicesConfig(config: Pick<AppConfig, 'atem' | 'cameras' | '
       if (!slot) return;
       const dev = inventory[slot.device];
       if (!dev) return;
-      dev.label = cam.label;
-      dev.protocol = cam.protocol;
-      dev.cameraType = cam.cameraType;
-      dev.cameraAddress = cam.cameraAddress;
-      dev.speedScale = cam.speedScale;
-      if (cam.viscaIp !== undefined) dev.viscaIp = cam.viscaIp;
-      dev.viscaPort = cam.viscaPort;
-      if (cam.bridge !== undefined) dev.bridge = cam.bridge;
-      slot.inputId = cam.inputId;
+
+      // Write back only the fields the client actually sent. A client with no
+      // concept of protocol/bridge (the Device Config tab) must not be able to
+      // convert a DJI gimbal into a VISCA camera by omission — that is what
+      // made one Save destroy all three gimbals (issue #18). No patch list
+      // means the caller vouches for the whole camera.
+      const patch = config.cameraPatches?.[i];
+      const carries = (key: string): boolean =>
+        !patch || (Object.prototype.hasOwnProperty.call(patch, key) && patch[key] !== undefined);
+
+      if (carries('label')) dev.label = cam.label;
+      if (carries('protocol')) dev.protocol = cam.protocol;
+      if (carries('cameraType')) dev.cameraType = cam.cameraType;
+      if (carries('cameraAddress')) dev.cameraAddress = cam.cameraAddress;
+      if (carries('speedScale')) dev.speedScale = cam.speedScale;
+      if (carries('viscaIp') && cam.viscaIp !== undefined) dev.viscaIp = cam.viscaIp;
+      if (carries('viscaPort')) dev.viscaPort = cam.viscaPort;
+      // Same rule one level down, so a form that shows only host and port does
+      // not bury the file in schema defaults for the fields it never rendered.
+      if (carries('bridge') && cam.bridge !== undefined) {
+        const current = isPlainObject(dev.bridge) ? dev.bridge : {};
+        dev.bridge = { ...current, ...carriedKeys(cam.bridge as unknown as Record<string, unknown>, patch?.bridge) };
+      }
+
+      // Wiring lives on the slot, not the device. Blank/null means "not wired to
+      // the switcher": the key must be absent, never defaulted to an input, or
+      // an unwired camera would silently become takeable to air.
+      if (cam.inputId === undefined) delete slot.inputId;
+      else slot.inputId = cam.inputId;
     });
     out.devices = inventory;
     out.profiles = profiles;
@@ -350,11 +542,11 @@ export function saveDevicesConfig(config: Pick<AppConfig, 'atem' | 'cameras' | '
     out.cameras = config.cameras;
   }
 
-  fs.writeFileSync(devicesPath, yaml.dump(out, { lineWidth: 120 }), 'utf8');
+  writeDevicesYaml(out);
 }
 
 export function saveMappings(mappings: MappingConfig): void {
   const mappingsPath = process.env.MAPPINGS_FILE ?? path.join(process.cwd(), 'config/mappings.yaml');
   const header = '# Controller button mappings - managed by FPS CamControl UI\n';
-  fs.writeFileSync(mappingsPath, header + yaml.dump(mappings), 'utf8');
+  fs.writeFileSync(mappingsPath, header + YAML.stringify(mappings), 'utf8');
 }

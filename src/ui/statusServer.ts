@@ -1169,23 +1169,59 @@ function renderDeviceConfig(c) {
   }, { once: true });
 }
 
+// A camera row renders the transport the camera actually uses. Rendering every
+// camera as VISCA is what destroyed the gimbals: a DJI camera has no viscaIp, so
+// the field showed the string "undefined" and saved it back as a real IP, while
+// the payload silently dropped protocol and bridge.
 function cameraRowHtml(cam, idx) {
   var id = 'cam-' + idx;
-  return '<div class="cam-row" id="' + id + '" style="border:1px solid #2a2a2a;border-radius:4px;padding:8px;margin-bottom:6px">' +
+  var isBridge = cam.protocol === 'dji-bridge';
+  var proto = isBridge ? 'dji-bridge' : 'visca';
+  var bridge = cam.bridge || {};
+
+  // Fields the form does not render still have to survive a save, so they ride
+  // along on the row as data attributes (never as backticks or template
+  // interpolation, which collapse when this page is built).
+  var attrs = ' data-protocol="' + proto + '" data-camera-type="' + esc(cam.cameraType || 'generic') + '"';
+  if (isBridge) {
+    attrs += ' data-bridge-model="' + esc(bridge.gimbalModel) + '"' +
+      ' data-bridge-timeout="' + (bridge.safetyTimeoutMs != null ? bridge.safetyTimeoutMs : 250) + '"' +
+      ' data-bridge-roll="' + (bridge.rollEnabled ? 'true' : 'false') + '"';
+  }
+
+  var badge = isBridge
+    ? '<span class="badge" style="background:#3a2a00;color:#fb0">DJI BRIDGE</span>'
+    : '<span class="badge" style="background:#00263a;color:#7af">VISCA</span>';
+
+  var rows =
+    '<tr><td style="color:#888;width:110px">ID</td><td><input class="cfg-input" name="cam-id" value="' + esc(cam.id) + '"></td></tr>' +
+    '<tr><td style="color:#888">Label</td><td><input class="cfg-input" name="cam-label" value="' + esc(cam.label) + '"></td></tr>';
+
+  if (isBridge) {
+    rows +=
+      '<tr><td style="color:#888">Bridge Host</td><td style="display:flex;gap:6px"><input class="cfg-input" name="cam-bridge-host" value="' + esc(bridge.host) + '" style="flex:1" title="Host running the Pi bridge process for this gimbal."><button class="btn-sm" data-rowid="' + id + '" onclick="reconnectCamera(this.dataset.rowid)">Reconnect</button></td></tr>' +
+      '<tr><td style="color:#888">Bridge Port</td><td><input class="cfg-input" name="cam-bridge-port" type="number" min="1" max="65535" value="' + (bridge.port != null ? bridge.port : 7878) + '" title="Each gimbal has its own bridge instance on its own port: that port is how commands reach the right gimbal."></td></tr>' +
+      '<tr><td style="color:#888">Gimbal</td><td style="color:#888">' + esc(bridge.gimbalModel || 'DJI gimbal') + (bridge.rollEnabled ? ' &middot; roll enabled' : ' &middot; roll disabled') + '</td></tr>';
+  } else {
+    rows +=
+      '<tr><td style="color:#888">Type</td><td><select class="cfg-input" name="cam-type"><option value="generic"' + (cam.cameraType==='generic'?' selected':'') + '>generic</option><option value="birddog"' + (cam.cameraType==='birddog'?' selected':'') + '>birddog</option><option value="vbot"' + (cam.cameraType==='vbot'?' selected':'') + '>vbot</option></select></td></tr>' +
+      '<tr><td style="color:#888">VISCA IP</td><td style="display:flex;gap:6px"><input class="cfg-input" name="cam-ip" value="' + esc(cam.viscaIp) + '" style="flex:1"><button class="btn-sm" data-rowid="' + id + '" onclick="reconnectCamera(this.dataset.rowid)">Reconnect</button></td></tr>' +
+      '<tr><td style="color:#888">VISCA Port</td><td><input class="cfg-input" name="cam-port" type="number" min="1" max="65535" value="' + (cam.viscaPort != null ? cam.viscaPort : 52381) + '"></td></tr>' +
+      '<tr><td style="color:#888">Camera Addr</td><td><input class="cfg-input" name="cam-addr" type="number" min="0" max="7" value="' + (cam.cameraAddress != null ? cam.cameraAddress : 1) + '" title="VISCA bus address (Camera ID in Companion). Default 1."></td></tr>';
+  }
+
+  rows +=
+    '<tr><td style="color:#888">Speed Scale</td><td><input class="cfg-input" name="cam-speed" type="number" min="0.1" max="5" step="0.1" value="' + (cam.speedScale != null ? cam.speedScale : 1.0) + '" title="Per-camera speed multiplier. 1.0 = same as global preset; >1 = faster (use for slow cams like V-BOT)."></td></tr>' +
+    '<tr><td style="color:#888">ATEM Input</td><td><input class="cfg-input" name="cam-input" type="number" min="1" placeholder="not wired" title="Leave blank if this camera video is not connected to the switcher: motion still works, but it cannot be taken live." value="' + (cam.inputId != null ? cam.inputId : '') + '"></td></tr>';
+
+  return '<div class="cam-row" id="' + id + '"' + attrs + ' style="border:1px solid #2a2a2a;border-radius:4px;padding:8px;margin-bottom:6px">' +
     '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
     '<span style="color:#7af;font-size:0.8rem">Camera ' + (idx+1) + '</span>' +
+    '<span style="display:flex;gap:6px;align-items:center">' + badge +
     '<button class="btn-sm" style="color:#f44;border-color:#800" data-rowid="' + id + '" onclick="removeCameraRow(this.dataset.rowid)">Remove</button>' +
+    '</span>' +
     '</div>' +
-    '<table style="width:100%"><tbody>' +
-    '<tr><td style="color:#888;width:110px">ID</td><td><input class="cfg-input" name="cam-id" value="' + esc(cam.id) + '"></td></tr>' +
-    '<tr><td style="color:#888">Label</td><td><input class="cfg-input" name="cam-label" value="' + esc(cam.label) + '"></td></tr>' +
-    '<tr><td style="color:#888">Type</td><td><select class="cfg-input" name="cam-type"><option value="generic"' + (cam.cameraType==='generic'?' selected':'') + '>generic</option><option value="birddog"' + (cam.cameraType==='birddog'?' selected':'') + '>birddog</option><option value="vbot"' + (cam.cameraType==='vbot'?' selected':'') + '>vbot</option></select></td></tr>' +
-    '<tr><td style="color:#888">VISCA IP</td><td style="display:flex;gap:6px"><input class="cfg-input" name="cam-ip" value="' + esc(cam.viscaIp) + '" style="flex:1"><button class="btn-sm" data-rowid="' + id + '" onclick="reconnectCamera(this.dataset.rowid)">Reconnect</button></td></tr>' +
-    '<tr><td style="color:#888">VISCA Port</td><td><input class="cfg-input" name="cam-port" type="number" min="1" max="65535" value="' + cam.viscaPort + '"></td></tr>' +
-    '<tr><td style="color:#888">Camera Addr</td><td><input class="cfg-input" name="cam-addr" type="number" min="0" max="7" value="' + (cam.cameraAddress != null ? cam.cameraAddress : 1) + '" title="VISCA bus address (Camera ID in Companion). Default 1."></td></tr>' +
-    '<tr><td style="color:#888">Speed Scale</td><td><input class="cfg-input" name="cam-speed" type="number" min="0.1" max="5" step="0.1" value="' + (cam.speedScale != null ? cam.speedScale : 1.0) + '" title="Per-camera speed multiplier. 1.0 = same as global preset; >1 = faster (use for slow cams like V-BOT)."></td></tr>' +
-    '<tr><td style="color:#888">ATEM Input</td><td><input class="cfg-input" name="cam-input" type="number" min="1" placeholder="not wired" title="Leave blank if this camera video is not connected to the switcher: motion still works, but it cannot be taken live." value="' + (cam.inputId != null ? cam.inputId : '') + '"></td></tr>' +
-    '</tbody></table></div>';
+    '<table style="width:100%"><tbody>' + rows + '</tbody></table></div>';
 }
 
 var newCamCounter = 0;
@@ -1193,7 +1229,7 @@ function addCameraRow() {
   document.getElementById('tab-config').dataset.editing = 'true';
   newCamCounter++;
   var idx = document.getElementById('cameras-editor').children.length;
-  var blank = { id: 'cam' + (idx+1), label: 'Camera ' + (idx+1), cameraType: 'generic', viscaIp: '192.168.50.', viscaPort: 52381, cameraAddress: 1, speedScale: 1.0, inputId: idx+1 };
+  var blank = { id: 'cam' + (idx+1), label: 'Camera ' + (idx+1), protocol: 'visca', cameraType: 'generic', viscaIp: '192.168.50.', viscaPort: 52381, cameraAddress: 1, speedScale: 1.0, inputId: idx+1 };
   var div = document.createElement('div');
   div.innerHTML = cameraRowHtml(blank, idx);
   document.getElementById('cameras-editor').appendChild(div.firstChild);
@@ -1244,26 +1280,54 @@ async function saveDeviceConfig() {
   var rows = document.getElementById('cameras-editor').children;
   for (var i = 0; i < rows.length; i++) {
     var r = rows[i];
-    var addrInput = r.querySelector('[name="cam-addr"]');
-    var addrVal = addrInput ? parseInt(addrInput.value, 10) : 1;
-    if (isNaN(addrVal) || addrVal < 0 || addrVal > 7) addrVal = 1;
     var speedInput = r.querySelector('[name="cam-speed"]');
     var speedVal = speedInput ? parseFloat(speedInput.value) : 1.0;
     if (isNaN(speedVal) || speedVal < 0.1 || speedVal > 5) speedVal = 1.0;
-    cameras.push({
+
+    // Blank means "not wired to the switcher". Send an explicit null, not
+    // undefined (JSON.stringify would drop the key and the server could not
+    // tell "clear this" from "leave it alone"), and never default to input 1 —
+    // that would silently make an unwired camera takeable to air.
+    var inputRaw = r.querySelector('[name="cam-input"]').value.trim();
+    var inputVal = null;
+    if (inputRaw !== '') {
+      var parsedInput = parseInt(inputRaw, 10);
+      if (!isNaN(parsedInput) && parsedInput > 0) inputVal = parsedInput;
+    }
+
+    // The protocol comes from the row, not from a guess: a payload that omitted
+    // it used to be defaulted to VISCA server-side, which converted every DJI
+    // gimbal into an unreachable VISCA camera on save.
+    var cam = {
       id: r.querySelector('[name="cam-id"]').value.trim(),
       label: r.querySelector('[name="cam-label"]').value.trim(),
-      cameraType: r.querySelector('[name="cam-type"]').value,
-      viscaIp: r.querySelector('[name="cam-ip"]').value.trim(),
-      viscaPort: parseInt(r.querySelector('[name="cam-port"]').value, 10) || 52381,
-      cameraAddress: addrVal,
+      protocol: r.dataset.protocol === 'dji-bridge' ? 'dji-bridge' : 'visca',
+      cameraType: r.dataset.cameraType || 'generic',
       speedScale: speedVal,
-      // Blank means "not wired to the switcher" — send undefined rather than
-      // defaulting to input 1, which would silently make it takeable to air.
-      inputId: r.querySelector('[name="cam-input"]').value.trim() === ''
-        ? undefined
-        : (parseInt(r.querySelector('[name="cam-input"]').value, 10) || undefined),
-    });
+      inputId: inputVal,
+    };
+
+    if (cam.protocol === 'dji-bridge') {
+      var bridge = {
+        host: r.querySelector('[name="cam-bridge-host"]').value.trim(),
+        port: parseInt(r.querySelector('[name="cam-bridge-port"]').value, 10) || 7878,
+        rollEnabled: r.dataset.bridgeRoll === 'true',
+      };
+      if (r.dataset.bridgeModel) bridge.gimbalModel = r.dataset.bridgeModel;
+      var timeout = parseInt(r.dataset.bridgeTimeout, 10);
+      if (!isNaN(timeout)) bridge.safetyTimeoutMs = timeout;
+      cam.bridge = bridge;
+    } else {
+      var typeSelect = r.querySelector('[name="cam-type"]');
+      if (typeSelect) cam.cameraType = typeSelect.value;
+      var addrInput = r.querySelector('[name="cam-addr"]');
+      var addrVal = addrInput ? parseInt(addrInput.value, 10) : 1;
+      if (isNaN(addrVal) || addrVal < 0 || addrVal > 7) addrVal = 1;
+      cam.viscaIp = r.querySelector('[name="cam-ip"]').value.trim();
+      cam.viscaPort = parseInt(r.querySelector('[name="cam-port"]').value, 10) || 52381;
+      cam.cameraAddress = addrVal;
+    }
+    cameras.push(cam);
   }
   var statusEl = document.getElementById('config-save-status');
   statusEl.textContent = 'Saving…';
@@ -1405,7 +1469,11 @@ function renderControllers(controllers, active, mappings) {
 }
 
 function esc(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  // An absent value renders as nothing. Stringifying it instead put the literal
+  // text "undefined" into config inputs, which then got saved as a camera IP
+  // address and made three DJI gimbals unreachable.
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 function startRemap(action) {

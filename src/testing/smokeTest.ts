@@ -1,5 +1,12 @@
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import * as YAML from 'yaml';
 import { defaultState, AppState, CameraId } from '../app/state';
-import { AppConfig, resolveProfile } from '../config/configLoader';
+import {
+  AppConfig, resolveProfile, validateDevicesConfig, saveDevicesConfig,
+  saveActiveProfile, saveProfiles,
+} from '../config/configLoader';
 import { VirtualAtem } from './virtualAtem';
 import { VirtualVisca } from './virtualVisca';
 import { AtemClient } from '../atem/atemClient';
@@ -654,6 +661,222 @@ async function runTests(): Promise<void> {
   await autoTransitionControlledCamera(atemProxy, uState, unwiredCams, unwiredDevices);
   assert('wired camera can still be taken live',
     virtualAtem.log.some(l => l.includes('autoTransition')));
+
+  // Test 16: saving Device Config must not destroy the devices it did not edit.
+  //
+  // Two real incidents, both from the same save path:
+  //   * The Device Config tab renders every camera as VISCA, so a gimbal's
+  //     absent viscaIp reached the form as the string "undefined", came back in
+  //     the payload as a real IP, and the write-back overwrote protocol
+  //     dji-bridge with visca. One click destroyed all three gimbals (#18).
+  //   * The writer re-serialized the file, discarding every comment: the
+  //     inventory explanation, the slot-to-hotkey mapping, and the note saying a
+  //     slot may deliberately have no inputId (#14).
+  console.log('\nTest 16: config saves keep gimbals gimbals, and keep the file documented');
+
+  const fixture = [
+    'atem:',
+    '  ip: 192.168.50.153',
+    '  defaultTransition: cut',
+    '  meIndex: 0',
+    'graphics:',
+    '  type: dsk',
+    '  dskIndex: 0',
+    '  uskIndex: 0',
+    '  meIndex: 0',
+    '  # Fade duration in frames for the KEY on/off. 0 = hard cut.',
+    '  fadeFrames: 15',
+    '',
+    '# Device inventory — every piece of hardware we own, described once.',
+    'devices:',
+    '  vbot:',
+    '    label: "V-BOT"',
+    '    protocol: "visca"',
+    '    cameraType: "vbot"',
+    '    viscaIp: "192.168.50.15"',
+    '    viscaPort: 52381',
+    '    cameraAddress: 1',
+    '    speedScale: 2',
+    '',
+    '  # The gimbals share one Pi, one bridge instance per gimbal, one port each.',
+    '  rs3:',
+    '    label: "DJI RS3"',
+    '    protocol: "dji-bridge"',
+    '    bridge:',
+    '      host: "dji-bridge.local"',
+    '      port: 7878',
+    '      gimbalModel: "RS3"',
+    '      safetyTimeoutMs: 250',
+    '      rollEnabled: false',
+    '',
+    '# Slot order IS cam1..camN: slot 1 = X, slot 2 = A, slot 3 = B, slot 4 = Y.',
+    'activeProfile: production',
+    'profiles:',
+    '  production:',
+    '    label: "Production"',
+    '    slots:',
+    '      - device: vbot',
+    '        inputId: 6',
+    '      - device: rs3',
+    '        inputId: 4',
+    '  test:',
+    '    label: "Test"',
+    '    slots:',
+    '      - device: vbot',
+    '        inputId: 6',
+    '      # Deliberately no inputId: this camera is not wired to the switcher, so',
+    '      # motion works but it cannot be taken live (that would cut black to air).',
+    '      - device: rs3',
+    '',
+  ].join('\n');
+
+  const cfgDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fps-config-'));
+  const cfgPath = path.join(cfgDir, 'devices.yaml');
+  const previousDevicesConfig = process.env.DEVICES_CONFIG;
+  process.env.DEVICES_CONFIG = cfgPath;
+  const resetFixture = (): void => fs.writeFileSync(cfgPath, fixture, 'utf8');
+  const readYaml = (): any => YAML.parse(fs.readFileSync(cfgPath, 'utf8'));
+  const commentLines = (text: string): string[] =>
+    text.split('\n').filter(l => l.trim().startsWith('#') || l.includes(' #'));
+
+  // The exact body the broken Device Config tab sent for a gimbal. "undefined"
+  // is a non-empty string, so it used to sail through validation.
+  resetFixture();
+  let brokenPayloadErr = '';
+  try {
+    validateDevicesConfig({
+      atem: { ip: '192.168.50.153', defaultTransition: 'cut', meIndex: 0 },
+      graphics: { type: 'dsk', dskIndex: 0, uskIndex: 0, meIndex: 0, fadeFrames: 15 },
+      cameras: [
+        { id: 'cam1', label: 'V-BOT', cameraType: 'vbot', viscaIp: '192.168.50.15', viscaPort: 52381, cameraAddress: 1, speedScale: 2, inputId: 6 },
+        { id: 'cam2', label: 'DJI RS3', cameraType: 'generic', viscaIp: 'undefined', viscaPort: 52381, cameraAddress: 1, speedScale: 1, inputId: 4 },
+      ],
+    });
+  } catch (e) {
+    brokenPayloadErr = String((e as Error).message);
+  }
+  assert('the payload that destroyed the gimbals is now rejected', brokenPayloadErr !== '');
+  assert('rejection names viscaIp as the problem', brokenPayloadErr.includes('viscaIp'));
+  assert('the string "undefined" is not accepted as an IP', /placeholder|hostname or IP/i.test(brokenPayloadErr));
+  assert('a rejected save does not touch the file', fs.readFileSync(cfgPath, 'utf8') === fixture);
+
+  for (const bogus of ['undefined', 'null', 'NaN', '  ']) {
+    let err = '';
+    try {
+      validateDevicesConfig({
+        atem: { ip: '192.168.50.153', defaultTransition: 'cut', meIndex: 0 },
+        cameras: [{ id: 'cam1', label: 'X', protocol: 'visca', viscaIp: bogus, inputId: 1 }],
+      });
+    } catch (e) { err = String((e as Error).message); }
+    assert('viscaIp "' + bogus.trim() + '" is rejected', err !== '');
+  }
+
+  let bogusHostErr = '';
+  try {
+    validateDevicesConfig({
+      atem: { ip: '192.168.50.153', defaultTransition: 'cut', meIndex: 0 },
+      cameras: [{ id: 'cam1', label: 'G', protocol: 'dji-bridge', bridge: { host: 'undefined', port: 7878 }, inputId: 1 }],
+    });
+  } catch (e) { bogusHostErr = String((e as Error).message); }
+  assert('a bridge host of "undefined" is rejected too', bogusHostErr !== '');
+
+  // A client that knows nothing about protocols (exactly what the tab sent) must
+  // not be able to convert a gimbal by omission: missing means "leave alone".
+  resetFixture();
+  const omittingPayload = {
+    atem: { ip: '192.168.50.153', defaultTransition: 'cut', meIndex: 0 },
+    graphics: { type: 'dsk', dskIndex: 0, uskIndex: 0, meIndex: 0, fadeFrames: 15 },
+    cameras: [
+      { id: 'cam1', label: 'V-BOT', cameraType: 'vbot', viscaIp: '192.168.50.15', viscaPort: 52381, cameraAddress: 1, speedScale: 2, inputId: 6 },
+      { id: 'cam2', label: 'DJI RS3', cameraType: 'generic', speedScale: 1, inputId: 4 },
+    ],
+  };
+  const omittingParsed = validateDevicesConfig(omittingPayload);
+  assert('an omitted protocol resolves from the inventory, not the visca default',
+    omittingParsed.cameras[1].protocol === 'dji-bridge');
+  assert('the resolved gimbal still has its bridge', omittingParsed.cameras[1].bridge?.port === 7878);
+  saveDevicesConfig(omittingParsed);
+  assert('a protocol-blind save leaves the gimbal on dji-bridge', readYaml().devices.rs3.protocol === 'dji-bridge');
+  assert('a protocol-blind save leaves the bridge block intact', readYaml().devices.rs3.bridge.port === 7878);
+  assert('a protocol-blind save invents no viscaIp', readYaml().devices.rs3.viscaIp === undefined);
+
+  // The fixed tab: it sends protocol + bridge host/port, and nothing else about
+  // the bridge. The fields it does not render must survive anyway.
+  resetFixture();
+  const uiPayload = {
+    atem: { ip: '192.168.50.153', defaultTransition: 'cut', meIndex: 0 },
+    graphics: { type: 'dsk', dskIndex: 0, uskIndex: 0, meIndex: 0, fadeFrames: 15 },
+    cameras: [
+      { id: 'cam1', label: 'V-BOT MAIN', protocol: 'visca', cameraType: 'vbot', viscaIp: '192.168.50.15', viscaPort: 52381, cameraAddress: 1, speedScale: 2.5, inputId: 6 },
+      { id: 'cam2', label: 'DJI RS3', protocol: 'dji-bridge', cameraType: 'generic', speedScale: 1, inputId: null, bridge: { host: 'dji-bridge.local', port: 7878 } },
+    ],
+  };
+  saveDevicesConfig(validateDevicesConfig(uiPayload));
+  const afterUi = readYaml();
+  assert('gimbal keeps protocol dji-bridge through a real UI save', afterUi.devices.rs3.protocol === 'dji-bridge');
+  assert('gimbal keeps its bridge host/port', afterUi.devices.rs3.bridge.host === 'dji-bridge.local' && afterUi.devices.rs3.bridge.port === 7878);
+  assert('bridge fields the form never showed survive (gimbalModel)', afterUi.devices.rs3.bridge.gimbalModel === 'RS3');
+  assert('bridge fields the form never showed survive (safetyTimeoutMs)', afterUi.devices.rs3.bridge.safetyTimeoutMs === 250);
+  assert('an edit the user did make is persisted (label)', afterUi.devices.vbot.label === 'V-BOT MAIN');
+  assert('an edit the user did make is persisted (speedScale)', afterUi.devices.vbot.speedScale === 2.5);
+  assert('the inventory is not reduced to the edited slots', Object.keys(afterUi.devices).length === 2);
+  assert('every profile survives a device-config save', Object.keys(afterUi.profiles).length === 2);
+  assert('cameras: stays derived, not written back as a stale list', afterUi.cameras === undefined);
+
+  // Blank ATEM input means control-only. Defaulting it to an input would make an
+  // unwired camera takeable to air, i.e. cut black to program.
+  assert('a blank ATEM input clears the slot instead of defaulting to 1',
+    afterUi.profiles.production.slots[1].inputId === undefined);
+  assert('a blank ATEM input does not resolve to a wired camera',
+    validateDevicesConfig(uiPayload).cameras[1].inputId === undefined);
+  assert('the wired slot keeps its input', afterUi.profiles.production.slots[0].inputId === 6);
+  assert('the untouched profile keeps its deliberately unwired slot',
+    afterUi.profiles.test.slots[1].inputId === undefined && afterUi.profiles.test.slots[1].device === 'rs3');
+
+  // Issue #14: the documentation has to be there after a save, not just before.
+  const savedText = fs.readFileSync(cfgPath, 'utf8');
+  assert('a save keeps every comment in the file',
+    commentLines(savedText).length === commentLines(fixture).length);
+  assert('the slot-to-hotkey mapping is still documented', savedText.includes('slot 1 = X'));
+  assert('why a slot has no inputId is still documented', savedText.includes('not wired to the switcher'));
+  assert('the inventory explanation is still documented', savedText.includes('Device inventory'));
+  assert('the KEY fade comment stays attached to fadeFrames',
+    /# Fade duration[^\n]*\n\s*fadeFrames:/.test(savedText));
+
+  // Saving twice must be stable, or every save would churn the file.
+  saveDevicesConfig(validateDevicesConfig(uiPayload));
+  assert('a second identical save changes nothing', fs.readFileSync(cfgPath, 'utf8') === savedText);
+
+  // The profile-tab writers share the same merge path.
+  resetFixture();
+  saveActiveProfile('test');
+  const afterSwitch = fs.readFileSync(cfgPath, 'utf8');
+  assert('switching the active profile is persisted', readYaml().activeProfile === 'test');
+  assert('switching the active profile keeps the comments',
+    commentLines(afterSwitch).length === commentLines(fixture).length);
+  assert('switching the active profile keeps the inventory', Object.keys(readYaml().devices).length === 2);
+
+  resetFixture();
+  saveProfiles({ production: { label: 'Production', slots: [{ device: 'rs3', inputId: 4 }] }, test: { label: 'Test', slots: [{ device: 'vbot' }] } });
+  const afterProfiles = fs.readFileSync(cfgPath, 'utf8');
+  assert('saving profiles rewrites the slots', readYaml().profiles.production.slots[0].device === 'rs3');
+  assert('saving profiles keeps a slot unwired when no input was given',
+    readYaml().profiles.test.slots[0].inputId === undefined);
+  assert('saving profiles keeps the inventory comments', afterProfiles.includes('Device inventory'));
+
+  // A file with no comments at all must still round-trip cleanly.
+  fs.writeFileSync(cfgPath, 'atem:\n  ip: 10.0.0.1\n  defaultTransition: cut\n  meIndex: 0\ncameras:\n  - id: cam1\n    label: Solo\n    protocol: visca\n    viscaIp: 10.0.0.2\n    inputId: 1\n', 'utf8');
+  const legacy = validateDevicesConfig({
+    atem: { ip: '10.0.0.1', defaultTransition: 'cut', meIndex: 0 },
+    cameras: [{ id: 'cam1', label: 'Solo', protocol: 'visca', viscaIp: '10.0.0.3', viscaPort: 52381, cameraAddress: 1, speedScale: 1, inputId: null }],
+  });
+  saveDevicesConfig(legacy);
+  assert('a legacy cameras-only config still saves', readYaml().cameras[0].viscaIp === '10.0.0.3');
+  assert('a legacy config with a blank input stores no inputId', readYaml().cameras[0].inputId === undefined);
+
+  if (previousDevicesConfig === undefined) delete process.env.DEVICES_CONFIG;
+  else process.env.DEVICES_CONFIG = previousDevicesConfig;
+  fs.rmSync(cfgDir, { recursive: true, force: true });
 
   // Results
   console.log('\n=== Results ===');
