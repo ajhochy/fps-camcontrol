@@ -25,6 +25,69 @@ export function createStatusServer(
   const app = express();
   app.use(express.json());
 
+  const sonyApiUrl = (process.env.SONY_API_URL ?? 'http://127.0.0.1:8181').replace(/\/$/, '');
+  const sonyIdPattern = /^(?:[0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$/;
+  const sonyProperties = new Set(['aperture', 'shutter-speed', 'iso', 'white-balance', 'focus-mode', 'focus-area']);
+  const sonyRequest = async (res: express.Response, path: string, init: RequestInit = {}, image = false): Promise<void> => {
+    try {
+      const upstream = await fetch(sonyApiUrl + path, { ...init, signal: AbortSignal.timeout(image ? 3000 : 5000) });
+      const body = Buffer.from(await upstream.arrayBuffer());
+      res.status(upstream.status);
+      res.type(upstream.headers.get('content-type') ?? (image ? 'image/jpeg' : 'application/json'));
+      res.send(body);
+    } catch (err) {
+      const timeout = err instanceof Error && err.name === 'TimeoutError';
+      res.status(timeout ? 504 : 502).json({ error: timeout ? 'Sony API timed out' : 'Sony API unavailable' });
+    }
+  };
+  const sonyId = (req: express.Request, res: express.Response): string | null => {
+    const id = req.params.id;
+    if (!sonyIdPattern.test(id)) { res.status(400).json({ error: 'Invalid Sony camera ID' }); return null; }
+    return id;
+  };
+
+  app.get('/api/sony/cameras', (_req, res) => sonyRequest(res, '/api/cameras'));
+  app.post('/api/sony/cameras/:id/connect', (req, res) => {
+    const id = sonyId(req, res); if (!id) return;
+    void sonyRequest(res, `/api/cameras/${id}/connection`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'remote' }),
+    });
+  });
+  app.get('/api/sony/cameras/:id/properties', (req, res) => {
+    const id = sonyId(req, res); if (!id) return;
+    void sonyRequest(res, `/api/cameras/${id}/properties/all`);
+  });
+  app.put('/api/sony/cameras/:id/properties/:name', (req, res) => {
+    const id = sonyId(req, res); if (!id) return;
+    if (!sonyProperties.has(req.params.name)) { res.status(400).json({ error: 'Unsupported Sony property' }); return; }
+    const value = req.body?.value;
+    if (!['string', 'number', 'boolean'].includes(typeof value) || (typeof value === 'number' && !Number.isFinite(value))) {
+      res.status(400).json({ error: 'Property value must be a finite scalar' }); return;
+    }
+    void sonyRequest(res, `/api/cameras/${id}/properties/${req.params.name}`, {
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ value }),
+    });
+  });
+  app.post('/api/sony/cameras/:id/live-view/start', (req, res) => {
+    const id = sonyId(req, res); if (!id) return;
+    void sonyRequest(res, `/api/cameras/${id}/live-view/start`, { method: 'POST' });
+  });
+  app.get('/api/sony/cameras/:id/live-view/frame', (req, res) => {
+    const id = sonyId(req, res); if (!id) return;
+    void sonyRequest(res, `/api/cameras/${id}/live-view/frame`, {}, true);
+  });
+  app.post('/api/sony/cameras/:id/touch', (req, res) => {
+    const id = sonyId(req, res); if (!id) return;
+    const x = req.body?.normalized?.x;
+    const y = req.body?.normalized?.y;
+    if (![x, y].every(value => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1)) {
+      res.status(400).json({ error: 'Touch coordinates must be finite and normalized' }); return;
+    }
+    void sonyRequest(res, `/api/cameras/${id}/actions/touch`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ normalized: { x, y } }),
+    });
+  });
+
   app.get('/api/status', (_req, res) => {
     res.json(state);
   });
@@ -735,6 +798,25 @@ function statusHtml(): string {
     margin-bottom: 8px;
     background: var(--surface-2);
   }
+  .sony-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr)); gap:12px; margin-top:12px; min-width:0; }
+  .sony-widget { border:1px solid var(--border-strong); background:var(--surface-2); padding:12px; min-width:0; }
+  .sony-widget__head { display:flex; justify-content:space-between; gap:12px; margin-bottom:8px; }
+  .sony-preview { position:relative; height:clamp(220px,32vw,420px); background:#000; overflow:hidden; }
+  .sony-preview img { width:100%; height:100%; object-fit:contain; display:block; }
+  .sony-preview-loading::after { content:'Live preview loading…'; position:absolute; inset:50% auto auto 50%; transform:translate(-50%,-50%); color:var(--text-2); white-space:nowrap; }
+  .sony-preview-stale::after { content:'STALE'; position:absolute; top:8px; right:8px; padding:3px 6px; background:var(--warn-bg); color:var(--warn-text); }
+  .sony-crosshair { position:absolute; width:18px; height:18px; border:2px solid var(--amber); border-radius:50%; transform:translate(-50%,-50%); pointer-events:none; display:none; }
+  .sony-controls { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-top:10px; }
+  .sony-controls label { display:grid; gap:3px; color:var(--text-2); font-size:.72rem; }
+  .sony-touch-controls { display:flex; flex-wrap:wrap; align-items:end; gap:8px; margin-top:10px; }
+  .sony-touch-controls label { width:90px; color:var(--text-2); }
+  .sony-widget select, .sony-widget input, .sony-widget button { min-height:44px; }
+  @media (max-width:319px) {
+    .sony-controls { grid-template-columns:1fr; }
+    .sony-widget__head { flex-direction:column; }
+    .sony-touch-controls { display:grid; grid-template-columns:1fr; min-width:0; }
+    .sony-touch-controls label { width:auto; min-width:0; }
+  }
 
   /* Appearance setting */
   .appearance-setting {
@@ -1038,6 +1120,7 @@ function statusHtml(): string {
 <div class="panel tab-panel active" id="tab-status" role="tabpanel" aria-labelledby="tab-btn-status">
   <div class="panel-heading"><div><h2>Camera Network</h2><span class="panel-kicker">Signal roles and device health</span></div></div>
   <div id="status-content"><div class="loading-state">Reading production state…</div></div>
+  <section id="sony-cameras" aria-label="Connected Sony cameras"><div class="section-header">Sony Cameras</div><div id="sony-dashboard-status" aria-live="polite"></div><div class="sony-grid" id="sony-grid-root"></div></section>
 </div>
 
 <div class="panel tab-panel" id="tab-log" role="tabpanel" aria-labelledby="tab-btn-log" hidden>
@@ -1225,12 +1308,187 @@ function renderStatus(s, c) {
   document.getElementById('status-content').innerHTML = camGrid + '<div class="mode-row">' + modes + '</div>';
 }
 
+// ---- Sony dashboard (all browser traffic remains on /api/sony/*) ----
+var SONY_PROPERTIES = ['aperture','shutter-speed','iso','white-balance','focus-mode','focus-area'];
+var sonyWidgets = {};
+var sonyDiscovered = [];
+
+async function refreshSony() {
+  try {
+    var data = await fetch('/api/sony/cameras').then(function(r) { if (!r.ok) throw new Error(); return r.json(); });
+    sonyDiscovered = data.cameras || [];
+    renderSonyCameras(sonyDiscovered.filter(function(camera) { return camera.connected; }));
+    renderSonyDeviceConfig();
+  } catch (_) {
+    sonyDiscovered = [];
+    renderSonyCameras([]);
+    var dashboardStatus = document.getElementById('sony-dashboard-status');
+    dashboardStatus.className = 'error-state'; dashboardStatus.textContent = 'Sony camera service unavailable. Existing controls are unaffected.';
+    renderSonyDeviceConfig();
+    sonyDeviceStatus('Sony camera discovery failed.', true);
+  }
+}
+
+function renderSonyCameras(cameras) {
+  var root = document.getElementById('sony-grid-root');
+  var dashboardStatus = document.getElementById('sony-dashboard-status');
+  dashboardStatus.className = ''; dashboardStatus.textContent = '';
+  var liveIds = {};
+  cameras.forEach(function(camera) { liveIds[camera.id] = true; });
+  Object.keys(sonyWidgets).forEach(function(id) {
+    if (!liveIds[id]) {
+      var state = sonyWidgets[id]; state.active = false;
+      if (state.timer) clearTimeout(state.timer);
+      if (state.frameUrl) URL.revokeObjectURL(state.frameUrl);
+      if (state.article) state.article.remove();
+      delete sonyWidgets[id];
+    }
+  });
+  cameras.forEach(function(camera) {
+    var created = !sonyWidgets[camera.id];
+    if (created) {
+      sonyWidgets[camera.id] = { active:true, confirmed:{}, delay:125, frameUrl:null, loadingProperties:false, previewAnnouncementState:'loading' };
+      var holder = document.createElement('div'); holder.innerHTML = sonyWidgetHtml(camera); var article = holder.firstChild; root.appendChild(article); sonyWidgets[camera.id].article = article;
+      loadSonyProperties(camera.id);
+    } else updateSonyWidget(camera);
+    startSonyPreview(camera.id);
+  });
+}
+
+function updateSonyWidget(camera) {
+  var article = sonyWidgets[camera.id] && sonyWidgets[camera.id].article; if (!article) return;
+  article.querySelector('.sony-widget__title').textContent = camera.model || camera.name || 'Sony camera';
+  article.querySelector('.sony-widget__transport').textContent = camera.connectionType || 'Unknown transport';
+  article.querySelector('.sony-widget__connection').textContent = camera.status || 'Connected';
+  article.querySelector('.sony-preview img').alt = 'Live preview from ' + (camera.model || camera.id);
+}
+
+function sonyWidgetHtml(camera) {
+  var key = camera.id.replace(/:/g, '-');
+  var controls = SONY_PROPERTIES.map(function(name) {
+    return '<label>' + esc(name.replace(/-/g, ' ')) + '<select class="cfg-input" id="sony-' + esc(key) + '-' + name + '" data-id="' + esc(camera.id) + '" data-property="' + name + '" disabled onchange="saveSonyProperty(this)"><option>Unavailable</option></select></label>';
+  }).join('');
+  return '<article class="sony-widget" data-camera-id="' + esc(camera.id) + '" aria-labelledby="sony-heading-' + esc(key) + '">' +
+    '<div class="sony-widget__head"><div><h3 class="sony-widget__title" id="sony-heading-' + esc(key) + '">' + esc(camera.model || camera.name || 'Sony camera') + '</h3><small>' + esc(camera.id) + '</small></div><div><span class="sony-widget__transport">' + esc(camera.connectionType || 'Unknown transport') + '</span><br><span class="sony-widget__connection" style="color:var(--ok-text)">' + esc(camera.status || 'Connected') + '</span></div></div>' +
+    '<div class="sony-preview sony-preview-loading" id="sony-preview-' + esc(key) + '" role="region" aria-labelledby="sony-heading-' + esc(key) + '"><img alt="Live preview from ' + esc(camera.model || camera.id) + '" data-id="' + esc(camera.id) + '"><span class="sony-crosshair" aria-hidden="true"></span></div>' +
+    '<div class="sony-controls">' + controls + '</div>' +
+    '<div class="sony-touch-controls"><label>X (0–1)<input class="cfg-input" id="sony-x-' + esc(key) + '" type="number" min="0" max="1" step="0.01" value="0.5"></label><label>Y (0–1)<input class="cfg-input" id="sony-y-' + esc(key) + '" type="number" min="0" max="1" step="0.01" value="0.5"></label><button class="btn-sm" data-id="' + esc(camera.id) + '" onclick="applySonyTouchInputs(this.dataset.id)">Apply touch point</button></div>' +
+    '<p>Camera Touch Function determines focus vs tracking.</p><div id="sony-status-' + esc(key) + '" aria-live="polite">Live preview loading. Loading camera controls…</div></article>';
+}
+
+async function loadSonyProperties(id) {
+  var state = sonyWidgets[id]; if (!state || state.loadingProperties) return;
+  state.loadingProperties = true;
+  try {
+    var response = await fetch('/api/sony/cameras/' + id + '/properties');
+    if (!response.ok) throw new Error('Properties unavailable');
+    var body = await response.json();
+    if (sonyWidgets[id] !== state || !state.active) return;
+    var properties = (body.data && body.data.properties) || body.properties || {};
+    SONY_PROPERTIES.forEach(function(name) {
+      var property = properties[name];
+      var select = document.getElementById('sony-' + id.replace(/:/g, '-') + '-' + name);
+      if (!select) return;
+      if (!property || !Array.isArray(property.available_values)) { select.innerHTML = '<option>Unavailable</option>'; select.disabled = true; return; }
+      state.confirmed[name] = property.current_value;
+      select.innerHTML = property.available_values.map(function(item) { return '<option value="' + esc(JSON.stringify(item.value)) + '">' + esc(item.formatted != null ? item.formatted : item.value) + '</option>'; }).join('');
+      select.value = JSON.stringify(property.current_value);
+      select.disabled = property.writable !== true || property.available_values.length === 0;
+    });
+    sonyStatus(id, 'Controls confirmed.');
+  } catch (error) { sonyStatus(id, String(error), true); }
+  finally { if (sonyWidgets[id] === state) state.loadingProperties = false; }
+}
+
+async function saveSonyProperty(select) {
+  var id = select.dataset.id, name = select.dataset.property, state = sonyWidgets[id];
+  if (!state || select.disabled) return;
+  select.disabled = true;
+  try {
+    var response = await fetch('/api/sony/cameras/' + id + '/properties/' + name, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ value:JSON.parse(select.value) }) });
+    if (!response.ok) throw new Error('Save failed');
+    await loadSonyProperties(id);
+    sonyStatus(id, name.replace(/-/g, ' ') + ' saved.');
+  } catch (error) {
+    select.value = JSON.stringify(state.confirmed[name]);
+    select.disabled = false;
+    sonyStatus(id, name.replace(/-/g, ' ') + ' save failed; restored confirmed value.', true);
+  }
+}
+
+async function startSonyPreview(id) {
+  var state = sonyWidgets[id]; if (!state || state.polling) return;
+  state.polling = true;
+  try {
+    var response = await fetch('/api/sony/cameras/' + id + '/live-view/start', { method:'POST' });
+    if (!response.ok) throw new Error('Live preview failed to start');
+  } catch (_) { state.polling = false; var preview=document.getElementById('sony-preview-'+id.replace(/:/g,'-')); if(preview){preview.classList.remove('sony-preview-loading');preview.classList.add('sony-preview-stale');} sonyStatus(id, 'Live preview failed to start.', true); return; }
+  pollSonyFrame(id);
+}
+
+async function pollSonyFrame(id) {
+  var state = sonyWidgets[id]; if (!state || !state.active) return;
+  if (document.hidden) { state.timer = setTimeout(function() { pollSonyFrame(id); }, 500); return; }
+  var preview = document.getElementById('sony-preview-' + id.replace(/:/g, '-'));
+  var image = preview && preview.querySelector('img');
+  try {
+    var response = await fetch('/api/sony/cameras/' + id + '/live-view/frame', { cache:'no-store' });
+    if (!response.ok) throw new Error();
+    var nextUrl = URL.createObjectURL(await response.blob());
+    if (sonyWidgets[id] !== state || !state.active) { URL.revokeObjectURL(nextUrl); return; }
+    var previousUrl = state.frameUrl;
+    state.frameUrl = nextUrl; image.src = nextUrl;
+    image.onload = function() { if (previousUrl) URL.revokeObjectURL(previousUrl); };
+    preview.classList.remove('sony-preview-loading', 'sony-preview-stale'); state.delay = 125;
+    if (state.previewAnnouncementState === 'loading') sonyStatus(id, 'Live preview ready.');
+    else if (state.previewAnnouncementState === 'stale') sonyStatus(id, 'Live preview recovered.');
+    state.previewAnnouncementState = 'ready';
+  } catch (_) { if (preview) { preview.classList.remove('sony-preview-loading'); preview.classList.add('sony-preview-stale'); } if (state.previewAnnouncementState !== 'stale') sonyStatus(id, 'Live preview stale.', true); state.previewAnnouncementState = 'stale'; state.delay = Math.min(Math.max(state.delay * 2, 250), 4000); }
+  if (sonyWidgets[id] === state && state.active) state.timer = setTimeout(function() { pollSonyFrame(id); }, state.delay);
+}
+
+function sonyContainedPoint(image, clientX, clientY) {
+  if (!image.naturalWidth || !image.naturalHeight) return null;
+  var rect = image.getBoundingClientRect(), imageRatio = image.naturalWidth / image.naturalHeight, boxRatio = rect.width / rect.height;
+  var width = boxRatio > imageRatio ? rect.height * imageRatio : rect.width;
+  var height = boxRatio > imageRatio ? rect.height : rect.width / imageRatio;
+  var left = rect.left + (rect.width - width) / 2, top = rect.top + (rect.height - height) / 2;
+  if (clientX < left || clientX > left + width || clientY < top || clientY > top + height) return null;
+  return { x:(clientX-left)/width, y:(clientY-top)/height, px:clientX-rect.left, py:clientY-rect.top };
+}
+
+document.getElementById('sony-cameras').addEventListener('pointerup', function(event) {
+  if (event.target.tagName !== 'IMG') return;
+  var point = sonyContainedPoint(event.target, event.clientX, event.clientY);
+  if (!point) return;
+  showSonyPoint(event.target.dataset.id, point);
+  sendSonyTouch(event.target.dataset.id, point.x, point.y);
+});
+
+function showSonyPoint(id, point) {
+  var key = id.replace(/:/g, '-'), crosshair = document.querySelector('#sony-preview-' + key + ' .sony-crosshair');
+  crosshair.style.left = point.px + 'px'; crosshair.style.top = point.py + 'px'; crosshair.style.display = 'block';
+  document.getElementById('sony-x-' + key).value = point.x.toFixed(3); document.getElementById('sony-y-' + key).value = point.y.toFixed(3);
+}
+function applySonyTouchInputs(id) {
+  var key=id.replace(/:/g, '-'), x=Number(document.getElementById('sony-x-'+key).value), y=Number(document.getElementById('sony-y-'+key).value);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || x<0 || x>1 || y<0 || y>1) { sonyStatus(id, 'Touch X and Y must be between 0 and 1.', true); return; }
+  sendSonyTouch(id, x, y);
+}
+async function sendSonyTouch(id, x, y) {
+  try { var response=await fetch('/api/sony/cameras/'+id+'/touch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({normalized:{x:x,y:y}})}); if(!response.ok) throw new Error(); sonyStatus(id,'Touch point applied at '+x.toFixed(3)+', '+y.toFixed(3)+'.'); }
+  catch (_) { sonyStatus(id,'Touch point failed.',true); }
+}
+function sonyStatus(id, message, error) { var el=document.getElementById('sony-status-'+id.replace(/:/g,'-')); if(el){el.textContent=message;el.style.color=error?'var(--err-text)':'var(--text-2)';} }
+
 setInterval(refresh, 1000);
 setInterval(refreshControllers, 2000);
 setInterval(refreshDeviceConfig, 5000);
+setInterval(refreshSony, 5000);
 refresh();
 refreshControllers();
 refreshDeviceConfig();
+refreshSony();
 
 // ---- Device Config Editor ----
 var deviceConfigData = null;
@@ -1254,6 +1512,8 @@ function renderDeviceConfig(c) {
   html += '<tr><td style="color:#888">Transition</td><td><select class="cfg-input" id="atem-transition" aria-label="Default ATEM transition"><option value="cut"' + (c.atem.defaultTransition==='cut'?' selected':'') + '>Cut</option><option value="auto"' + (c.atem.defaultTransition==='auto'?' selected':'') + '>Auto</option></select></td></tr>';
   html += '<tr><td style="color:#888">M/E Index</td><td><input class="cfg-input" id="atem-me" aria-label="ATEM mix effect index" type="number" min="0" max="3" value="' + c.atem.meIndex + '"></td></tr>';
   html += '</tbody></table>';
+
+  html += '<section id="sony-device-config"><div class="section-header"><span>Sony Cameras</span><button class="btn-sm" onclick="refreshSony()">Refresh</button></div><div id="sony-device-status" aria-live="polite"></div><div id="sony-device-list">Discovering Sony cameras…</div></section>';
 
   // Graphics
   html += '<div class="section-header">Graphics / Lower Thirds</div>';
@@ -1282,12 +1542,26 @@ function renderDeviceConfig(c) {
 
   var el = document.getElementById('device-config-content');
   el.innerHTML = html;
+  renderSonyDeviceConfig();
   document.getElementById('tab-config').dataset.editing = 'false';
   // Mark as editing when any input changes
   el.addEventListener('input', function() {
     document.getElementById('tab-config').dataset.editing = 'true';
   }, { once: true });
 }
+
+function renderSonyDeviceConfig() {
+  var root=document.getElementById('sony-device-list'); if(!root) return;
+  if(!sonyDiscovered.length){root.innerHTML='<div class="empty-state">No Sony cameras discovered.</div>';return;}
+  root.innerHTML=sonyDiscovered.map(function(camera){return '<div class="cam-row"><strong>'+esc(camera.model||camera.name||camera.id)+'</strong> — '+esc(camera.id)+' — '+esc(camera.connectionType||'Unknown')+' — '+(camera.connected?'Connected':'Disconnected')+(camera.connected?'':' <button class="btn-sm" data-id="'+esc(camera.id)+'" onclick="connectSonyCamera(this)">Connect</button>')+'</div>';}).join('');
+}
+async function connectSonyCamera(button) {
+  button.disabled=true;
+  sonyDeviceStatus('Connecting Sony camera…');
+  try { var response=await fetch('/api/sony/cameras/'+button.dataset.id+'/connect',{method:'POST'}); if (!response.ok) throw new Error('Connect failed'); await refreshSony(); sonyDeviceStatus('Sony camera connected.'); }
+  catch (_) { button.disabled=false; sonyDeviceStatus('Sony camera connection failed.',true); }
+}
+function sonyDeviceStatus(message,error) { var el=document.getElementById('sony-device-status'); if(el){el.textContent=message;el.style.color=error?'var(--err-text)':'var(--text-2)';} }
 
 function cameraRowHtml(cam, idx) {
   var id = 'cam-' + idx;
@@ -1510,7 +1784,7 @@ function renderControllers(controllers, active, mappings) {
 }
 
 function esc(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
 function startRemap(action) {
