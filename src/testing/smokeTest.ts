@@ -15,7 +15,7 @@ import { ViscaDevice } from '../devices/viscaDevice';
 import { MotionDevice } from '../devices/motionDevice';
 import { PresetManager } from '../model/presetManager';
 import { CameraSelector } from '../model/cameraSelector';
-import { ControlStateMachine } from '../model/controlStateMachine';
+import { ControlStateMachine, shouldSendMotion } from '../model/controlStateMachine';
 import { emergencyStopAll } from '../safety/emergencyStop';
 import { EdgeState, createEdgeState, risingEdge } from '../input/edgeTriggers';
 import { ControllerSupervisor, explainOpenFailure } from '../input/controllerSupervisor';
@@ -1027,6 +1027,50 @@ async function runTests(): Promise<void> {
   assert('take on a gimbal-off camera is allowed (video is still valid)',
     virtualAtem.log.some(l => l.includes('autoTransition')));
   assert('take on a gimbal-off camera still updates program', offState.programCamera === 'cam2');
+
+  // Test 18: gimbal motion commands must be rate-limited to what BLE can carry.
+  // The 60Hz control loop used to send one command per tick to a gimbal (the
+  // `protocol !== 'visca'` check short-circuited the throttle), which overran the
+  // Bluetooth radio and dropped the link after a few seconds of holding the
+  // stick — measured as 46 drops/hour on the weaker-signal gimbal, 0 while idle.
+  console.log('\nTest 18: gimbal motion is rate-limited, VISCA behaviour unchanged');
+
+  // Simulate 1 second of holding the stick perfectly still at 60Hz.
+  const simulate = (protocol: string, ticks: number, changedEvery: number): number => {
+    let sends = 0;
+    let lastSentAt: number | undefined;
+    for (let i = 0; i < ticks; i++) {
+      const now = i * (1000 / 60);
+      const changed = changedEvery > 0 && i % changedEvery === 0;
+      if (shouldSendMotion(protocol, changed || lastSentAt === undefined, lastSentAt, now)) {
+        sends++;
+        lastSentAt = now;
+      }
+    }
+    return sends;
+  };
+
+  const gimbalHeld = simulate('dji-bridge', 60, 0);          // 1s, stick held steady
+  assert('held gimbal stick sends a heartbeat, not 60/sec', gimbalHeld <= 8 && gimbalHeld >= 5);
+
+  const gimbalJitter = simulate('dji-bridge', 60, 1);        // 1s, value changes every tick
+  assert('constantly-changing gimbal input is capped near 20/sec', gimbalJitter <= 21);
+  assert('capped gimbal input still sends regularly', gimbalJitter >= 15);
+
+  // The bridge auto-stops a gimbal after 250ms of silence, so the heartbeat must
+  // be well inside that or a held stick stutters to a halt.
+  const worstGapMs = 1000 / gimbalHeld;
+  assert('gimbal heartbeat stays inside the 250ms safety watchdog', worstGapMs < 250);
+
+  // VISCA must be untouched: on change, or the existing 250ms heartbeat.
+  const viscaHeld = simulate('visca', 60, 0);
+  assert('VISCA held stick unchanged (~250ms heartbeat)', viscaHeld >= 4 && viscaHeld <= 5);
+  const viscaJitter = simulate('visca', 60, 1);
+  assert('VISCA still sends on every meaningful change', viscaJitter === 60);
+
+  assert('first frame always goes out immediately', shouldSendMotion('dji-bridge', false, undefined, 0));
+  assert('gimbal send suppressed inside the rate floor', !shouldSendMotion('dji-bridge', true, 1000, 1010));
+  assert('gimbal send allowed once the floor has passed', shouldSendMotion('dji-bridge', true, 1000, 1060));
 
   // Results
   console.log('\n=== Results ===');
