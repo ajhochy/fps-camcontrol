@@ -31,6 +31,31 @@ function armPreviousProgramAsStandby(
   if (idx >= 0) state.cameraIndex = idx;
 }
 
+/**
+ * Note the operator is arming a camera that cannot move, but let the take
+ * proceed.
+ *
+ * Deliberately NOT a hard refusal like the unwired-camera guard below. The two
+ * failures are not comparable: an unwired camera has no video at all, so taking
+ * it cuts black to air. A camera whose gimbal is off still feeds the switcher a
+ * perfectly good picture — it just cannot be panned. Refusing would mean that
+ * when a gimbal sleeps mid-service (the RS3 Pros do this on their own) the
+ * operator's take silently does nothing and the WRONG camera stays on air, which
+ * is a far worse outcome than a static shot. So: log it, show it in the Status
+ * tab, and let the human decide.
+ */
+function warnIfGimbalDetached(
+  cam: CameraConfig,
+  devices: Map<CameraId, MotionDevice>
+): void {
+  if (devices.get(cam.id as CameraId)?.gimbalAttached === false) {
+    logger.warn(
+      { camera: cam.id, label: cam.label },
+      'taking a camera live whose gimbal is not attached — video is fine but it cannot be moved'
+    );
+  }
+}
+
 export async function cutControlledCameraLive(
   atem: AtemClient,
   state: AppState,
@@ -43,6 +68,7 @@ export async function cutControlledCameraLive(
     logger.warn({ camera: cam.id, label: cam.label }, 'refusing cut: camera has no ATEM input (not wired) — would put black on program');
     return;
   }
+  warnIfGimbalDetached(cam, devices);
   await atem.changePreviewInput(cam.inputId);
   await atem.cut();
   armPreviousProgramAsStandby(state, cameras, devices);
@@ -61,6 +87,7 @@ export async function autoTransitionControlledCamera(
     logger.warn({ camera: cam.id, label: cam.label }, 'refusing take: camera has no ATEM input (not wired) — would put black on program');
     return;
   }
+  warnIfGimbalDetached(cam, devices);
   await atem.changePreviewInput(cam.inputId);
   await atem.autoTransition();
   armPreviousProgramAsStandby(state, cameras, devices);
