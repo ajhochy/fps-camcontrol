@@ -36,7 +36,10 @@ cameras:
     protocol: "dji-bridge"
     inputId: 4
     bridge:
-      host: "192.168.10.150"
+      # Hostname (mDNS) rather than a hard IP: the Pi's DHCP address changes when
+      # it's moved to a different switch/port. Was 192.168.10.150, now resolves
+      # to 192.168.50.151. Set a DHCP reservation if you want a fixed IP instead.
+      host: "dji-bridge.local"
       port: 7878
       gimbalModel: "RS3"
       safetyTimeoutMs: 250

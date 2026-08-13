@@ -12,9 +12,12 @@ Complete the remaining live-use checks for the deployed DJI RS3 Bluetooth Low En
 and the verified RS3 BLE work are integrated locally; merge to `main` is pending.
 
 ## In progress
-- The BLE bridge is deployed to `dji-bridge.local` (`192.168.10.150`) as user
-  `worship`; `dji-bridge` is active and enabled. `/home/worship/dji-bridge`
-  points to `/home/worship/fps-camcontrol/pi-bridge`.
+- The BLE bridge is deployed to `dji-bridge.local` as user `worship`;
+  `dji-bridge` is active and enabled. `/home/worship/dji-bridge` points to
+  `/home/worship/fps-camcontrol/pi-bridge`. The app config addresses the Pi by
+  **hostname, not IP** — its DHCP address changes when it is moved between
+  switches (was `192.168.10.150`; now `eth0 192.168.50.151` / `wlan0
+  192.168.50.150`, which is also why `dji-bridge.local` resolves to two IPs).
 - RS3 `34:D2:62:15:A5:47` is configured in `/etc/default/dji-bridge`.
 - FPS CamControl `cam4` is enabled as DJI RS3. Its live WebSocket handshake
   advertised `velocity`, `position`, `moveTo`, and `recenter`.
@@ -24,6 +27,13 @@ and the verified RS3 BLE work are integrated locally; merge to `main` is pending
   reconnect/reboot, and 30-minute idle/show soak checks remain.
 - RS4/RS4 Pro are unvalidated. A `websockets.server` type-import deprecation
   warning is non-blocking and can be cleaned up later.
+- **Bridge crash-loops when the gimbal is absent.** `dji_bridge.py` awaits
+  `driver.connect()` in `serve()` *before* binding the WebSocket listener, so a
+  powered-off/out-of-range RS3 raises `GimbalError` → `exit(1)` → systemd
+  restarts (observed 112 restarts). Port 7878 never opens, so the app sees
+  "Connection refused" and the Pi looks dead when it is actually healthy.
+  Diagnose with `journalctl -u dji-bridge`. Fix: bind the listener first and
+  connect/retry the gimbal in the background, reporting it as disconnected.
 - First-service config not yet confirmed on real gear: V-BOT tilt direction, ATEM input IDs, ATEM DSK index.
 - Post-hardware polish gaps: no web-UI editor for DJI devices (YAML-only today), DJI-BRIDGE activity-log rendering is default-styled, no Sony PZ stub, roll axis has no controller mapping yet.
 
