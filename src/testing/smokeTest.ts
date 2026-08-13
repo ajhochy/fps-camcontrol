@@ -245,6 +245,7 @@ async function runTests(): Promise<void> {
   // Test 9: /api/controllers endpoint returns valid JSON
   console.log('\nTest 9: /api/controllers endpoint');
   await new Promise<void>((resolve) => {
+    process.env.STATUS_PORT = '0';
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { createStatusServer } = require('../ui/statusServer');
     // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -272,6 +273,121 @@ async function runTests(): Promise<void> {
       });
     });
   });
+
+  // Sony contract: catches regressions that expose the sidecar to browsers,
+  // render disconnected cameras, accept unsafe proxy input, or omit required UI behavior.
+  console.log('\nTest 9b: Sony dashboard and narrow sidecar proxy');
+  const http = require('http');
+  const upstreamRequests: Array<{ method: string; url: string; body: string }> = [];
+  const sonyProperties = {
+    properties: {
+      aperture: { current_value: 28, current_formatted: 'F2.8', writable: true, available_values: [{ value: 28, formatted: 'F2.8' }, { value: 40, formatted: 'F4' }] },
+      'shutter-speed': { current_value: '1/50', current_formatted: '1/50', writable: true, available_values: [{ value: '1/50', formatted: '1/50' }] },
+      iso: { current_value: 800, current_formatted: 'ISO 800', writable: true, available_values: [{ value: 800, formatted: 'ISO 800' }] },
+      'white-balance': { current_value: 'auto', current_formatted: 'Auto', writable: true, available_values: [{ value: 'auto', formatted: 'Auto' }] },
+      'focus-mode': { current_value: 'af-c', current_formatted: 'AF-C', writable: true, available_values: [{ value: 'af-c', formatted: 'AF-C' }] },
+      'focus-area': { current_value: 'wide', current_formatted: 'Wide', writable: true, available_values: [{ value: 'wide', formatted: 'Wide' }] },
+    },
+  };
+  const fakeSony = http.createServer((req: any, res: any) => {
+    let body = '';
+    req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+    req.on('end', () => {
+      upstreamRequests.push({ method: req.method, url: req.url, body });
+      if (req.url === '/api/cameras') {
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ cameras: [
+          { id: 'AA:BB:CC:DD:EE:01', model: 'ILCE-7SM3 A', connected: true, connectionType: 'USB' },
+          { id: 'AA:BB:CC:DD:EE:02', model: 'ILME-FX3 B', connected: true, connectionType: 'Wi-Fi' },
+          { id: 'AA:BB:CC:DD:EE:03', model: 'ILCE-7IV C', connected: true, connectionType: 'USB' },
+          { id: 'AA:BB:CC:DD:EE:04', model: 'ILME-FX30 D', connected: true, connectionType: 'Wi-Fi' },
+          { id: 'AA:BB:CC:DD:EE:05', model: 'Offline', connected: false, connectionType: 'USB' },
+        ] }));
+      } else if (req.url?.endsWith('/connection') && req.method === 'GET') {
+        res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({
+          camera: req.url.includes('AA:BB:CC:DD:EE:01') ? { id: 'AA:BB:CC:DD:EE:01', model: 'ILCE-7SM3 A', connected: true } : { connected: /EE:0[2-4]/.test(req.url) },
+          data: req.url.includes('AA:BB:CC:DD:EE:01') ? { mode: 'remote' } : {},
+        }));
+      } else if (req.url?.endsWith('/properties/all')) {
+        res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ data: sonyProperties }));
+      } else if (req.url?.endsWith('/live-view/frame')) {
+        res.setHeader('content-type', 'image/jpeg'); res.end(Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+      } else {
+        res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ ok: true }));
+      }
+    });
+  });
+  await new Promise<void>(resolve => fakeSony.listen(0, '127.0.0.1', resolve));
+  const fakeSonyPort = (fakeSony.address() as any).port;
+  process.env.SONY_API_URL = `http://127.0.0.1:${fakeSonyPort}`;
+  const { createStatusServer: createSonyStatusServer } = require('../ui/statusServer');
+  const sonyApp = createSonyStatusServer(state, config, presetManager);
+  const sonyServer = await new Promise<any>(resolve => {
+    const server = sonyApp.listen(0, '127.0.0.1', () => resolve(server));
+  });
+  const sonyBase = `http://127.0.0.1:${sonyServer.address().port}`;
+  const sonyGet = async (path: string, init?: any) => {
+    const response = await fetch(sonyBase + path, init);
+    const text = await response.text();
+    return { response, text };
+  };
+  const home = await sonyGet('/');
+  assert('Sony UI is below existing home controls', home.text.indexOf('id="sony-cameras"') > home.text.indexOf('id="home"'));
+  const expectedSonyProperties = ['aperture', 'shutter-speed', 'iso', 'white-balance', 'focus-mode', 'focus-area'];
+  const sonyPropertyArray = home.text.match(/var SONY_PROPERTIES = (\[[^;]+\]);/);
+  assert('Sony UI uses exactly the six live upstream property names', sonyPropertyArray !== null && JSON.stringify(JSON.parse(sonyPropertyArray[1].replace(/'/g, '"'))) === JSON.stringify(expectedSonyProperties));
+  assert('Sony camera IDs are escaped in every generated HTML attribute', (home.text.match(/esc\(camera\.id\)/g) || []).length >= 4 && (home.text.match(/esc\(key\)/g) || []).length >= 5 && !home.text.includes('data-camera-id="\' + camera.id + \'"'));
+  assert('Sony UI includes sequential hidden-aware bounded preview polling', home.text.includes('document.hidden') && home.text.includes('setTimeout') && home.text.includes('sony-preview-stale'));
+  assert('Sony UI includes contained-image touch mapping and keyboard fallback', home.text.includes('naturalWidth') && home.text.includes('Apply touch point') && home.text.includes('aria-live'));
+  assert('Sony UI explains camera Touch Function behavior', home.text.includes('Touch Function determines focus vs tracking'));
+  assert('Device Config has explicit Sony discovery/connect controls', home.text.includes('sony-device-config') && home.text.includes('Connect'));
+  // UI review repair: catches five-second wholesale DOM replacement that loses focus,
+  // select values, previews, and can start overlapping property requests/pollers.
+  assert('Sony refresh reconciles widgets by camera ID without replacing the root', home.text.includes('sony-grid-root') && home.text.includes('appendChild') && home.text.includes('state.article.remove()') && !home.text.includes("root.innerHTML = '<div class=\"section-header\">Sony Cameras"));
+  assert('Sony reconciliation preserves existing controls and prevents overlapping property loads', home.text.includes('updateSonyWidget') && home.text.includes('state.loadingProperties'));
+  assert('Sony widget removal deactivates polling, cancels its timer, and revokes its object URL', home.text.includes('state.active = false') && home.text.includes('clearTimeout(state.timer)') && home.text.includes('URL.revokeObjectURL(state.frameUrl)'));
+  assert('Sony layout has a below-320px one-column overflow guard', home.text.includes('@media (max-width:319px)') && home.text.includes('.sony-controls { grid-template-columns:1fr; }') && home.text.includes('min-width:0'));
+  assert('Sony loading, stale, recovered, and live-view failure states are accessible', home.text.includes('sony-preview-loading') && home.text.includes('Live preview loading') && home.text.includes("sonyStatus(id, 'Live preview stale.'") && home.text.includes("'Live preview recovered.'") && home.text.includes('Live preview failed to start'));
+  // Re-review regression: repeated frames/failures must not rewrite aria-live;
+  // these assertions fail if pollSonyFrame announces outside state transitions.
+  assert('Sony preview aria-live updates only on loading/ready/stale/recovered transitions', home.text.includes("previewAnnouncementState:'loading'") && home.text.includes("state.previewAnnouncementState === 'loading') sonyStatus(id, 'Live preview ready.'") && home.text.includes("state.previewAnnouncementState === 'stale') sonyStatus(id, 'Live preview recovered.'") && home.text.includes("state.previewAnnouncementState !== 'stale') sonyStatus(id, 'Live preview stale.'") && !home.text.includes("sonyStatus(id, recovered ?"));
+  assert('Sony discovery and connect failures clear stale state and report accessibly', home.text.includes('sonyDiscovered = [];') && home.text.includes('sony-device-status') && home.text.includes("if (!response.ok) throw new Error('Connect failed')"));
+  assert('Sony controls alone have 44px targets', home.text.includes('.sony-widget select, .sony-widget input, .sony-widget button { min-height:44px; }'));
+  assert('Sony desktop layout has four equal widget columns with 16:9 previews', home.text.includes('grid-template-columns:repeat(4,minmax(0,1fr))') && home.text.includes('aspect-ratio:16 / 9'));
+  assert('Sony layout uses two widget columns on tablet and one on mobile', home.text.includes('@media (max-width:1100px)') && home.text.includes('@media (max-width:700px)'));
+  assert('Sony settings remain a compact two-column grid at desktop widths', home.text.includes('.sony-controls { display:grid; grid-template-columns:repeat(2,minmax(0,1fr));'));
+  assert('Every Sony widget has a heading labeling its article and preview', (home.text.match(/aria-labelledby="sony-heading-/g) || []).length === 2 && home.text.includes('<h3 class="sony-widget__title" id="sony-heading-'));
+  assert('Browser code only references CamControl Sony API', !home.text.includes(`127.0.0.1:${fakeSonyPort}`) && !home.text.includes('127.0.0.1:8181'));
+
+  const camerasResult = await sonyGet('/api/sony/cameras');
+  const camerasJson = JSON.parse(camerasResult.text);
+  assert('Sony proxy returns four connected plus one disconnected fixtures', camerasJson.cameras.filter((camera: any) => camera.connected).length === 4 && camerasJson.cameras.filter((camera: any) => !camera.connected).length === 1);
+  // Regression: discovery can hang after the first scan; known cameras must be
+  // checked individually and retain the nested live connection response shape.
+  const discoveryRequests = () => upstreamRequests.filter(request => request.url === '/api/cameras').length;
+  const discoveredOnce = discoveryRequests();
+  await sonyGet('/api/sony/cameras/AA:BB:CC:DD:EE:01/connect', { method: 'POST' });
+  const refreshedCameras = JSON.parse((await sonyGet('/api/sony/cameras')).text);
+  assert('Sony repeated list reuses cached identities without rediscovery', discoveryRequests() === discoveredOnce);
+  assert('Sony connection checks merge nested camera and data fields', refreshedCameras.cameras[0]?.mode === 'remote' && refreshedCameras.cameras[0]?.connected === true);
+  const badId = await sonyGet('/api/sony/cameras/not-a-mac/properties');
+  assert('Sony proxy rejects non-MAC camera IDs', badId.response.status === 400);
+  const badProperty = await sonyGet('/api/sony/cameras/AA:BB:CC:DD:EE:01/properties/evil', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ value: 1 }) });
+  assert('Sony proxy rejects properties outside six-name allowlist', badProperty.response.status === 400);
+  for (const property of expectedSonyProperties) {
+    await sonyGet(`/api/sony/cameras/AA:BB:CC:DD:EE:01/properties/${property}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ value: 1 }) });
+  }
+  assert('Sony proxy forwards exactly six upstream-compatible property names', expectedSonyProperties.every(property => upstreamRequests.some(request => request.url === `/api/cameras/AA:BB:CC:DD:EE:01/properties/${property}`)));
+  const badValue = await sonyGet('/api/sony/cameras/AA:BB:CC:DD:EE:01/properties/iso', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ value: { unsafe: true } }) });
+  assert('Sony proxy rejects non-scalar property values', badValue.response.status === 400);
+  const badTouch = await sonyGet('/api/sony/cameras/AA:BB:CC:DD:EE:01/touch', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ normalized: { x: 2, y: 0.5 } }) });
+  assert('Sony proxy rejects out-of-range touch coordinates', badTouch.response.status === 400);
+  const goodTouch = await sonyGet('/api/sony/cameras/AA:BB:CC:DD:EE:01/touch', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ normalized: { x: 0.25, y: 0.75 } }) });
+  assert('Sony proxy accepts normalized touch coordinates', goodTouch.response.status === 200);
+  assert('Sony upstream receives literal colon camera ID', upstreamRequests.some(request => request.url === '/api/cameras/AA:BB:CC:DD:EE:01/actions/touch'));
+  await new Promise<void>(resolve => sonyServer.close(resolve));
+  await new Promise<void>(resolve => fakeSony.close(resolve));
+  delete process.env.SONY_API_URL;
 
   // Test 10: Face-button camera hotkeys arm standby directly.
   // Drives the REAL ControlStateMachine (not the tick() reimplementation above)

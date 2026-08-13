@@ -32,6 +32,95 @@ export function createStatusServer(
   const app = express();
   app.use(express.json());
 
+  const sonyApiUrl = (process.env.SONY_API_URL ?? 'http://127.0.0.1:8181').replace(/\/$/, '');
+  const sonyIdPattern = /^(?:[0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$/;
+  const sonyProperties = new Set(['aperture', 'shutter-speed', 'iso', 'white-balance', 'focus-mode', 'focus-area']);
+  let sonyCameraCache: Record<string, unknown>[] = [];
+  let sonyDiscovery: Promise<Record<string, unknown>[]> | null = null;
+  let sonyLastDiscovery = 0;
+  const sonyFetch = (path: string, init: RequestInit = {}, timeout = 5000) => fetch(sonyApiUrl + path, { ...init, signal: AbortSignal.timeout(timeout) });
+  const sonyRequest = async (res: express.Response, path: string, init: RequestInit = {}, image = false, timeout = image ? 3000 : 5000): Promise<void> => {
+    try {
+      const upstream = await sonyFetch(path, init, timeout);
+      const body = Buffer.from(await upstream.arrayBuffer());
+      res.status(upstream.status);
+      res.type(upstream.headers.get('content-type') ?? (image ? 'image/jpeg' : 'application/json'));
+      res.send(body);
+    } catch (err) {
+      const timeout = err instanceof Error && err.name === 'TimeoutError';
+      res.status(timeout ? 504 : 502).json({ error: timeout ? 'Sony API timed out' : 'Sony API unavailable' });
+    }
+  };
+  const sonyId = (req: express.Request, res: express.Response): string | null => {
+    const id = req.params.id;
+    if (!sonyIdPattern.test(id)) { res.status(400).json({ error: 'Invalid Sony camera ID' }); return null; }
+    return id;
+  };
+
+  const normalizeSonyCamera = (body: Record<string, any>, fallback: Record<string, unknown> = {}) => ({ ...fallback, ...body, ...(body.camera ?? {}), ...(body.data ?? {}), connected: body.camera?.connected ?? body.connected ?? fallback.connected ?? false });
+  const discoverSonyCameras = async (): Promise<Record<string, unknown>[]> => {
+    if (sonyDiscovery) return sonyDiscovery;
+    if (sonyCameraCache.length && Date.now() - sonyLastDiscovery < 45000) return sonyCameraCache;
+    sonyDiscovery = (async () => {
+      const upstream = await sonyFetch('/api/cameras');
+      if (!upstream.ok) throw new Error('Sony camera discovery failed');
+      sonyCameraCache = ((await upstream.json()) as { cameras?: Record<string, unknown>[] }).cameras ?? [];
+      sonyLastDiscovery = Date.now(); return sonyCameraCache;
+    })();
+    try { return await sonyDiscovery; } finally { sonyDiscovery = null; }
+  };
+  const sonyCameraList = async () => {
+    if (!sonyCameraCache.length) await discoverSonyCameras();
+    return Promise.all(sonyCameraCache.map(async camera => {
+      try { const upstream = await sonyFetch(`/api/cameras/${camera.id}/connection`); return upstream.ok ? normalizeSonyCamera(await upstream.json() as Record<string, any>, camera) : camera; } catch (_) { return camera; }
+    }));
+  };
+  app.get('/api/sony/cameras', (_req, res) => void sonyCameraList().then(cameras => res.json({ cameras })).catch(() => res.status(502).json({ error: 'Sony API unavailable' })));
+  app.post('/api/sony/cameras/discover', (_req, res) => void discoverSonyCameras().then(cameras => res.json({ cameras })).catch(() => res.status(502).json({ error: 'Sony API unavailable' })));
+  app.post('/api/sony/cameras/:id/connect', async (req, res) => {
+    const id = sonyId(req, res); if (!id) return;
+    try {
+      const upstream = await sonyFetch(`/api/cameras/${id}/connection`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'remote' }) }, 30000);
+      const camera = normalizeSonyCamera(await upstream.json() as Record<string, any>, sonyCameraCache.find(item => item.id === id) ?? { id });
+      if (upstream.ok) { const index = sonyCameraCache.findIndex(item => item.id === id); if (index >= 0) sonyCameraCache[index] = camera; else sonyCameraCache.push(camera); }
+      res.status(upstream.status).json(camera);
+    } catch (err) { const timeout = err instanceof Error && err.name === 'TimeoutError'; res.status(timeout ? 504 : 502).json({ error: timeout ? 'Sony API timed out' : 'Sony API unavailable' }); }
+  });
+  app.get('/api/sony/cameras/:id/properties', (req, res) => {
+    const id = sonyId(req, res); if (!id) return;
+    void sonyRequest(res, `/api/cameras/${id}/properties/all`);
+  });
+  app.put('/api/sony/cameras/:id/properties/:name', (req, res) => {
+    const id = sonyId(req, res); if (!id) return;
+    if (!sonyProperties.has(req.params.name)) { res.status(400).json({ error: 'Unsupported Sony property' }); return; }
+    const value = req.body?.value;
+    if (!['string', 'number', 'boolean'].includes(typeof value) || (typeof value === 'number' && !Number.isFinite(value))) {
+      res.status(400).json({ error: 'Property value must be a finite scalar' }); return;
+    }
+    void sonyRequest(res, `/api/cameras/${id}/properties/${req.params.name}`, {
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ value }),
+    });
+  });
+  app.post('/api/sony/cameras/:id/live-view/start', (req, res) => {
+    const id = sonyId(req, res); if (!id) return;
+    void sonyRequest(res, `/api/cameras/${id}/live-view/start`, { method: 'POST' });
+  });
+  app.get('/api/sony/cameras/:id/live-view/frame', (req, res) => {
+    const id = sonyId(req, res); if (!id) return;
+    void sonyRequest(res, `/api/cameras/${id}/live-view/frame`, {}, true);
+  });
+  app.post('/api/sony/cameras/:id/touch', (req, res) => {
+    const id = sonyId(req, res); if (!id) return;
+    const x = req.body?.normalized?.x;
+    const y = req.body?.normalized?.y;
+    if (![x, y].every(value => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1)) {
+      res.status(400).json({ error: 'Touch coordinates must be finite and normalized' }); return;
+    }
+    void sonyRequest(res, `/api/cameras/${id}/actions/touch`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ normalized: { x, y } }),
+    });
+  });
+
   // GET /api/status
   // `cameraConnected` answers only "can this camera be moved?". For cameras
   // behind a Pi bridge, `cameraBridgeReachable` and `cameraGimbalAttached` say
@@ -407,10 +496,13 @@ function statusHtml(): string {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0b0e10">
+<script>
+  try {
+    if (localStorage.getItem('fps-theme') === 'light') document.documentElement.dataset.theme = 'light';
+  } catch (_) {}
+</script>
 <title>FPS CamControl</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Nunito+Sans:opsz,wght@6..12,300;6..12,400;6..12,600&display=swap" rel="stylesheet">
 <style>
   :root {
     --bg:        oklch(0.11 0.008 235);
@@ -772,6 +864,7 @@ function statusHtml(): string {
   }
   .row-visca { background: oklch(0.155 0.014 240); }
   .row-atem  { background: oklch(0.155 0.010 73); }
+  .row-dji   { background: #16132a; }
   .row-sys   { background: var(--surface); color: var(--text-2); }
 
   /* Controller mapping */
@@ -838,34 +931,341 @@ function statusHtml(): string {
     margin-bottom: 8px;
     background: var(--surface-2);
   }
+  .sony-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin-top:12px; min-width:0; }
+  .sony-widget { border:1px solid var(--border-strong); background:var(--surface-2); padding:8px; min-width:0; }
+  .sony-widget__head { display:flex; justify-content:space-between; gap:8px; margin-bottom:6px; }
+  .sony-preview { position:relative; aspect-ratio:16 / 9; background:#000; overflow:hidden; }
+  .sony-preview img { width:100%; height:100%; object-fit:contain; display:block; }
+  .sony-preview-loading::after { content:'Live preview loading…'; position:absolute; inset:50% auto auto 50%; transform:translate(-50%,-50%); color:var(--text-2); white-space:nowrap; }
+  .sony-preview-stale::after { content:'STALE'; position:absolute; top:8px; right:8px; padding:3px 6px; background:var(--warn-bg); color:var(--warn-text); }
+  .sony-crosshair { position:absolute; width:18px; height:18px; border:2px solid var(--amber); border-radius:50%; transform:translate(-50%,-50%); pointer-events:none; display:none; }
+  .sony-controls { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-top:10px; }
+  .sony-controls label { display:grid; gap:3px; color:var(--text-2); font-size:.72rem; }
+  .sony-touch-controls { display:flex; flex-wrap:wrap; align-items:end; gap:8px; margin-top:10px; }
+  .sony-touch-controls label { width:90px; color:var(--text-2); }
+  .sony-widget select, .sony-widget input, .sony-widget button { min-height:44px; }
+  @media (max-width:1100px) { .sony-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+  @media (max-width:700px) { .sony-grid { grid-template-columns:1fr; } }
+  @media (max-width:319px) {
+    .sony-controls { grid-template-columns:1fr; }
+    .sony-widget__head { flex-direction:column; }
+    .sony-touch-controls { display:grid; grid-template-columns:1fr; min-width:0; }
+    .sony-touch-controls label { width:auto; min-width:0; }
+  }
+
+  /* Appearance setting */
+  .appearance-setting {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    padding: 12px 0 18px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 20px;
+  }
+  .appearance-setting__copy { display: grid; gap: 3px; }
+  .appearance-setting__label { color: var(--text); font-weight: 650; }
+  .appearance-setting__hint { color: var(--text-2); font-size: .74rem; }
+  .theme-switch {
+    position: relative;
+    display: flex;
+    align-items: center;
+    flex: 0 0 auto;
+    width: 44px;
+    height: 44px;
+  }
+  .theme-switch input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+  .theme-switch__track {
+    display: block;
+    width: 100%;
+    height: 24px;
+    border: 1px solid var(--border-strong);
+    background: var(--surface-3);
+  }
+  .theme-switch__track::after {
+    content: "";
+    display: block;
+    width: 16px;
+    height: 16px;
+    margin: 3px;
+    background: var(--text-2);
+    transition: transform .12s ease-out, background-color .12s ease-out;
+  }
+  .theme-switch input:checked + .theme-switch__track { border-color: #775a29; background: #1c1810; }
+  .theme-switch input:checked + .theme-switch__track::after { transform: translateX(20px); background: var(--amber); }
+  .theme-switch input:focus-visible + .theme-switch__track { outline: 2px solid var(--amber); outline-offset: 3px; }
+
+  /* Broadcast console pass — local-first, dense, and legible under pressure. */
+  :root {
+    color-scheme: dark;
+    --bg: #0b0e10;
+    --surface: #11161a;
+    --surface-2: #171d21;
+    --surface-3: #1d252a;
+    --border: #2a343a;
+    --border-strong: #3b474e;
+    --text: #edf1f2;
+    --text-2: #93a0a7;
+    --amber: #ffb547;
+    --blue: #55a7ff;
+    --live-bg: #3a1418;
+    --live-text: #ff8a91;
+    --pvw-bg: #12301f;
+    --pvw-text: #78dfa1;
+    --ok-bg: #14291e;
+    --ok-text: #74d69a;
+    --err-bg: #34171a;
+    --err-text: #ff8a91;
+    --warn-bg: #332713;
+    --warn-text: #ffc66d;
+    --label-font: "Arial Narrow", "Roboto Condensed", "Helvetica Neue", sans-serif;
+    --body-font: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --bg: #e8edef;
+    --surface: #ffffff;
+    --surface-2: #f3f6f7;
+    --surface-3: #e3e9eb;
+    --border: #cbd4d8;
+    --border-strong: #a8b5bb;
+    --text: #172126;
+    --text-2: #53636b;
+    --amber: #9b5b00;
+    --blue: #0869b5;
+    --live-bg: #fbe8e9;
+    --live-text: #a5222b;
+    --pvw-bg: #e3f4e9;
+    --pvw-text: #17683a;
+    --ok-bg: #e3f4e9;
+    --ok-text: #17683a;
+    --err-bg: #fbe8e9;
+    --err-text: #a5222b;
+    --warn-bg: #f8ecd7;
+    --warn-text: #855000;
+  }
+  html { background: var(--bg); scroll-behavior: smooth; }
+  body {
+    min-height: 100vh;
+    padding: 0 28px 48px;
+    font-family: var(--body-font);
+    font-size: 0.875rem;
+    line-height: 1.45;
+    background:
+      linear-gradient(rgba(255,255,255,.018) 1px, transparent 1px),
+      var(--bg);
+    background-size: 100% 32px;
+  }
+  button, input, select { font: inherit; }
+  .skip-link {
+    position: fixed; top: 8px; left: 8px; z-index: 20;
+    transform: translateY(-150%); padding: 8px 12px;
+    background: var(--amber); color: #161006; font-weight: 700;
+  }
+  .skip-link:focus { transform: translateY(0); }
+  .app-shell { width: min(1440px, 100%); margin: 0 auto; }
+  .app-header {
+    min-height: 72px; align-items: center; justify-content: space-between;
+    padding: 14px 0; border-bottom-color: var(--border-strong);
+  }
+  .brand-lockup { display: flex; align-items: center; gap: 14px; min-width: 0; }
+  .brand-mark {
+    display: grid; place-items: center; width: 38px; height: 38px;
+    border: 1px solid #775a29; color: var(--amber); background: #1c1810;
+    font: 800 0.7rem/1 var(--label-font); letter-spacing: .1em;
+  }
+  .app-title {
+    font-family: var(--label-font); font-size: 1.25rem; line-height: 1;
+    letter-spacing: .12em;
+  }
+  .app-subtitle { display: block; margin-top: 5px; font-family: var(--label-font); }
+  .header-meta { display: flex; align-items: center; gap: 18px; }
+  .sync-state { display: flex; align-items: center; gap: 7px; color: var(--text-2); font-size: .72rem; }
+  .sync-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok-text); }
+  .clock {
+    min-width: 72px; color: var(--text); font: 600 .85rem/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    letter-spacing: .04em; text-align: right;
+  }
+  .status-bar {
+    display: grid; grid-template-columns: repeat(3, minmax(170px, 1fr)) minmax(210px, .8fr);
+    gap: 8px; padding: 14px 0; border-bottom: 0;
+  }
+  .signal-card, .health-stack {
+    min-height: 86px; border: 1px solid var(--border-strong); background: var(--surface);
+  }
+  .signal-card { position: relative; overflow: hidden; padding: 12px 14px 13px 18px; }
+  .signal-card::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 4px; background: currentColor; }
+  .signal-card--live { color: var(--live-text); background: linear-gradient(90deg, #321418, var(--surface) 58%); }
+  .signal-card--pvw { color: var(--pvw-text); background: linear-gradient(90deg, #11291c, var(--surface) 58%); }
+  .signal-card--ctrl { color: var(--blue); background: linear-gradient(90deg, #10253a, var(--surface) 58%); }
+  :root[data-theme="light"] body { background-image: linear-gradient(rgba(23,33,38,.035) 1px, transparent 1px); }
+  :root[data-theme="light"] .brand-mark { border-color: #c48a34; background: #fff4df; }
+  :root[data-theme="light"] .tab-bar { background: #dde4e7; }
+  :root[data-theme="light"] .signal-card--live { background: linear-gradient(90deg, var(--live-bg), var(--surface) 58%); }
+  :root[data-theme="light"] .signal-card--pvw { background: linear-gradient(90deg, var(--pvw-bg), var(--surface) 58%); }
+  :root[data-theme="light"] .signal-card--ctrl { background: linear-gradient(90deg, #e2effb, var(--surface) 58%); }
+  :root[data-theme="light"] .row-visca { background: #eef5fb; }
+  :root[data-theme="light"] .row-atem { background: #faf4e8; }
+  :root[data-theme="light"] .row-dji { background: #f2effb; }
+  .signal-card__label, .health-label, .cam-card__index {
+    display: block; color: currentColor; opacity: .78;
+    font: 700 .62rem/1 var(--label-font); letter-spacing: .16em; text-transform: uppercase;
+  }
+  .signal-card__value {
+    display: block; margin-top: 10px; color: var(--text);
+    font: 700 1.25rem/1.1 var(--label-font); letter-spacing: .035em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .signal-card__detail { display: block; margin-top: 6px; color: var(--text-2); font-size: .68rem; }
+  .health-stack { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); }
+  .health-item { padding: 13px 12px; background: var(--surface); min-width: 0; }
+  .health-value { display: flex; align-items: center; gap: 7px; margin-top: 9px; color: var(--text); font-weight: 650; font-size: .74rem; }
+  .health-value::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: 0 0 auto; }
+  .health-item--ok .health-value { color: var(--ok-text); }
+  .health-item--err .health-value { color: var(--err-text); }
+  .tab-bar {
+    gap: 0; padding-top: 0; border: 1px solid var(--border); background: #0e1214;
+    overflow-x: auto; scrollbar-width: thin;
+  }
+  .tab-btn {
+    flex: 0 0 auto; min-height: 44px; padding: 0 22px; margin: 0;
+    border: 0; border-right: 1px solid var(--border); border-radius: 0;
+    font-family: var(--label-font); transition: none;
+  }
+  .tab-btn.active { border-color: var(--border); box-shadow: inset 0 -3px 0 var(--amber); }
+  .tab-btn:hover { background: var(--surface-2); }
+  :focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+  .tab-btn:focus-visible { outline-offset: -3px; }
+  .panel {
+    border-top: 0; border-radius: 0; padding: 22px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.015);
+  }
+  .panel-heading {
+    display: flex; align-items: end; justify-content: space-between; gap: 16px;
+    margin-bottom: 14px;
+  }
+  .panel-heading h2 { margin: 0; color: var(--text); font-size: .78rem; }
+  .panel-kicker { color: var(--text-2); font-size: .72rem; }
+  .cam-grid { grid-template-columns: repeat(4, minmax(160px, 1fr)); gap: 8px; }
+  .cam-card {
+    min-height: 136px; padding: 13px 14px; gap: 0; border-color: var(--border-strong);
+    background: var(--surface-2); position: relative;
+  }
+  .cam-card::after { content: ""; position: absolute; inset: auto 0 0; height: 3px; background: var(--border); }
+  .cam-card--program::after { background: var(--live-text); }
+  .cam-card--preview::after { background: var(--pvw-text); }
+  .cam-card--controlled { box-shadow: inset 0 0 0 1px var(--blue); }
+  .cam-card__meta { display: flex; justify-content: space-between; gap: 8px; }
+  .cam-card__status { display: flex; align-items: center; gap: 6px; padding: 0; font-size: .65rem; }
+  .cam-card__status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .cam-card__name { margin-top: 18px; font-family: var(--label-font); font-size: 1.04rem; }
+  .cam-card__roles { min-height: 22px; display: flex; flex-wrap: wrap; gap: 4px; margin-top: 12px; }
+  .role-tag {
+    padding: 3px 6px; border: 1px solid currentColor; font: 700 .62rem/1 var(--label-font);
+    letter-spacing: .1em; text-transform: uppercase;
+  }
+  .role-tag--program { color: var(--live-text); }
+  .role-tag--preview { color: var(--pvw-text); }
+  .role-tag--control { color: var(--blue); }
+  .role-tag--standby { color: var(--text-2); border-color: var(--border); }
+  .mode-row { border-top: 1px solid var(--border); padding-top: 14px; }
+  .mode-chip { min-height: 27px; display: inline-flex; align-items: center; border-radius: 0; }
+  .cfg-input { min-height: 36px; border-radius: 0; font-family: var(--body-font); }
+  .cfg-input:hover { border-color: var(--border-strong); }
+  .cfg-input:focus { outline: 2px solid var(--amber); outline-offset: -2px; border-color: var(--amber); }
+  .btn, .btn-sm, .filter-btn { min-height: 36px; border-radius: 0; font-family: var(--label-font); }
+  .btn-sm, .filter-btn { min-height: 30px; }
+  .btn:disabled, .btn-sm:disabled { opacity: .45; cursor: not-allowed; }
+  .log-wrap { border-radius: 0; }
+  .empty-state, .error-state { padding: 28px; border: 1px dashed var(--border-strong); color: var(--text-2); text-align: center; }
+  .error-state { color: var(--err-text); }
+  .loading-state { color: var(--text-2); padding: 24px 0; }
+  @media (max-width: 980px) {
+    .status-bar { grid-template-columns: repeat(3, 1fr); }
+    .health-stack { grid-column: 1 / -1; min-height: 68px; }
+    .cam-grid { grid-template-columns: repeat(2, minmax(180px, 1fr)); }
+  }
+  @media (max-width: 640px) {
+    body { padding: 0 12px 28px; }
+    .app-header { min-height: 64px; }
+    .brand-mark { display: none; }
+    .app-subtitle, .sync-state { display: none; }
+    .header-meta { gap: 8px; }
+    .status-bar { grid-template-columns: 1fr 1fr; gap: 6px; padding: 10px 0; }
+    .signal-card { min-height: 78px; padding: 11px 11px 11px 15px; }
+    .signal-card--ctrl { grid-column: 1 / -1; }
+    .signal-card__value { font-size: 1.05rem; margin-top: 8px; }
+    .health-stack { grid-column: 1 / -1; }
+    .tab-btn { flex: 1 0 auto; padding-inline: 14px; }
+    .panel { padding: 14px 12px; }
+    .cam-grid { grid-template-columns: 1fr 1fr; gap: 6px; }
+    .cam-card { min-height: 124px; padding: 11px; }
+    .cam-card__name { margin-top: 15px; }
+    .log-meta { align-items: flex-start; gap: 10px; flex-direction: column; }
+    .log-wrap { height: 58vh; overflow: auto; }
+    .activity-table { min-width: 760px; }
+    table:not(.activity-table) { display: block; overflow-x: auto; }
+    #tab-config table, #tab-config tbody, #tab-config tr, #tab-config td { display: block; width: 100% !important; }
+    #tab-config td:first-child { padding: 8px 0 2px; border-bottom: 0; }
+    #tab-config td:last-child { padding: 2px 0 8px; }
+  }
+  @media (max-width: 390px) {
+    .cam-grid { grid-template-columns: 1fr; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
+  }
 </style>
 </head>
 <body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+<div class="app-shell">
 <header class="app-header">
-  <h1 class="app-title"><span>FPS</span> CamControl</h1>
-  <span class="app-subtitle">Production Camera Controller</span>
+  <div class="brand-lockup">
+    <span class="brand-mark" aria-hidden="true">FPS</span>
+    <div>
+      <h1 class="app-title"><span>FPS</span> CamControl</h1>
+      <span class="app-subtitle">Production Camera Controller</span>
+    </div>
+  </div>
+  <div class="header-meta" aria-label="System clock and update status">
+    <span class="sync-state"><span class="sync-dot" aria-hidden="true"></span><span id="sync-label">Monitoring</span></span>
+    <time class="clock" id="system-clock"></time>
+  </div>
 </header>
 
-<div class="status-bar" id="status-bar"></div>
+<div class="status-bar" id="status-bar" aria-live="polite" aria-label="Live production status"></div>
 
-<div class="tab-bar">
-  <button class="tab-btn active" onclick="switchTab('status',this)">Status</button>
-  <button class="tab-btn" onclick="switchTab('log',this)">Activity Log</button>
-  <button class="tab-btn" onclick="switchTab('config',this)">Device Config</button>
-  <button class="tab-btn" onclick="switchTab('profiles',this)">Profiles</button>
-  <button class="tab-btn" onclick="switchTab('controllers',this)">Controllers</button>
+<div class="tab-bar" role="tablist" aria-label="CamControl sections">
+  <button class="tab-btn active" id="tab-btn-status" role="tab" aria-selected="true" aria-controls="tab-status" onclick="switchTab('status',this)">Status</button>
+  <button class="tab-btn" id="tab-btn-log" role="tab" aria-selected="false" aria-controls="tab-log" onclick="switchTab('log',this)">Activity Log</button>
+  <button class="tab-btn" id="tab-btn-config" role="tab" aria-selected="false" aria-controls="tab-config" onclick="switchTab('config',this)">Device Config</button>
+  <button class="tab-btn" id="tab-btn-profiles" role="tab" aria-selected="false" aria-controls="tab-profiles" onclick="switchTab('profiles',this)">Profiles</button>
+  <button class="tab-btn" id="tab-btn-controllers" role="tab" aria-selected="false" aria-controls="tab-controllers" onclick="switchTab('controllers',this)">Controllers</button>
 </div>
 
-<div class="panel tab-panel active" id="tab-status">
-  <div id="status-content"></div>
+<main id="main-content">
+<div class="panel tab-panel active" id="tab-status" role="tabpanel" aria-labelledby="tab-btn-status">
+  <div class="panel-heading"><div><h2>Camera Network</h2><span class="panel-kicker">Signal roles and device health</span></div></div>
+  <div id="status-content"><div class="loading-state">Reading production state…</div></div>
+  <section id="sony-cameras" aria-label="Connected Sony cameras"><div class="section-header">Sony Cameras</div><div id="sony-dashboard-status" aria-live="polite"></div><div class="sony-grid" id="sony-grid-root"></div></section>
 </div>
 
-<div class="panel tab-panel" id="tab-log">
+<div class="panel tab-panel" id="tab-log" role="tabpanel" aria-labelledby="tab-btn-log" hidden>
   <div class="log-meta">
     <div class="filter-bar">
       <span class="filter-label">Filter</span>
       <button class="filter-btn active" data-filter="ALL" onclick="setLogFilter('ALL',this)">All</button>
       <button class="filter-btn" data-filter="VISCA" onclick="setLogFilter('VISCA',this)">VISCA</button>
+      <button class="filter-btn" data-filter="DJI-BRIDGE" onclick="setLogFilter('DJI-BRIDGE',this)">DJI</button>
       <button class="filter-btn" data-filter="ATEM" onclick="setLogFilter('ATEM',this)">ATEM</button>
       <button class="filter-btn" data-filter="System" onclick="setLogFilter('System',this)">System</button>
       <div class="filter-sep"></div>
@@ -884,15 +1284,25 @@ function statusHtml(): string {
   </div>
 </div>
 
-<div class="panel tab-panel" id="tab-config" data-editing="false">
+<div class="panel tab-panel" id="tab-config" role="tabpanel" aria-labelledby="tab-btn-config" data-editing="false" hidden>
   <div class="log-meta">
     <h2 style="margin:0">Device Config</h2>
     <span id="config-save-status" style="font-size:0.78rem;color:var(--text-2)"></span>
   </div>
+  <div class="appearance-setting">
+    <div class="appearance-setting__copy">
+      <span class="appearance-setting__label" id="dark-mode-label">Dark mode</span>
+      <span class="appearance-setting__hint">Use the low-light control-room palette.</span>
+    </div>
+    <label class="theme-switch">
+      <input id="dark-mode-toggle" type="checkbox" role="switch" aria-labelledby="dark-mode-label" checked>
+      <span class="theme-switch__track" aria-hidden="true"></span>
+    </label>
+  </div>
   <div id="device-config-content">Loading&hellip;</div>
 </div>
 
-<div class="panel tab-panel" id="tab-profiles" data-editing="false">
+<div class="panel tab-panel" id="tab-profiles" role="tabpanel" aria-labelledby="tab-btn-profiles" data-editing="false" hidden>
   <div class="log-meta">
     <h2 style="margin:0">Environment Profiles</h2>
     <span id="profiles-save-status" style="font-size:0.78rem;color:var(--text-2)"></span>
@@ -900,17 +1310,60 @@ function statusHtml(): string {
   <div id="profiles-content">Loading&hellip;</div>
 </div>
 
-<div class="panel tab-panel" id="tab-controllers">
+<div class="panel tab-panel" id="tab-controllers" role="tabpanel" aria-labelledby="tab-btn-controllers" hidden>
   <div id="controllers-content">Loading&hellip;</div>
+</div>
+</main>
 </div>
 
 <script>
 function switchTab(name, btn) {
-  document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
-  document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
-  document.getElementById('tab-' + name).classList.add('active');
+  document.querySelectorAll('.tab-panel').forEach(function(p) {
+    p.classList.remove('active');
+    p.hidden = true;
+  });
+  document.querySelectorAll('.tab-btn').forEach(function(b) {
+    b.classList.remove('active');
+    b.setAttribute('aria-selected', 'false');
+  });
+  var panel = document.getElementById('tab-' + name);
+  panel.classList.add('active');
+  panel.hidden = false;
   btn.classList.add('active');
+  btn.setAttribute('aria-selected', 'true');
 }
+
+document.querySelector('.tab-bar').addEventListener('keydown', function(event) {
+  if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight' && event.key !== 'Home' && event.key !== 'End') return;
+  var tabs = Array.from(document.querySelectorAll('.tab-btn'));
+  var current = tabs.indexOf(document.activeElement);
+  var next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1
+    : (current + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+  event.preventDefault();
+  tabs[next].focus();
+  tabs[next].click();
+});
+
+var darkModeToggle = document.getElementById('dark-mode-toggle');
+darkModeToggle.checked = document.documentElement.dataset.theme !== 'light';
+document.querySelector('meta[name="theme-color"]').content = darkModeToggle.checked ? '#0b0e10' : '#e8edef';
+darkModeToggle.addEventListener('change', function() {
+  var theme = darkModeToggle.checked ? 'dark' : 'light';
+  document.documentElement.dataset.theme = theme;
+  document.querySelector('meta[name="theme-color"]').content = theme === 'dark' ? '#0b0e10' : '#e8edef';
+  try { localStorage.setItem('fps-theme', theme); } catch (_) {}
+});
+
+function updateClock() {
+  var el = document.getElementById('system-clock');
+  if (el) {
+    var now = new Date();
+    el.dateTime = now.toISOString();
+    el.textContent = now.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  }
+}
+updateClock();
+setInterval(updateClock, 1000);
 
 async function refresh() {
   try {
@@ -919,17 +1372,28 @@ async function refresh() {
       fetch('/api/config').then(r => r.json()),
     ]);
     renderStatus(status, config);
+    document.getElementById('sync-label').textContent = 'Monitoring';
+    document.querySelector('.sync-dot').style.background = 'var(--ok-text)';
   } catch(e) {
-    document.getElementById('status-content').textContent = 'Error fetching status';
+    document.getElementById('status-content').innerHTML = '<div class="error-state" role="alert">Status unavailable. CamControl will retry automatically.</div>';
+    document.getElementById('sync-label').textContent = 'Status offline';
+    document.querySelector('.sync-dot').style.background = 'var(--err-text)';
   }
 }
 
-function cam(id, label) {
-  return '<span class="badge">' + (label || id) + '</span>';
+function signalCard(label, value, cls, detail) {
+  return '<section class="signal-card signal-card--' + cls + '">' +
+    '<span class="signal-card__label">' + label + '</span>' +
+    '<strong class="signal-card__value">' + esc(value) + '</strong>' +
+    '<span class="signal-card__detail">' + detail + '</span>' +
+  '</section>';
 }
 
-function tile(label, value, cls) {
-  return '<div class="s-tile s-tile--' + cls + '"><span class="s-tile__label">' + label + '</span><span class="s-tile__value">' + esc(value) + '</span></div>';
+function healthItem(label, value, ok) {
+  return '<div class="health-item health-item--' + (ok ? 'ok' : 'err') + '">' +
+    '<span class="health-label">' + label + '</span>' +
+    '<span class="health-value">' + esc(value) + '</span>' +
+  '</div>';
 }
 
 // Turn the three camera-keyed maps in /api/status into one label per camera.
@@ -959,11 +1423,13 @@ function renderStatus(s, c) {
   const camLabel = id => (cams.find(x => x.id === id) || {}).label || id;
 
   document.getElementById('status-bar').innerHTML =
-    tile('Program',    camLabel(s.programCamera),    'live') +
-    tile('Preview',    camLabel(s.previewCamera),    'pvw') +
-    tile('Controlled', camLabel(s.controlledCamera), 'ctrl') +
-    tile('ATEM',       s.atemConnected ? 'Connected' : 'Disconnected', s.atemConnected ? 'ok' : 'err') +
-    tile('Controller', s.controllerConnected ? (s.activeControllerProfile || 'Connected') : 'Not Connected', s.controllerConnected ? 'ok' : 'err');
+    signalCard('Program / Live', camLabel(s.programCamera), 'live', 'Currently on air') +
+    signalCard('Preview / Next', camLabel(s.previewCamera), 'pvw', 'Ready for transition') +
+    signalCard('PTZ Control', camLabel(s.controlledCamera), 'ctrl', 'Receiving camera input') +
+    '<section class="health-stack" aria-label="Connection health">' +
+      healthItem('ATEM', s.atemConnected ? 'Online' : 'Offline', s.atemConnected) +
+      healthItem('Controller', s.controllerConnected ? (s.activeControllerProfile || 'Online') : 'Offline', s.controllerConnected) +
+    '</section>';
 
   const speed = c.speeds && c.speeds.presets && c.speeds.presets[s.speedPreset]
     ? c.speeds.presets[s.speedPreset].name : 'Unknown';
@@ -971,15 +1437,34 @@ function renderStatus(s, c) {
   let camGrid = '<div class="cam-grid">';
   for (var i = 0; i < cams.length; i++) {
     const cam = cams[i];
+    const ok = s.cameraConnected && s.cameraConnected[cam.id];
+    const isProgram = s.programCamera === cam.id;
+    const isPreview = s.previewCamera === cam.id;
+    const isControlled = s.controlledCamera === cam.id;
+    const cardClasses = [
+      'cam-card', ok ? 'cam-card--ok' : 'cam-card--err',
+      isProgram ? 'cam-card--program' : '',
+      isPreview ? 'cam-card--preview' : '',
+      isControlled ? 'cam-card--controlled' : '',
+    ].filter(Boolean).join(' ');
+    const roles = [
+      isProgram ? '<span class="role-tag role-tag--program">Program</span>' : '',
+      isPreview ? '<span class="role-tag role-tag--preview">Preview</span>' : '',
+      isControlled ? '<span class="role-tag role-tag--control">Control</span>' : '',
+    ].filter(Boolean).join('') || '<span class="role-tag role-tag--standby">Standby</span>';
     const link = cameraLinkState(s, cam.id);
     camGrid +=
-      '<div class="cam-card cam-card--' + link.cls + '">' +
-        '<div class="cam-card__header"><span class="cam-card__led"></span><span class="cam-card__name">' + esc(cam.label) + '</span></div>' +
+      '<div class="' + cardClasses + '">' +
+        '<div class="cam-card__meta"><span class="cam-card__index">CAM ' + String(i + 1).padStart(2, '0') + '</span>' +
+        '<span class="cam-card__status">' + (ok ? 'Online' : 'Offline') + '</span></div>' +
+        '<span class="cam-card__name">' + esc(cam.label) + '</span>' +
         '<span class="cam-card__status">' + esc(link.text) + '</span>' +
         (link.hint ? '<span class="cam-card__hint">' + esc(link.hint) + '</span>' : '') +
+        '<div class="cam-card__roles">' + roles + '</div>' +
       '</div>';
   }
   camGrid += '</div>';
+  if (cams.length === 0) camGrid = '<div class="empty-state">No cameras configured. Add a camera in Device Config.</div>';
 
   const modes = [
     '<span class="mode-chip mode-chip--speed">Speed: ' + esc(speed) + '</span>',
@@ -992,6 +1477,181 @@ function renderStatus(s, c) {
   document.getElementById('status-content').innerHTML = camGrid + '<div class="mode-row">' + modes + '</div>';
 }
 
+// ---- Sony dashboard (all browser traffic remains on /api/sony/*) ----
+var SONY_PROPERTIES = ['aperture','shutter-speed','iso','white-balance','focus-mode','focus-area'];
+var sonyWidgets = {};
+var sonyDiscovered = [];
+
+async function refreshSony() {
+  try {
+    var data = await fetch('/api/sony/cameras').then(function(r) { if (!r.ok) throw new Error(); return r.json(); });
+    sonyDiscovered = data.cameras || [];
+    renderSonyCameras(sonyDiscovered.filter(function(camera) { return camera.connected; }));
+    renderSonyDeviceConfig();
+  } catch (_) {
+    var dashboardStatus = document.getElementById('sony-dashboard-status');
+    dashboardStatus.className = 'error-state'; dashboardStatus.textContent = 'Sony camera service unavailable. Existing controls are unaffected.';
+    renderSonyDeviceConfig();
+    sonyDeviceStatus('Sony camera discovery failed.', true);
+  }
+}
+
+function renderSonyCameras(cameras) {
+  var root = document.getElementById('sony-grid-root');
+  var dashboardStatus = document.getElementById('sony-dashboard-status');
+  dashboardStatus.className = ''; dashboardStatus.textContent = '';
+  var liveIds = {};
+  cameras.forEach(function(camera) { liveIds[camera.id] = true; });
+  Object.keys(sonyWidgets).forEach(function(id) {
+    if (!liveIds[id]) {
+      var state = sonyWidgets[id]; state.active = false;
+      if (state.timer) clearTimeout(state.timer);
+      if (state.frameUrl) URL.revokeObjectURL(state.frameUrl);
+      if (state.article) state.article.remove();
+      delete sonyWidgets[id];
+    }
+  });
+  cameras.forEach(function(camera) {
+    var created = !sonyWidgets[camera.id];
+    if (created) {
+      sonyWidgets[camera.id] = { active:true, confirmed:{}, delay:125, frameUrl:null, loadingProperties:false, previewAnnouncementState:'loading' };
+      var holder = document.createElement('div'); holder.innerHTML = sonyWidgetHtml(camera); var article = holder.firstChild; root.appendChild(article); sonyWidgets[camera.id].article = article;
+      loadSonyProperties(camera.id);
+    } else updateSonyWidget(camera);
+    startSonyPreview(camera.id);
+  });
+}
+
+function updateSonyWidget(camera) {
+  var article = sonyWidgets[camera.id] && sonyWidgets[camera.id].article; if (!article) return;
+  article.querySelector('.sony-widget__title').textContent = camera.model || camera.name || 'Sony camera';
+  article.querySelector('.sony-widget__transport').textContent = camera.connectionType || 'Unknown transport';
+  article.querySelector('.sony-widget__connection').textContent = camera.status || 'Connected';
+  article.querySelector('.sony-preview img').alt = 'Live preview from ' + (camera.model || camera.id);
+}
+
+function sonyWidgetHtml(camera) {
+  var key = camera.id.replace(/:/g, '-');
+  var controls = SONY_PROPERTIES.map(function(name) {
+    return '<label>' + esc(name.replace(/-/g, ' ')) + '<select class="cfg-input" id="sony-' + esc(key) + '-' + name + '" data-id="' + esc(camera.id) + '" data-property="' + name + '" disabled onchange="saveSonyProperty(this)"><option>Unavailable</option></select></label>';
+  }).join('');
+  return '<article class="sony-widget" data-camera-id="' + esc(camera.id) + '" aria-labelledby="sony-heading-' + esc(key) + '">' +
+    '<div class="sony-widget__head"><div><h3 class="sony-widget__title" id="sony-heading-' + esc(key) + '">' + esc(camera.model || camera.name || 'Sony camera') + '</h3><small>' + esc(camera.id) + '</small></div><div><span class="sony-widget__transport">' + esc(camera.connectionType || 'Unknown transport') + '</span><br><span class="sony-widget__connection" style="color:var(--ok-text)">' + esc(camera.status || 'Connected') + '</span></div></div>' +
+    '<div class="sony-preview sony-preview-loading" id="sony-preview-' + esc(key) + '" role="region" aria-labelledby="sony-heading-' + esc(key) + '"><img alt="Live preview from ' + esc(camera.model || camera.id) + '" data-id="' + esc(camera.id) + '"><span class="sony-crosshair" aria-hidden="true"></span></div>' +
+    '<div class="sony-controls">' + controls + '</div>' +
+    '<div class="sony-touch-controls"><label>X (0–1)<input class="cfg-input" id="sony-x-' + esc(key) + '" type="number" min="0" max="1" step="0.01" value="0.5"></label><label>Y (0–1)<input class="cfg-input" id="sony-y-' + esc(key) + '" type="number" min="0" max="1" step="0.01" value="0.5"></label><button class="btn-sm" data-id="' + esc(camera.id) + '" onclick="applySonyTouchInputs(this.dataset.id)">Apply touch point</button></div>' +
+    '<p>Camera Touch Function determines focus vs tracking.</p><div id="sony-status-' + esc(key) + '" aria-live="polite">Live preview loading. Loading camera controls…</div></article>';
+}
+
+async function loadSonyProperties(id) {
+  var state = sonyWidgets[id]; if (!state || state.loadingProperties) return;
+  state.loadingProperties = true;
+  try {
+    var response = await fetch('/api/sony/cameras/' + id + '/properties');
+    if (!response.ok) throw new Error('Properties unavailable');
+    var body = await response.json();
+    if (sonyWidgets[id] !== state || !state.active) return;
+    var properties = (body.data && body.data.properties) || body.properties || {};
+    SONY_PROPERTIES.forEach(function(name) {
+      var property = properties[name];
+      var select = document.getElementById('sony-' + id.replace(/:/g, '-') + '-' + name);
+      if (!select) return;
+      if (!property || !Array.isArray(property.available_values)) { select.innerHTML = '<option>Unavailable</option>'; select.disabled = true; return; }
+      state.confirmed[name] = property.current_value;
+      select.innerHTML = property.available_values.map(function(item) { return '<option value="' + esc(JSON.stringify(item.value)) + '">' + esc(item.formatted != null ? item.formatted : item.value) + '</option>'; }).join('');
+      select.value = JSON.stringify(property.current_value);
+      select.disabled = property.writable !== true || property.available_values.length === 0;
+    });
+    sonyStatus(id, 'Controls confirmed.');
+  } catch (error) { sonyStatus(id, String(error), true); }
+  finally { if (sonyWidgets[id] === state) state.loadingProperties = false; }
+}
+
+async function saveSonyProperty(select) {
+  var id = select.dataset.id, name = select.dataset.property, state = sonyWidgets[id];
+  if (!state || select.disabled) return;
+  select.disabled = true;
+  try {
+    var response = await fetch('/api/sony/cameras/' + id + '/properties/' + name, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ value:JSON.parse(select.value) }) });
+    if (!response.ok) throw new Error('Save failed');
+    await loadSonyProperties(id);
+    sonyStatus(id, name.replace(/-/g, ' ') + ' saved.');
+  } catch (error) {
+    select.value = JSON.stringify(state.confirmed[name]);
+    select.disabled = false;
+    sonyStatus(id, name.replace(/-/g, ' ') + ' save failed; restored confirmed value.', true);
+  }
+}
+
+async function startSonyPreview(id) {
+  var state = sonyWidgets[id]; if (!state || state.polling) return;
+  state.polling = true;
+  try {
+    var response = await fetch('/api/sony/cameras/' + id + '/live-view/start', { method:'POST' });
+    if (!response.ok) throw new Error('Live preview failed to start');
+  } catch (_) { state.polling = false; var preview=document.getElementById('sony-preview-'+id.replace(/:/g,'-')); if(preview){preview.classList.remove('sony-preview-loading');preview.classList.add('sony-preview-stale');} sonyStatus(id, 'Live preview failed to start.', true); return; }
+  pollSonyFrame(id);
+}
+
+async function pollSonyFrame(id) {
+  var state = sonyWidgets[id]; if (!state || !state.active) return;
+  if (document.hidden) { state.timer = setTimeout(function() { pollSonyFrame(id); }, 500); return; }
+  var preview = document.getElementById('sony-preview-' + id.replace(/:/g, '-'));
+  var image = preview && preview.querySelector('img');
+  try {
+    var response = await fetch('/api/sony/cameras/' + id + '/live-view/frame', { cache:'no-store' });
+    if (!response.ok) throw new Error();
+    var nextUrl = URL.createObjectURL(await response.blob());
+    if (sonyWidgets[id] !== state || !state.active) { URL.revokeObjectURL(nextUrl); return; }
+    var previousUrl = state.frameUrl;
+    state.frameUrl = nextUrl; image.src = nextUrl;
+    image.onload = function() { if (previousUrl) URL.revokeObjectURL(previousUrl); };
+    preview.classList.remove('sony-preview-loading', 'sony-preview-stale'); state.delay = 125;
+    if (state.previewAnnouncementState === 'loading') sonyStatus(id, 'Live preview ready.');
+    else if (state.previewAnnouncementState === 'stale') sonyStatus(id, 'Live preview recovered.');
+    state.previewAnnouncementState = 'ready';
+  } catch (_) { if (preview) { preview.classList.remove('sony-preview-loading'); preview.classList.add('sony-preview-stale'); } if (state.previewAnnouncementState !== 'stale') sonyStatus(id, 'Live preview stale.', true); state.previewAnnouncementState = 'stale'; state.delay = Math.min(Math.max(state.delay * 2, 250), 4000); }
+  if (sonyWidgets[id] === state && state.active) state.timer = setTimeout(function() { pollSonyFrame(id); }, state.delay);
+}
+
+function sonyContainedPoint(image, clientX, clientY) {
+  if (!image.naturalWidth || !image.naturalHeight) return null;
+  var rect = image.getBoundingClientRect(), imageRatio = image.naturalWidth / image.naturalHeight, boxRatio = rect.width / rect.height;
+  var width = boxRatio > imageRatio ? rect.height * imageRatio : rect.width;
+  var height = boxRatio > imageRatio ? rect.height : rect.width / imageRatio;
+  var left = rect.left + (rect.width - width) / 2, top = rect.top + (rect.height - height) / 2;
+  if (clientX < left || clientX > left + width || clientY < top || clientY > top + height) return null;
+  return { x:(clientX-left)/width, y:(clientY-top)/height, px:clientX-rect.left, py:clientY-rect.top };
+}
+
+document.getElementById('sony-cameras').addEventListener('pointerup', function(event) {
+  if (event.target.tagName !== 'IMG') return;
+  var point = sonyContainedPoint(event.target, event.clientX, event.clientY);
+  if (!point) return;
+  showSonyPoint(event.target.dataset.id, point);
+  sendSonyTouch(event.target.dataset.id, point.x, point.y);
+});
+
+function showSonyPoint(id, point) {
+  var key = id.replace(/:/g, '-'), crosshair = document.querySelector('#sony-preview-' + key + ' .sony-crosshair');
+  crosshair.style.left = point.px + 'px'; crosshair.style.top = point.py + 'px'; crosshair.style.display = 'block';
+  document.getElementById('sony-x-' + key).value = point.x.toFixed(3); document.getElementById('sony-y-' + key).value = point.y.toFixed(3);
+}
+function applySonyTouchInputs(id) {
+  var key=id.replace(/:/g, '-'), x=Number(document.getElementById('sony-x-'+key).value), y=Number(document.getElementById('sony-y-'+key).value);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || x<0 || x>1 || y<0 || y>1) { sonyStatus(id, 'Touch X and Y must be between 0 and 1.', true); return; }
+  sendSonyTouch(id, x, y);
+}
+async function sendSonyTouch(id, x, y) {
+  try { var response=await fetch('/api/sony/cameras/'+id+'/touch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({normalized:{x:x,y:y}})}); if(!response.ok) throw new Error(); sonyStatus(id,'Touch point applied at '+x.toFixed(3)+', '+y.toFixed(3)+'.'); }
+  catch (_) { sonyStatus(id,'Touch point failed.',true); }
+}
+function sonyStatus(id, message, error) { var el=document.getElementById('sony-status-'+id.replace(/:/g,'-')); if(el){el.textContent=message;el.style.color=error?'var(--err-text)':'var(--text-2)';} }
+
+setInterval(refresh, 1000);
+setInterval(refreshControllers, 2000);
+setInterval(refreshDeviceConfig, 5000);
+setInterval(refreshSony, 5000);
 // ---- Environment profiles ----
 var HOTKEY_FOR_SLOT = ['X', 'A', 'B', 'Y'];
 var profilesData = null;
@@ -1142,13 +1802,11 @@ async function saveProfileSlots(btn) {
 }
 
 refreshProfiles();
-setInterval(refresh, 1000);
-setInterval(refreshControllers, 2000);
-setInterval(refreshDeviceConfig, 5000);
 setInterval(refreshProfiles, 5000);
 refresh();
 refreshControllers();
 refreshDeviceConfig();
+refreshSony();
 
 // ---- Device Config Editor ----
 var deviceConfigData = null;
@@ -1168,18 +1826,20 @@ function renderDeviceConfig(c) {
   // ATEM
   html += '<div class="section-header">ATEM Switcher</div>';
   html += '<table style="width:100%;margin-bottom:8px"><tbody>';
-  html += '<tr><td style="color:#888;width:140px">IP Address</td><td style="display:flex;gap:6px"><input class="cfg-input" id="atem-ip" value="' + esc(c.atem.ip) + '" style="flex:1"><button class="btn-sm" onclick="reconnectAtem(this)">Reconnect</button></td></tr>';
-  html += '<tr><td style="color:#888">Transition</td><td><select class="cfg-input" id="atem-transition"><option value="cut"' + (c.atem.defaultTransition==='cut'?' selected':'') + '>Cut</option><option value="auto"' + (c.atem.defaultTransition==='auto'?' selected':'') + '>Auto</option></select></td></tr>';
-  html += '<tr><td style="color:#888">M/E Index</td><td><input class="cfg-input" id="atem-me" type="number" min="0" max="3" value="' + c.atem.meIndex + '"></td></tr>';
+  html += '<tr><td style="color:#888;width:140px">IP Address</td><td style="display:flex;gap:6px"><input class="cfg-input" id="atem-ip" aria-label="ATEM IP address" value="' + esc(c.atem.ip) + '" style="flex:1"><button class="btn-sm" onclick="reconnectAtem(this)">Reconnect</button></td></tr>';
+  html += '<tr><td style="color:#888">Transition</td><td><select class="cfg-input" id="atem-transition" aria-label="Default ATEM transition"><option value="cut"' + (c.atem.defaultTransition==='cut'?' selected':'') + '>Cut</option><option value="auto"' + (c.atem.defaultTransition==='auto'?' selected':'') + '>Auto</option></select></td></tr>';
+  html += '<tr><td style="color:#888">M/E Index</td><td><input class="cfg-input" id="atem-me" aria-label="ATEM mix effect index" type="number" min="0" max="3" value="' + c.atem.meIndex + '"></td></tr>';
   html += '</tbody></table>';
+
+  html += '<section id="sony-device-config"><div class="section-header"><span>Sony Cameras</span><button class="btn-sm" onclick="discoverSonyCameras()">Discover</button></div><div id="sony-device-status" aria-live="polite"></div><div id="sony-device-list">Discovering Sony cameras…</div></section>';
 
   // Graphics
   html += '<div class="section-header">Graphics / Lower Thirds</div>';
   html += '<table style="width:100%;margin-bottom:8px"><tbody>';
-  html += '<tr><td style="color:#888;width:140px">Type</td><td><select class="cfg-input" id="gfx-type"><option value="dsk"' + (c.graphics.type==='dsk'?' selected':'') + '>DSK</option><option value="usk"' + (c.graphics.type==='usk'?' selected':'') + '>USK</option><option value="auto"' + (c.graphics.type==='auto'?' selected':'') + '>Auto</option></select></td></tr>';
-  html += '<tr><td style="color:#888">DSK Index</td><td><input class="cfg-input" id="gfx-dsk" type="number" min="0" max="3" value="' + c.graphics.dskIndex + '"></td></tr>';
-  html += '<tr><td style="color:#888">USK Index</td><td><input class="cfg-input" id="gfx-usk" type="number" min="0" max="3" value="' + c.graphics.uskIndex + '"></td></tr>';
-  html += '<tr><td style="color:#888">M/E Index</td><td><input class="cfg-input" id="gfx-me" type="number" min="0" max="3" value="' + c.graphics.meIndex + '"></td></tr>';
+  html += '<tr><td style="color:#888;width:140px">Type</td><td><select class="cfg-input" id="gfx-type" aria-label="Graphics key type"><option value="dsk"' + (c.graphics.type==='dsk'?' selected':'') + '>DSK</option><option value="usk"' + (c.graphics.type==='usk'?' selected':'') + '>USK</option><option value="auto"' + (c.graphics.type==='auto'?' selected':'') + '>Auto</option></select></td></tr>';
+  html += '<tr><td style="color:#888">DSK Index</td><td><input class="cfg-input" id="gfx-dsk" aria-label="Downstream key index" type="number" min="0" max="3" value="' + c.graphics.dskIndex + '"></td></tr>';
+  html += '<tr><td style="color:#888">USK Index</td><td><input class="cfg-input" id="gfx-usk" aria-label="Upstream key index" type="number" min="0" max="3" value="' + c.graphics.uskIndex + '"></td></tr>';
+  html += '<tr><td style="color:#888">M/E Index</td><td><input class="cfg-input" id="gfx-me" aria-label="Graphics mix effect index" type="number" min="0" max="3" value="' + c.graphics.meIndex + '"></td></tr>';
   html += '</tbody></table>';
 
   // Cameras
@@ -1200,12 +1860,31 @@ function renderDeviceConfig(c) {
 
   var el = document.getElementById('device-config-content');
   el.innerHTML = html;
+  renderSonyDeviceConfig();
   document.getElementById('tab-config').dataset.editing = 'false';
   // Mark as editing when any input changes
   el.addEventListener('input', function() {
     document.getElementById('tab-config').dataset.editing = 'true';
   }, { once: true });
 }
+
+function renderSonyDeviceConfig() {
+  var root=document.getElementById('sony-device-list'); if(!root) return;
+  if(!sonyDiscovered.length){root.innerHTML='<div class="empty-state">No Sony cameras discovered.</div>';return;}
+  root.innerHTML=sonyDiscovered.map(function(camera){return '<div class="cam-row"><strong>'+esc(camera.model||camera.name||camera.id)+'</strong> — '+esc(camera.id)+' — '+esc(camera.connectionType||'Unknown')+' — '+(camera.connected?'Connected':'Disconnected')+(camera.connected?'':' <button class="btn-sm" data-id="'+esc(camera.id)+'" onclick="connectSonyCamera(this)">Connect</button>')+'</div>';}).join('');
+}
+async function discoverSonyCameras() {
+  sonyDeviceStatus('Discovering Sony cameras…');
+  try { var response=await fetch('/api/sony/cameras/discover',{method:'POST'}); if(!response.ok) throw new Error(); sonyDiscovered=(await response.json()).cameras||[]; renderSonyCameras(sonyDiscovered.filter(function(camera){return camera.connected;})); renderSonyDeviceConfig(); sonyDeviceStatus('Sony cameras discovered.'); }
+  catch (_) { sonyDeviceStatus('Sony camera discovery failed.',true); }
+}
+async function connectSonyCamera(button) {
+  button.disabled=true;
+  sonyDeviceStatus('Connecting Sony camera…');
+  try { var response=await fetch('/api/sony/cameras/'+button.dataset.id+'/connect',{method:'POST'}); if (!response.ok) throw new Error('Connect failed'); await refreshSony(); sonyDeviceStatus('Sony camera connected.'); }
+  catch (_) { button.disabled=false; sonyDeviceStatus('Sony camera connection failed.',true); }
+}
+function sonyDeviceStatus(message,error) { var el=document.getElementById('sony-device-status'); if(el){el.textContent=message;el.style.color=error?'var(--err-text)':'var(--text-2)';} }
 
 // A camera row renders the transport the camera actually uses. Rendering every
 // camera as VISCA is what destroyed the gimbals: a DJI camera has no viscaIp, so
@@ -1511,7 +2190,7 @@ function esc(s) {
   // text "undefined" into config inputs, which then got saved as a camera IP
   // address and made three DJI gimbals unreachable.
   if (s === null || s === undefined) return '';
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
 function startRemap(action) {
@@ -1737,6 +2416,7 @@ function fmtTime(ts) {
 function activityRowClass(proto) {
   if (proto === 'VISCA') return 'row-visca';
   if (proto === 'ATEM') return 'row-atem';
+  if (proto === 'DJI-BRIDGE') return 'row-dji';
   return 'row-sys';
 }
 

@@ -5,11 +5,10 @@ type: project
 # Project State — fps-camcontrol
 
 ## Current focus
-Complete the remaining live-use checks for the deployed DJI RS3 Bluetooth Low Energy bridge. The BLE driver and app-to-Pi WebSocket path have passed formal verification and initial end-to-end hardware validation. Core VISCA-IP + ATEM camera control remains field-ready pending first-service config.
+Prepare the combined Sony dashboard and latest PR #2 work for verification. PR #2 is the latest integration target. The merge is resolved and the combined tree passes build, smoke, Python bridge, and browser checks; it remains uncommitted and unpushed while the verification-gate documentation reconciliation is re-run.
 
 ## Active branch / PR
-`fix/controller-visca-ptz-and-multi-cam`; PR #2 targets `main`. Current `main`
-and the verified RS3 BLE work are integrated locally; merge to `main` is pending.
+`feat/sony-dashboard`; updated PR #2 is the integration target. The orchestrator will inspect, verify, commit the merge, and push only after PASS.
 
 ## Recently completed
 - **`DJI_RS3_MAX_JOYSTICK` is actually read** (uncommitted locally; **deployed to
@@ -44,15 +43,8 @@ and the verified RS3 BLE work are integrated locally; merge to `main` is pending
   either.
 
 ## In progress
-- The BLE bridge is deployed to `dji-bridge.local` as user `worship`;
-  `dji-bridge` is active and enabled. `/home/worship/dji-bridge` points to
-  `/home/worship/fps-camcontrol/pi-bridge`. The app config addresses the Pi by
-  **hostname, not IP** — its DHCP address changes when it is moved between
-  switches (was `192.168.10.150`; now `eth0 192.168.50.151` / `wlan0
-  192.168.50.150`, which is also why `dji-bridge.local` resolves to two IPs).
-- RS3 `34:D2:62:15:A5:47` is configured in `/etc/default/dji-bridge`.
-- FPS CamControl `cam4` is enabled as DJI RS3. Its live WebSocket handshake
-  advertised `velocity`, `position`, `moveTo`, and `recenter`.
+- Sony live a7S III widget, preview, properties, explicit discovery/connect cache, and lightweight nested connection checks succeeded. The four-up 4/2/1 layout awaits AJ visual recheck.
+- Manual Sony checks remain: two physical cameras, FX3 touch focus, and HDMI coexistence.
 
 ## Risks / known issues
 - **All three gimbals now run at gain 200 (was 80) — live motion is UNVERIFIED.**
@@ -119,13 +111,26 @@ and the verified RS3 BLE work are integrated locally; merge to `main` is pending
 - A forced disconnect initially logged `ConnectionClosedError`; the focused
   regression test passed, the repair was redeployed, and clean disconnect was confirmed.
 
+- Sony dashboard merge evidence: `pnpm build` pass, `STATUS_PORT=8176 pnpm test:smoke` 206/206, `python3 -m unittest discover -s pi-bridge/tests` 26/26, `git diff --check` pass, and the browser fixture (desktop four-up, tablet two-column, mobile one-column, tabs, dark mode) pass.
+- That run's verification gate failed only on contract criterion c10, whose "no controller/MotionDevice/ATEM/YAML/dependency changes" wording was stale for the combined branch. Contract and run note now separate Sony feature ownership from the intentionally merged PR #2 branch scope; no production or test file changed, so a documentation-only gate re-run is what remains.
+- Gimbal BLE link drops were diagnosed as **signal strength, not command rate**.
+  Measured with both RS3 Pros moved next to the Pi: 45s idle, 45s at 60 commands/sec,
+  and 45s at 20/sec each produced **0 drops**. Beforehand, at -82 to -89 dBm, the
+  same gimbals dropped 46/hour and eventually stopped advertising entirely. Two
+  earlier hypotheses (battery, command flooding) were tested and disproved.
+  Motion commands are rate-limited anyway (`shouldSendMotion`), as hygiene rather
+  than as the fix.
+
 ## Next step
-Power on the gimbals and live-verify the new gain 200 with the operator watching
-camera video, starting from small stick deflections (see the risk above). Then
-restart the app and confirm the Xbox pad now reaches "Connected" on the home
-screen and drives motion (`3ef7010` is only in `dist/` after a rebuild — a
-running instance keeps its old code). Then run the remaining controller, preset/recenter, signal/network interruption,
-reconnect/reboot, and 30-minute idle/show soak checks before live use.
+Live-verify the new gain 200 with the operator watching camera video, starting from
+small stick deflections (see the risk above) — the gimbals were powered off during
+the deploy window so nobody has felt 200 yet. Confirm the Xbox pad drives motion
+after a rebuild (`3ef7010` only reaches `dist/` on rebuild; a running instance keeps
+its old code). Keep the gimbals within good BLE range of the Pi, or move the Pi —
+signal, not software, is what determined link stability. Then the documentation-only
+verification-gate re-run against the reconciled contract, AJ's visual recheck of the
+four-up Sony layout, and the remaining controller, preset/recenter,
+interruption/recovery, reconnect/reboot, and 30-minute soak checks before live use.
 
 ---
 **Run history:** one file per run under `docs/ai/runs/` (surfaced as `ai-runs/`). This snapshot is overwritten in place.

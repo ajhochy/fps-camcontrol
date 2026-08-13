@@ -5,9 +5,18 @@ type: project
 # Current Plan — fps-camcontrol
 
 ## Active plan
-Finish the remaining live-use checks for the verified and deployed DJI RS3 BLE bridge. Implementation, formal verification, target-Pi BLE motion, app handshake, end-to-end pan streaming, watchdog stop, and clean disconnect behavior have passed.
+Open a draft PR for the verified Sony multi-camera dashboard, then complete the remaining physical-camera smoke checks. Automated verification and browser-fixture evaluation passed; the feature remains incomplete and unmerged pending manual validation.
 
 ## Next steps
+
+1. Open a draft PR from `feat/sony-dashboard`.
+2. Verify two physical cameras simultaneously.
+3. Verify FX3 touch focus.
+4. Verify HDMI coexistence.
+
+The final-gate live physical sidecar timed out. Automated verification still passed: `pnpm build`, smoke 89/89, and `git diff --check`; browser artifacts are under `docs/ai/runs/artifacts/sony-dashboard/`.
+
+## Remaining DJI live-use checks
 
 1. Run a controller-driven live pan/tilt test through FPS CamControl.
 2. Verify preset `moveTo` and `recenter` against the physical RS3.
