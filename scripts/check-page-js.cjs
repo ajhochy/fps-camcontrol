@@ -15,35 +15,52 @@ const os = require('os');
 const { execFileSync } = require('child_process');
 
 const htmlArg = process.argv[2];
-let js;
 
-if (htmlArg) {
-  const html = fs.readFileSync(htmlArg, 'utf8');
-  const s = html.indexOf('<script>');
-  const e = html.indexOf('</script>');
-  if (s < 0 || e < 0) { console.error('no <script> block in ' + htmlArg); process.exit(1); }
-  js = html.slice(s + 8, e);
-} else {
-  const src = fs.readFileSync(path.join(__dirname, '..', 'src/ui/statusServer.ts'), 'utf8');
-  const s = src.indexOf('<script>');
-  const e = src.indexOf('</script>');
-  if (s < 0 || e < 0) { console.error('could not find <script> block'); process.exit(1); }
-  const raw = src.slice(s + 8, e);
-
-  const interp = raw.match(/\$\{/g);
-  if (interp) {
-    console.error('FAIL: client JS contains ' + interp.length + ' template interpolation(s) ${...}; ' +
-      'pass dynamic values via data-* attributes instead');
-    process.exit(1);
-  }
-  if (raw.includes('`')) { console.error('FAIL: client JS contains a backtick'); process.exit(1); }
-
-  // Resolve the escapes exactly as the surrounding template literal would.
-  // Safe: we just proved there is no interpolation and no backtick to close it.
-  js = new Function('return `' + raw + '`')();
+// EVERY <script> block, not just the first. The page grew a second one when the
+// Sony dashboard landed, and checking only the first meant validating a 5-line
+// stub while the real 1179-line script went unchecked — false confidence on
+// exactly the footgun this script exists to catch.
+function allScripts(text) {
+  return [...text.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]);
 }
 
-const out = path.join(os.tmpdir(), 'fps-page-script.js');
-fs.writeFileSync(out, js, 'utf8');
-execFileSync(process.execPath, ['--check', out], { stdio: 'inherit' });
-console.log('OK: page script parses as emitted (' + js.split('\n').length + ' lines)');
+let blocks;
+
+if (htmlArg) {
+  blocks = allScripts(fs.readFileSync(htmlArg, 'utf8'));
+  if (!blocks.length) { console.error('no <script> block in ' + htmlArg); process.exit(1); }
+} else {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src/ui/statusServer.ts'), 'utf8');
+  const raws = allScripts(src);
+  if (!raws.length) { console.error('could not find a <script> block'); process.exit(1); }
+
+  blocks = raws.map((raw, i) => {
+    const interp = raw.match(/\$\{/g);
+    if (interp) {
+      console.error('FAIL: script block ' + i + ' contains ' + interp.length +
+        ' template interpolation(s) ${...}; pass dynamic values via data-* attributes instead');
+      process.exit(1);
+    }
+    if (raw.includes('`')) {
+      console.error('FAIL: script block ' + i + ' contains a backtick');
+      process.exit(1);
+    }
+    // Resolve the escapes exactly as the surrounding template literal would.
+    // Safe: we just proved there is no interpolation and no backtick to close it.
+    return new Function('return `' + raw + '`')();
+  });
+}
+
+let total = 0;
+blocks.forEach((js, i) => {
+  const out = path.join(os.tmpdir(), 'fps-page-script-' + i + '.js');
+  fs.writeFileSync(out, js, 'utf8');
+  try {
+    execFileSync(process.execPath, ['--check', out], { stdio: 'inherit' });
+  } catch (e) {
+    console.error('FAIL: script block ' + i + ' does not parse as emitted');
+    process.exit(1);
+  }
+  total += js.split('\n').length;
+});
+console.log('OK: all ' + blocks.length + ' page script block(s) parse as emitted (' + total + ' lines)');
