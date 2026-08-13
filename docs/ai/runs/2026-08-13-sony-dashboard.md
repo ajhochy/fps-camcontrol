@@ -13,6 +13,7 @@ status: ready_for_verification
 - UI review repair attempt 2 failing run: `pnpm test:smoke` reported 88 passed / 1 failed because preview aria-live updates were not guarded by per-camera announcement state.
 - Current Phase 0 failing run: `pnpm test:smoke` reported 90 passed / 4 failed for cached list checks and desktop/tablet/mobile layout guards; the final run passes 94/94.
 - Automated criteria c1-c11 and c15-c24 now pass. Manual hardware criteria c12-c14 remain `not_tested`.
+- Contract scope: criteria are judged on Sony feature ownership (`src/ui/statusServer.ts`, `src/testing/smokeTest.ts`). The branch diff is deliberately larger because it also carries the in-progress merge of latest PR #2 — see `scope` in the contract.
 
 ## Files changed
 - `src/ui/statusServer.ts`
@@ -26,6 +27,16 @@ status: ready_for_verification
 - `git diff --check` — pass.
 - GitNexus pre-edit impact — low risk; `createStatusServer` has one direct caller (`main`) and `statusHtml` has one direct caller (`createStatusServer`), affecting the indexed main flow.
 - GitNexus `detect_changes(scope=all)` — low risk, four changed symbols and no affected indexed processes.
+- Merge-resolution Phase 0 failing run: `STATUS_PORT=8176 pnpm test:smoke` failed before edits with TypeScript `TS1185` merge-conflict markers in `src/ui/statusServer.ts`.
+- Merge-resolution verification: `git diff --check`, `pnpm build`, `STATUS_PORT=8176 pnpm test:smoke` (206 passed, 0 failed), and `python3 -m unittest discover -s pi-bridge/tests -v` (26 tests) passed.
+
+### Integrated verification evidence (Sony + merged latest PR #2)
+- `pnpm build` — pass.
+- `STATUS_PORT=8176 pnpm test:smoke` — pass, 206/206 assertions across the combined Sony and PR #2 surface.
+- `python3 -m unittest discover -s pi-bridge/tests -v` — pass, 26/26.
+- `git diff --check` — pass.
+- Browser fixture — pass: desktop four-up Sony grid, tablet two-column, mobile one-column, tab navigation, and dark mode. Replacement screenshots under `docs/ai/runs/artifacts/sony-dashboard/` (`desktop-status.png`, `desktop-device-config.png`, `mobile-300-status.png`); the tablet and dark-mode checks were confirmed in-browser without a saved capture.
+- Verification gate outcome — failed on `task-sony-dashboard-c10` only. The failure was contract wording, not behavior: c10 still asserted "no controller/MotionDevice/ATEM/YAML/dependency changes", which held for the standalone Sony slice but reads as false against the combined branch, whose staged merge of latest PR #2 (MERGE_HEAD `54ba67e`) intentionally carries `config/devices.yaml`, `package.json`, `pnpm-lock.yaml`, `src/atem/switcherActions.ts`, `src/devices/motionDevice.ts`, `src/input/controllerSupervisor.ts`, and the rest of PR #2's own files. Confirmed by diff attribution against merge-base `2fbd51f`: the Sony-owned diff touches only `src/ui/statusServer.ts` and `src/testing/smokeTest.ts`. c10 and a new `scope` block in the contract now separate integrated branch scope from Sony feature ownership; no production or test file changed, so the gate needs a documentation-only re-run.
 
 ## Notes
 - Native Node `fetch`, inline Express UI, and existing dependencies only.
@@ -39,3 +50,4 @@ status: ready_for_verification
 - Preview visual loading/stale classes are unchanged; only aria-live writes are gated by the per-camera preview announcement state.
 - Manual smoke targets (`not_tested`): two physical Sony cameras concurrently; touch focus action on physical FX3; live HDMI coexistence.
 - Initial final smoke attempt encountered `EADDRINUSE` because importing `statusServer` also starts `index.ts`; the smoke harness now sets `STATUS_PORT=0` before that import. No production startup behavior changed.
+- Merge resolution retains Sony's cached explicit discovery, nested connection normalization, 30-second connect, six controls/touch/live preview, and 4/2/1 grid alongside PR #2 Profiles, Device Config non-VISCA preservation, controller/activity/dark-mode behavior, and bridge-aware gimbal status.
