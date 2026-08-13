@@ -32,7 +32,20 @@ log = logging.getLogger("dji-bridge.rs3")
 NOTIFY_UUID = "0000fff4-0000-1000-8000-00805f9b34fb"
 WRITE_UUID = "0000fff5-0000-1000-8000-00805f9b34fb"
 CENTER = 1024
-MAX_JOYSTICK = 80
+# Joystick magnitude sent at full stick deflection — the operator's speed limit
+# for this gimbal. 80 is a deliberately gentle default; the deployed systemd
+# template documents raising it per instance via DJI_RS3_MAX_JOYSTICK, so the
+# variable is read here (see systemd/dji-bridge@.service). Read per driver
+# instance, not once at import, because each templated unit is its own process
+# with its own env file.
+DEFAULT_MAX_JOYSTICK = 80
+MAX_JOYSTICK_ENV = "DJI_RS3_MAX_JOYSTICK"
+# The payload encodes CENTER+value as an unsigned 16-bit little-endian word, so
+# the magnitude can never exceed CENTER without wrapping past zero on the
+# negative side. 1000 keeps a margin under that and is the range the service
+# file advertises. A typo like 20000 must be clamped, not sent to a camera.
+MIN_MAX_JOYSTICK = 1
+MAX_MAX_JOYSTICK = 1000
 # How long to look for the gimbal's advertisement before giving up on one attempt.
 # Kept short because the caller holds a host-wide BLE lock while this runs.
 SCAN_TIMEOUT_S = 8.0
@@ -242,6 +255,33 @@ def _is_link_error(exc: BaseException) -> bool:
     return (type(exc).__module__ or "").split(".")[0] in {"bleak", "dbus_fast", "dbus_next"}
 
 
+def resolve_max_joystick(raw: str | int | None) -> int:
+    """Turn a configured joystick gain into a value that is safe to send.
+
+    This number is how fast a real camera moves at full stick, so a missing,
+    malformed, or out-of-range setting must degrade to the gentle default or the
+    nearest safe bound rather than being trusted. Every correction is logged: a
+    silently ignored setting is exactly the bug this function exists to fix.
+    """
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return DEFAULT_MAX_JOYSTICK
+    try:
+        value = int(str(raw).strip())
+    except ValueError:
+        log.warning(
+            "%s=%r is not an integer — using the default %d",
+            MAX_JOYSTICK_ENV, raw, DEFAULT_MAX_JOYSTICK,
+        )
+        return DEFAULT_MAX_JOYSTICK
+    clamped = max(MIN_MAX_JOYSTICK, min(MAX_MAX_JOYSTICK, value))
+    if clamped != value:
+        log.warning(
+            "%s=%d is outside the safe range %d..%d — clamped to %d",
+            MAX_JOYSTICK_ENV, value, MIN_MAX_JOYSTICK, MAX_MAX_JOYSTICK, clamped,
+        )
+    return clamped
+
+
 class DjiRsDriver:
     name = "dji-rs3-ble"
     model = "RS3"
@@ -253,10 +293,21 @@ class DjiRsDriver:
         address: str | None = None,
         timeout: float = 15.0,
         transport_factory: Callable[[str, float], BleTransport] = _BleakTransport,
+        max_joystick: str | int | None = None,
     ) -> None:
         self.address = address or os.environ.get("DJI_RS3_BLE_ADDRESS")
         if not self.address:
             raise GimbalError("set --ble-address or DJI_RS3_BLE_ADDRESS")
+        configured = max_joystick if max_joystick is not None else os.environ.get(MAX_JOYSTICK_ENV)
+        self.max_joystick = resolve_max_joystick(configured)
+        log.info(
+            "RS3 %s max joystick gain %d (%s; safe range %d..%d)",
+            self.address,
+            self.max_joystick,
+            "built-in default" if configured is None else f"from {MAX_JOYSTICK_ENV}",
+            MIN_MAX_JOYSTICK,
+            MAX_MAX_JOYSTICK,
+        )
         self.timeout = timeout
         self._transport = transport_factory(self.address, timeout)
         with contextlib.suppress(AttributeError):
@@ -398,9 +449,8 @@ class DjiRsDriver:
     async def set_mode(self, mode: str) -> None:
         raise NotSupported("set_mode is not implemented for dji-rs3-ble")
 
-    @staticmethod
-    def _joystick(value: float) -> int:
-        return round(max(-1.0, min(1.0, value)) * MAX_JOYSTICK)
+    def _joystick(self, value: float) -> int:
+        return round(max(-1.0, min(1.0, value)) * self.max_joystick)
 
     def _usable_cached_pose(self, now: float) -> Attitude | None:
         pose = self._pose

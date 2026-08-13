@@ -9,3 +9,4 @@ Index of dated architecture/workflow decisions. Full records live in
 
 - [2026-06-25 — Gimbal control: build vs buy](decisions/2026-06-25-gimbal-control-build-vs-buy.md)
 - [2026-08-04 — RS3 Bluetooth via Raspberry Pi bridge](decisions/2026-08-04-rs3-bluetooth-via-pi.md)
+- [2026-08-13 — Joystick gain is operator-configurable, clamped to 1..1000](decisions/2026-08-13-joystick-gain-clamp-range.md)

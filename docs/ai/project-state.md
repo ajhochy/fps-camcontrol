@@ -12,6 +12,19 @@ Complete the remaining live-use checks for the deployed DJI RS3 Bluetooth Low En
 and the verified RS3 BLE work are integrated locally; merge to `main` is pending.
 
 ## Recently completed
+- **`DJI_RS3_MAX_JOYSTICK` is actually read** (uncommitted locally; **deployed to
+  the Pi 2026-08-13 15:38**). `dji_rs_driver.py`
+  hardcoded `MAX_JOYSTICK = 80` while `systemd/dji-bridge@.service` documented the
+  variable and all three per-instance env files on the Pi set it to `200`, so the
+  operator's configured gain was silently ignored and every gimbal ran at 80. New
+  `resolve_max_joystick()` parses and clamps to `1..1000` (default 80), warns on
+  an out-of-range or unparseable value instead of failing quietly, and the driver
+  logs the effective gain and its source at startup. The gain is read **per driver
+  instance**, not at import, because each templated systemd unit is its own
+  process with its own env file. `_joystick` is now an instance method.
+  The 1000 ceiling is bounded by the wire format: the payload writes
+  `CENTER + value` (CENTER = 1024) as an unsigned 16-bit word, so a larger
+  magnitude would wrap negative full stick past zero.
 - **Controller hot-plug detection** (`3ef7010`). Controller detection was
   one-shot at startup: `index.ts` called `findConnectedController()` once, and
   when it returned null no `GamepadDevice` was ever built, so nothing retried. A
@@ -42,6 +55,17 @@ and the verified RS3 BLE work are integrated locally; merge to `main` is pending
   advertised `velocity`, `position`, `moveTo`, and `recenter`.
 
 ## Risks / known issues
+- **All three gimbals now run at gain 200 (was 80) — live motion is UNVERIFIED.**
+  The fix is deployed and each instance logs `max joystick gain 200 (from
+  DJI_RS3_MAX_JOYSTICK…)` at startup, so the env value is provably reaching the
+  driver. But no gimbal was advertising at deploy time (all powered off/asleep,
+  pre-existing — the warnings predate the restart and `NRestarts` is 0 on all
+  three), so nobody has confirmed what 200 actually feels like on a real camera.
+  **First stick input must be a small deflection with the operator watching video.**
+  Rollback if it is too fast: either set `DJI_RS3_MAX_JOYSTICK` lower in
+  `/etc/default/dji-bridge-<instance>` and restart (no code change needed — that is
+  the point of the fix), or restore
+  `/home/worship/dji-bridge/drivers/dji_rs_driver.py.bak-20260813-153810`.
 - Controller-driven motion, preset `moveTo`/`recenter`, SIGTERM/Ethernet-yank,
   reconnect/reboot, and 30-minute idle/show soak checks remain.
 - RS4/RS4 Pro are unvalidated. A `websockets.server` type-import deprecation
@@ -72,6 +96,14 @@ and the verified RS3 BLE work are integrated locally; merge to `main` is pending
 - Post-hardware polish gaps: no web-UI editor for DJI devices (YAML-only today), DJI-BRIDGE activity-log rendering is default-styled, no Sony PZ stub, roll axis has no controller mapping yet.
 
 ## Test status
+- Joystick-gain fix: `python3 -m unittest discover -s pi-bridge/tests` **40/40**
+  (13 new in `MaxJoystickTests` covering default, env read, per-instance read,
+  clamping at both bounds, unparseable/blank fallback, the startup log line, and
+  full-deflection scaling), `pnpm build` clean, `STATUS_PORT=8175 pnpm test:smoke`
+  **176/176**, `git diff --check` clean. On the Pi: 40/40 under its own
+  `.venv/bin/python3` (3.13.5), all three instances `active` with `NRestarts=0`
+  and each logging the effective gain. Real-gimbal **motion** is **not** verified —
+  the gimbals were powered off during the deploy window.
 - Controller hot-plug change (`3ef7010`): `tsc` clean, smoke **86/86** (22
   controller assertions), Python 6/6, `git diff --check` clean. Verified in an
   isolated `git worktree` at HEAD plus only that change, because a concurrent
@@ -88,7 +120,9 @@ and the verified RS3 BLE work are integrated locally; merge to `main` is pending
   regression test passed, the repair was redeployed, and clean disconnect was confirmed.
 
 ## Next step
-Restart the app and confirm the Xbox pad now reaches "Connected" on the home
+Power on the gimbals and live-verify the new gain 200 with the operator watching
+camera video, starting from small stick deflections (see the risk above). Then
+restart the app and confirm the Xbox pad now reaches "Connected" on the home
 screen and drives motion (`3ef7010` is only in `dist/` after a rebuild — a
 running instance keeps its old code). Then run the remaining controller, preset/recenter, signal/network interruption,
 reconnect/reboot, and 30-minute idle/show soak checks before live use.

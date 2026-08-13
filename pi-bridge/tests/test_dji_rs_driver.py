@@ -1,6 +1,8 @@
 import asyncio
+import os
 import sys
 import unittest
+import unittest.mock
 from pathlib import Path
 from time import monotonic
 
@@ -9,10 +11,17 @@ sys.path.insert(0, str(Path(__file__).parents[1]))
 from drivers.base import GimbalError
 from drivers.dji_rs_driver import (
     ATTITUDE_SUBSCRIBE_PAYLOAD,
+    CENTER,
+    DEFAULT_MAX_JOYSTICK,
+    MAX_JOYSTICK_ENV,
+    MAX_MAX_JOYSTICK,
     MAX_POSE_AGE_S,
+    MIN_MAX_JOYSTICK,
     DjiRsDriver,
     _BleakTransport,
     _frame,
+    _joystick_payload,
+    resolve_max_joystick,
 )
 
 # The two payloads the driver used to cycle alongside the attitude subscribe.
@@ -93,7 +102,13 @@ def payload(frame):
 class DjiRsDriverTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.transport = FakeTransport(None, None)
-        self.driver = DjiRsDriver("34:D2:62:15:A5:47", transport_factory=lambda *_: self.transport)
+        # Pin the gain: these assertions encode exact joystick words, so an
+        # operator's DJI_RS3_MAX_JOYSTICK in the ambient shell must not reach them.
+        self.driver = DjiRsDriver(
+            "34:D2:62:15:A5:47",
+            transport_factory=lambda *_: self.transport,
+            max_joystick=DEFAULT_MAX_JOYSTICK,
+        )
         await self.driver.connect()
 
     def go_quiet(self):
@@ -292,6 +307,111 @@ class BleakTransportTests(unittest.IsolatedAsyncioTestCase):
             await self.transport.write(b"\x55")
         with self.assertRaises(GimbalError):
             await self.transport.start_notifications(lambda _data: None)
+
+
+class MaxJoystickTests(unittest.TestCase):
+    """DJI_RS3_MAX_JOYSTICK is the operator's per-gimbal speed limit.
+
+    systemd/dji-bridge@.service documents it and every per-instance env file on
+    the Pi sets it, but the driver used to hardcode 80 and never read it — so the
+    configured gain was silently ignored and all three gimbals crawled. These
+    tests pin the read, the clamp, and the fallback.
+    """
+
+    def env(self, value):
+        """Run with DJI_RS3_MAX_JOYSTICK set to value (or removed when None)."""
+        patch = {} if value is None else {MAX_JOYSTICK_ENV: value}
+        return unittest.mock.patch.dict(
+            os.environ, patch, clear=MAX_JOYSTICK_ENV not in patch
+        )
+
+    def build(self):
+        return DjiRsDriver("34:D2:62:15:A5:47", transport_factory=lambda *_: FakeTransport())
+
+    def test_unset_env_keeps_the_gentle_built_in_default(self):
+        with self.env(None):
+            self.assertEqual(self.build().max_joystick, DEFAULT_MAX_JOYSTICK)
+
+    def test_configured_gain_is_actually_read_from_the_environment(self):
+        # The value all three /etc/default/dji-bridge-* files on the Pi set.
+        with self.env("200"):
+            self.assertEqual(self.build().max_joystick, 200)
+
+    def test_each_instance_reads_the_environment_it_starts_under(self):
+        # One templated systemd unit per gimbal: the gain must not be frozen at
+        # import time, or the first instance's setting would leak into the rest.
+        with self.env("200"):
+            first = self.build()
+        with self.env("500"):
+            second = self.build()
+        self.assertEqual((first.max_joystick, second.max_joystick), (200, 500))
+
+    def test_an_explicit_argument_overrides_the_environment(self):
+        with self.env("200"):
+            self.assertEqual(self.build_with(120).max_joystick, 120)
+
+    def build_with(self, max_joystick):
+        return DjiRsDriver(
+            "34:D2:62:15:A5:47",
+            transport_factory=lambda *_: FakeTransport(),
+            max_joystick=max_joystick,
+        )
+
+    def test_a_gain_above_the_safe_range_is_clamped_not_sent(self):
+        # A typo'd 20000 would wrap the unsigned joystick word past zero and
+        # command full speed in the wrong direction on a live camera.
+        self.assertEqual(resolve_max_joystick(20000), MAX_MAX_JOYSTICK)
+        self.assertEqual(resolve_max_joystick(MAX_MAX_JOYSTICK + 1), MAX_MAX_JOYSTICK)
+
+    def test_a_gain_below_the_safe_range_is_clamped_to_the_minimum(self):
+        for raw in (0, -1, -20000):
+            with self.subTest(raw=raw):
+                self.assertEqual(resolve_max_joystick(raw), MIN_MAX_JOYSTICK)
+
+    def test_the_safe_bounds_themselves_are_accepted_unchanged(self):
+        self.assertEqual(resolve_max_joystick(MIN_MAX_JOYSTICK), MIN_MAX_JOYSTICK)
+        self.assertEqual(resolve_max_joystick(MAX_MAX_JOYSTICK), MAX_MAX_JOYSTICK)
+
+    def test_unparseable_or_blank_settings_fall_back_to_the_default(self):
+        for raw in (None, "", "   ", "fast", "200rpm", "1e3", "200.5"):
+            with self.subTest(raw=raw):
+                self.assertEqual(resolve_max_joystick(raw), DEFAULT_MAX_JOYSTICK)
+
+    def test_surrounding_whitespace_from_an_env_file_is_tolerated(self):
+        self.assertEqual(resolve_max_joystick(" 200 "), 200)
+
+    def test_the_effective_gain_is_logged_at_startup(self):
+        with self.env("200"), self.assertLogs("dji-bridge.rs3", level="INFO") as logged:
+            self.build()
+        self.assertTrue(
+            any("200" in line and MAX_JOYSTICK_ENV in line for line in logged.output),
+            f"startup must state the effective gain and its source: {logged.output}",
+        )
+
+    def test_a_clamped_setting_warns_so_it_is_not_silently_ignored(self):
+        with self.assertLogs("dji-bridge.rs3", level="WARNING") as logged:
+            resolve_max_joystick(20000)
+        self.assertIn("clamped", "\n".join(logged.output))
+
+    def test_full_deflection_scales_with_the_configured_gain(self):
+        driver = self.build_with(200)
+        self.assertEqual(driver._joystick(1.0), 200)
+        self.assertEqual(driver._joystick(-1.0), -200)
+        self.assertEqual(driver._joystick(0.5), 100)
+        self.assertEqual(driver._joystick(0.0), 0)
+
+    def test_out_of_range_stick_input_still_cannot_exceed_the_gain(self):
+        driver = self.build_with(200)
+        self.assertEqual(driver._joystick(4.2), 200)
+        self.assertEqual(driver._joystick(-4.2), -200)
+
+    def test_the_maximum_gain_still_encodes_inside_the_joystick_word(self):
+        # The payload writes CENTER+value as an unsigned 16-bit word, so the
+        # clamp ceiling has to stay below CENTER or negative full stick wraps.
+        payload = _joystick_payload(pan=resolve_max_joystick(MAX_MAX_JOYSTICK * 10))
+        self.assertEqual(int.from_bytes(payload[4:6], "little"), CENTER + MAX_MAX_JOYSTICK)
+        payload = _joystick_payload(pan=-resolve_max_joystick(MAX_MAX_JOYSTICK * 10))
+        self.assertEqual(int.from_bytes(payload[4:6], "little"), CENTER - MAX_MAX_JOYSTICK)
 
 
 if __name__ == "__main__":
