@@ -10,6 +10,8 @@ const BACKOFF_MAX = 30000;
 // resetting the backoff to 1s and hammers the switcher hundreds of times a
 // second. With it, an unstable link backs off all the way to BACKOFF_MAX.
 const STABLE_RESET_MS = 15000;
+// How often to confirm a wanted-but-absent connection still has a retry queued.
+const CONNECTION_WATCHDOG_MS = 15000;
 
 export interface AtemInput {
   id: number;
@@ -23,6 +25,7 @@ export class AtemClient extends EventEmitter {
   private backoff = BACKOFF_INITIAL;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private stableTimer: NodeJS.Timeout | null = null;
+  private connectionWatchdog: NodeJS.Timeout | null = null;
   // wantConnected: whether we intend to hold a connection (false after a
   // deliberate disconnect()). connecting: a connect() attempt is in flight —
   // the single-flight guard that stops overlapping reconnects from stacking.
@@ -73,13 +76,22 @@ export class AtemClient extends EventEmitter {
   async connect(): Promise<void> {
     this.wantConnected = true;
     this.connecting = true;
+    this.startConnectionWatchdog();
     logger.info({ ip: this.ip }, 'connecting to ATEM');
     Promise.resolve(this.atem.connect(this.ip)).catch(err => {
       this.connecting = false;
       throttledLog.warn('atem-connect-fail', 5000, { err, ip: this.ip }, 'ATEM connect attempt failed, will retry');
       this.scheduleReconnect();
     });
-    await this.waitForConnection();
+    // The caller may give up waiting, but we must not: clear the in-flight flag
+    // and queue a retry, or the client stays wedged with connecting=true (which
+    // also makes scheduleReconnect() a no-op) and never reconnects. This is what
+    // made "ATEM initial connection failed, will retry in background" a lie.
+    await this.waitForConnection().catch(err => {
+      this.connecting = false;
+      this.scheduleReconnect();
+      throw err;
+    });
   }
 
   private waitForConnection(timeoutMs = 10000): Promise<void> {
@@ -88,6 +100,23 @@ export class AtemClient extends EventEmitter {
       const timer = setTimeout(() => reject(new Error('ATEM connection timeout')), timeoutMs);
       this.once('connected', () => { clearTimeout(timer); resolve(); });
     });
+  }
+
+  /**
+   * Last-resort net: while we intend to be connected but aren't, and no attempt
+   * is in flight or queued, queue one. Any future path that loses track of the
+   * retry chain still recovers instead of leaving the switcher unreachable until
+   * someone restarts the app mid-service.
+   */
+  private startConnectionWatchdog(): void {
+    if (this.connectionWatchdog) return;
+    this.connectionWatchdog = setInterval(() => {
+      if (!this.wantConnected || this.connected) return;
+      if (this.connecting || this.reconnectTimer) return;
+      throttledLog.warn('atem-watchdog', 30000, { ip: this.ip }, 'ATEM still not connected — re-queuing a reconnect');
+      this.scheduleReconnect();
+    }, CONNECTION_WATCHDOG_MS);
+    if (this.connectionWatchdog.unref) this.connectionWatchdog.unref();
   }
 
   private scheduleReconnect(): void {
@@ -217,6 +246,7 @@ export class AtemClient extends EventEmitter {
   disconnect(): void {
     this.wantConnected = false;
     this.connecting = false;
+    if (this.connectionWatchdog) { clearInterval(this.connectionWatchdog); this.connectionWatchdog = null; }
     if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
     if (this.stableTimer) { clearTimeout(this.stableTimer); this.stableTimer = null; }
     this.atem.disconnect();
