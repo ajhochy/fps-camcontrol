@@ -76,11 +76,15 @@ is added at the end. **Remove this rig…** (bottom of a rig's inspector) asks t
 — the presets that are lost, the later rigs that move up with their new camera id and hotkey — before anything is
 removed; **Keep it** cancels. The sandbox presets are seeded so you can watch them follow their cameras.
 
-Unsaved changes: after changing a rig's ATEM input (or adding or removing a rig), `devices.yaml` still holds the
-saved profile and `sandbox/.run/working-profile.json` holds the edits. The sandbox recreates `.run/` on every start,
-so restarting the whole sandbox starts clean; the self-test restarts only the app process to prove the edits survive
-a restart. Save, Save as, Revert and the profile dropdown arrive on the screen in the next step; the calls are in
-section 11 of the plan.
+Profiles and unsaved changes: the **profile bar** at the top of the list has the profile dropdown (switching asks
+first and lists what will change, with a warning if the ATEM program output is on a rig that changes), a **⋯** menu
+(rename this profile, delete another), and, after you edit a rig's ATEM input, camera, or add/remove a rig, an
+**Unsaved changes** badge with **Save**, **Save as…**, **Revert** and a "What changed" list. Those edits are applied
+immediately and kept in `sandbox/.run/working-profile.json` (so they survive an app restart) while `devices.yaml`
+keeps the saved profile; names and addresses you change are shared by every profile and save at once. Switching
+profile with unsaved changes offers Save and switch / Save as… / Discard and switch. The sandbox recreates `.run/`
+on every start, so restarting the whole sandbox starts clean; the self-test restarts only the app process to prove
+the edits survive a restart.
 
 ## What the self-test covers (`pnpm sandbox:check`)
 

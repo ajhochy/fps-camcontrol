@@ -76,7 +76,7 @@ export interface RigsView {
   rigs: RigView[];
   atem: AppConfig['atem'];
   graphics: AppConfig['graphics'];
-  profiles: { name: string; label: string | null; active: boolean; rigCount: number }[];
+  profiles: { name: string; label: string | null; active: boolean; rigCount: number; rigs: { deviceKey: string; label: string; inputId: number | null }[] }[];
   /** Sony cameras described in the inventory, with the name the operator gave each. */
   sonyDevices: SonyDeviceView[];
   /** Cameras the Sony service has found that no Sony device is bound to yet (candidates to add or bind). */
@@ -179,6 +179,7 @@ export function buildRigs(
     graphics: config.graphics,
     profiles: Object.entries(effective).map(([name, profile]) => ({
       name, label: profile.label ?? null, active: name === active, rigCount: profile.slots.length,
+      rigs: profile.slots.map((slot) => ({ deviceKey: slot.device, label: inventory[slot.device]?.label ?? slot.device, inputId: slot.inputId ?? null })),
     })),
     sonyDevices,
     unboundCameras: sonyCameras.filter((camera) => !boundIds.has(camera.id.toUpperCase())),

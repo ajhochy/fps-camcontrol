@@ -335,6 +335,86 @@
     return lines;
   }
 
+  // ---- profiles and unsaved changes
+  function none(value, word) { return value === null || value === undefined ? word : String(value); }
+
+  /** Plain sentences for what the working copy changes compared to the saved profile. */
+  function changeLines(changes) {
+    return (changes || []).map(function (c) {
+      if (c.kind === 'added') return 'Added ' + c.label + ' as rig ' + c.position + '.';
+      if (c.kind === 'removed') return 'Removed ' + c.label + ' (was rig ' + c.position + ').';
+      if (c.kind === 'moved') return c.label + ' moved from rig ' + c.from + ' to rig ' + c.to + '.';
+      if (c.kind === 'input') return c.label + ': ATEM input ' + none(c.from, 'none (control only)') + ' → ' + none(c.to, 'none (control only)') + '.';
+      if (c.kind === 'camera') return c.label + ': Sony camera ' + none(c.from, 'none') + ' → ' + none(c.to, 'none') + '.';
+      return '';
+    }).filter(Boolean);
+  }
+
+  /** A default name for Save as that no profile already has. */
+  function saveAsSuggestion(data) {
+    var profiles = (data && data.profiles) || [];
+    var active = profiles.filter(function (p) { return p.active; })[0];
+    var base = (active && (active.label || active.name)) || 'Profile';
+    var taken = {};
+    profiles.forEach(function (p) { taken[String(p.label || p.name).toLowerCase()] = true; });
+    var candidate = base + ' (edited)';
+    for (var n = 2; taken[candidate.toLowerCase()]; n++) candidate = base + ' (edited ' + n + ')';
+    return candidate;
+  }
+
+  /** What the profile bar shows: the choices, whether there are unsaved changes, and what they are. */
+  function profileInfo(data) {
+    var profiles = (data && data.profiles) || [];
+    var active = profiles.filter(function (p) { return p.active; })[0] || null;
+    var profile = (data && data.profile) || {};
+    return {
+      options: profiles.map(function (p) { return { value: p.name, label: p.label || p.name }; }),
+      active: active ? active.name : null,
+      activeLabel: active ? (active.label || active.name) : null,
+      modified: !!profile.modified,
+      changeLines: changeLines(profile.changes),
+      notice: profile.notice || null,
+      legacy: !!(data && data.legacy),
+      canDelete: profiles.length > 1,
+      saveAsSuggestion: saveAsSuggestion(data),
+    };
+  }
+
+  /** What switching to another profile would change, for the confirmation: per position, plus an ATEM-program warning. */
+  function switchImpact(data, targetName) {
+    var target = ((data && data.profiles) || []).filter(function (p) { return p.name === targetName; })[0];
+    if (!target) return null;
+    var current = (data && data.rigs) || [];
+    var programInput = data && data.programInput !== undefined ? data.programInput : null;
+    var changed = [];
+    var length = Math.max(current.length, target.rigs.length);
+    for (var i = 0; i < length; i++) {
+      var from = current[i] ? { deviceKey: current[i].deviceKey, label: current[i].label, inputId: current[i].wired ? current[i].inputId : null } : null;
+      var to = target.rigs[i] || null;
+      var kind = null;
+      if (from && !to) kind = 'removed';
+      else if (!from && to) kind = 'added';
+      else if (from.deviceKey !== to.deviceKey) kind = 'device';
+      else if (from.inputId !== to.inputId) kind = 'input';
+      if (kind) changed.push({ position: i + 1, kind: kind, from: from, to: to, hotkey: i < 4 && current[i] ? current[i].hotkey : (i < 4 && data && data.rigs && data.rigs[i] ? data.rigs[i].hotkey : null) });
+    }
+    var programWarning = null;
+    if (programInput !== null && programInput !== undefined) {
+      var onAir = current.filter(function (r) { return r.wired && r.inputId === programInput; })[0];
+      if (onAir && changed.some(function (c) { return c.position === onAir.position; })) {
+        programWarning = 'The ATEM program output is on ' + onAir.label + ' (input ' + programInput + '), which will change.';
+      }
+    }
+    var lines = changed.map(function (c) {
+      var where = 'Rig ' + c.position + (c.hotkey ? ' (' + c.hotkey + ')' : '');
+      if (c.kind === 'removed') return where + ': ' + c.from.label + ' → (no rig)';
+      if (c.kind === 'added') return where + ': (no rig) → ' + c.to.label;
+      if (c.kind === 'input') return where + ': ' + c.from.label + ' — ATEM input ' + none(c.from.inputId, 'none') + ' → ' + none(c.to.inputId, 'none');
+      return where + ': ' + c.from.label + ' → ' + c.to.label;
+    });
+    return { changed: changed, lines: lines, programWarning: programWarning, name: target.label || target.name };
+  }
+
   function atemInspector(data) {
     var atem = (data && data.atem) || {};
     var g = (data && data.graphics) || {};
@@ -486,5 +566,6 @@
     itemsOf: itemsOf, flatItems: flatItems, findItem: findItem, resolveSelection: resolveSelection,
     inspectorFor: inspectorFor, statusFor: statusFor, sonyStateText: sonyStateText,
     buildNewRigPayload: buildNewRigPayload, impactLines: impactLines,
+    profileInfo: profileInfo, changeLines: changeLines, switchImpact: switchImpact, saveAsSuggestion: saveAsSuggestion,
   };
 });

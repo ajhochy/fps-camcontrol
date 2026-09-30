@@ -152,7 +152,7 @@ export function createStatusServer(
   };
   const rigsBody = () => {
     const sony = sonyManager ? sonyManager.getStatus() : null;
-    return { ...buildRigs(config, state, devicesFileVersion(), sony ? sony.cameras : []), profile: profileBody(), atemConnected: atem ? atem.connected : null, sony };
+    return { ...buildRigs(config, state, devicesFileVersion(), sony ? sony.cameras : []), profile: profileBody(), atemConnected: atem ? atem.connected : null, programInput: atem && atem.connected ? atem.getProgramInput() ?? null : null, sony };
   };
   app.get('/api/rigs', (_req, res) => { res.json(rigsBody()); });
 

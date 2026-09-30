@@ -223,6 +223,49 @@ check('it says which rig moves, its new id and hotkey, and that its presets go w
 check('it says other profiles keep the hardware and that moved rigs reconnect', lines.some((l: string) => /also used in: test/.test(l)) && lines.some((l: string) => l === 'The moved rigs reconnect briefly.'));
 check('removing the last rig has a short confirmation', model.impactLines({ position: 4, id: 'cam4', label: 'DJI RS3', presetsLost: [], shifted: [], usedInOtherProfiles: [] }).length === 1);
 
+// ---- profiles and unsaved changes
+const changeData = payload();
+changeData.profile = { active: 'production', modified: true, notice: null, changes: [
+  { kind: 'input', label: 'V-BOT', from: 6, to: 9 }, { kind: 'camera', label: 'V-BOT', from: 'a7S III — stage left', to: null },
+  { kind: 'removed', label: 'BirdDog 1', position: 2 }, { kind: 'moved', label: 'DJI RS3', from: 3, to: 2 }, { kind: 'added', label: 'V-BOT 2', position: 5 },
+  { kind: 'input', label: 'DJI RS3', from: 2, to: null },
+] };
+const cl = model.changeLines(changeData.profile.changes);
+check('an ATEM input change reads "from → to"', cl[0] === 'V-BOT: ATEM input 6 → 9.');
+check('a camera change uses the cameras\' names and says none when empty', cl[1] === 'V-BOT: Sony camera a7S III — stage left → none.');
+check('a removed rig says which position it had', cl[2] === 'Removed BirdDog 1 (was rig 2).');
+check('a moved rig says from and to', cl[3] === 'DJI RS3 moved from rig 3 to rig 2.');
+check('an added rig says its position', cl[4] === 'Added V-BOT 2 as rig 5.');
+check('going control-only is explained', cl[5] === 'DJI RS3: ATEM input 2 → none (control only).');
+check('no changes, no lines', model.changeLines([]).length === 0 && model.changeLines(undefined).length === 0);
+
+const pinfo = model.profileInfo(changeData);
+check('the profile bar lists the profiles by name and knows the active one', pinfo.options.map((o: any) => o.label).join() === 'Production,Test' && pinfo.active === 'production' && pinfo.activeLabel === 'Production');
+check('the profile bar knows there are unsaved changes and describes them', pinfo.modified === true && pinfo.changeLines.length === 6);
+check('an unmodified profile has no change lines', model.profileInfo(payload()).modified === false && model.profileInfo(payload()).changeLines.length === 0);
+check('a profile can be deleted only when there is more than one', pinfo.canDelete === true && (() => { const one = payload(); one.profiles = [one.profiles[0]]; return model.profileInfo(one).canDelete === false; })());
+check('a notice about the working copy is passed through', (() => { const n = payload(); n.profile = { active: 'production', modified: false, changes: [], notice: 'Unsaved rig changes could not be restored.' }; return model.profileInfo(n).notice === 'Unsaved rig changes could not be restored.'; })());
+check('a legacy config has no profile choices', model.profileInfo(payload({ ...config(), cameras: resolveProfile(devices, profiles.production), profiles: undefined, devices: undefined })).options.length === 0);
+check('Save as suggests the profile name with (edited)', model.saveAsSuggestion(data) === 'Production (edited)');
+check('the suggestion avoids names that exist', (() => { const d = payload(); d.profiles.push({ name: 'p2', label: 'Production (edited)', active: false, rigCount: 1, rigs: [] }); return model.saveAsSuggestion(d) === 'Production (edited 2)'; })());
+
+// ---- what a switch would change
+const switchData = payload(); switchData.programInput = 7;
+const toTest = model.switchImpact(switchData, 'test');
+check('a switch lists each position that changes, with old and new rig', toTest.changed.map((c: any) => c.position + ':' + c.kind).join() === '2:device,3:removed');
+check('the lines name the hotkey for the position', toTest.lines[0] === 'Rig 2 (A): BirdDog 1 → DJI RS3' && toTest.lines[1] === 'Rig 3 (B): DJI RS3 → (no rig)');
+check('a program output on a rig that changes produces a warning', /ATEM program output is on BirdDog 1 \(input 7\)/.test(toTest.programWarning));
+const programElsewhere = payload(); programElsewhere.programInput = 6;
+check('no warning when the program rig keeps its position and device', model.switchImpact(programElsewhere, 'test').programWarning === null);
+check('no warning when the ATEM is not connected', model.switchImpact(payload(), 'test').programWarning === null);
+check('switching to the active profile changes nothing', model.switchImpact(switchData, 'production').changed.length === 0);
+check('switching to an unknown profile is null', model.switchImpact(switchData, 'nope') === null);
+const extraProfile = payload(); extraProfile.profiles.push({ name: 'inputs', label: 'Inputs', active: false, rigCount: 3, rigs: [{ deviceKey: 'vbot', label: 'V-BOT', inputId: 9 }, { deviceKey: 'birddog1', label: 'BirdDog 1', inputId: 7 }, { deviceKey: 'rs3', label: 'DJI RS3', inputId: null }] });
+const sameDevices = model.switchImpact(extraProfile, 'inputs');
+check('the same device on a different ATEM input is a change, and unchanged rigs are not', sameDevices.changed.map((c: any) => c.position + ':' + c.kind).join() === '1:input' && sameDevices.lines[0] === 'Rig 1 (X): V-BOT — ATEM input 6 → 9');
+const controlOnly = payload(); controlOnly.profiles.push({ name: 'co', label: 'Control only', active: false, rigCount: 3, rigs: [{ deviceKey: 'vbot', label: 'V-BOT', inputId: 6 }, { deviceKey: 'birddog1', label: 'BirdDog 1', inputId: null }, { deviceKey: 'rs3', label: 'DJI RS3', inputId: null }] });
+check('going control-only on a rig is reported with "none"', model.switchImpact(controlOnly, 'co').lines.join('|') === 'Rig 2 (A): BirdDog 1 — ATEM input 7 → none');
+
 // ---- selection
 check('a selection that still exists is kept', model.resolveSelection(data, 'rig:birddog1') === 'rig:birddog1');
 check('a selection that vanished falls back to the first item', model.resolveSelection(data, 'rig:gone') === 'rig:vbot' && model.resolveSelection(data, null) === 'rig:vbot');

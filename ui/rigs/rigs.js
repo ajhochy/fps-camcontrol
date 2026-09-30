@@ -11,7 +11,7 @@
 
   var POLL_MS = 5000;
   var STORE_KEY = 'rigs.selected';
-  var app = { data: null, selected: null, error: null, pane: 'list', inspectorSig: '', timer: null, flash: null, messages: {} };
+  var app = { data: null, selected: null, error: null, pane: 'list', inspectorSig: '', timer: null, flash: null, messages: {}, dialog: null };
 
   function remember(key) { if (key && key.indexOf('new:') === 0) return; try { window.localStorage.setItem(STORE_KEY, key || ''); } catch (e) { /* storage may be blocked */ } }
   function recall() { try { return window.localStorage.getItem(STORE_KEY) || null; } catch (e) { return null; } }
@@ -36,7 +36,7 @@
   var listBox = el('div', 'rigs-listbox');
   listBox.setAttribute('role', 'listbox');
   listBox.setAttribute('aria-label', 'Rigs and connections');
-  var profileLine = el('div', 'rigs-profile');
+  var profileBar = el('div', 'rigs-profilebar');
   var addButton = el('button', 'rigs-add', '+');
   addButton.type = 'button';
   addButton.title = 'Add a rig or a connection';
@@ -47,11 +47,12 @@
   addMenu.setAttribute('role', 'menu');
   addMenu.hidden = true;
   var listHead = el('div', 'rigs-list-head');
-  listHead.appendChild(profileLine);
+  listHead.appendChild(el('div', 'rigs-profile', 'Rigs & connections'));
   var addWrap = el('div', 'rigs-add-wrap');
   addWrap.appendChild(addButton);
   addWrap.appendChild(addMenu);
   listHead.appendChild(addWrap);
+  listCol.appendChild(profileBar);
   listCol.appendChild(listHead);
   listCol.appendChild(listBox);
 
@@ -96,8 +97,6 @@
     clear(listBox);
     var data = app.data;
     if (!data) return;
-    var activeName = data.profiles.filter(function (p) { return p.active; }).map(function (p) { return p.label || p.name; })[0] || data.activeProfile;
-    profileLine.textContent = data.legacy ? 'Legacy config (no profiles)' : 'Profile: ' + activeName;
 
     model.itemsOf(data, app.selected).forEach(function (section) {
       var group = el('div', 'rigs-group');
@@ -175,7 +174,7 @@
   }
   function adopt(body) {
     // Edits answer with the new rig view; keep it and redraw everything but the inspector you are in.
-    if (body && body.rigs) { app.data = body; app.error = null; var keep = model.resolveSelection(app.data, app.selected); if (keep !== app.selected) { app.selected = keep; remember(keep); } drawNotice(); drawList(); drawStatus(); }
+    if (body && body.rigs) { app.data = body; app.error = null; var keep = model.resolveSelection(app.data, app.selected); if (keep !== app.selected) { app.selected = keep; remember(keep); } drawNotice(); drawProfileBar(); drawList(); drawStatus(); }
   }
 
   // ---- one editable control: text, number, select or toggle; saves by itself when committed
@@ -487,6 +486,177 @@
     inspectBody.appendChild(addRow);
   }
 
+  // ---- the profile bar: choose the active profile, see and save unsaved changes
+  function dialogButton(text, className, handler) { return button(text, className, handler); }
+
+  async function reloadAfterProfileChange() {
+    app.messages = {};
+    await load();
+    app.dialog = null;
+    drawAll(true);
+    drawProfileBar(true);
+  }
+
+  function say(node, text, kind) { node.textContent = text; node.className = 'rigs-inline' + (kind ? ' is-' + kind : ''); }
+
+  // Every dialog is described by app.dialog, so the 5 s refresh redraws it instead of dropping it.
+  function drawDialog(info) {
+    var d = app.dialog;
+    if (!d) return null;
+    var box = el('div', 'rigs-dialog');
+    box.setAttribute('role', 'alertdialog');
+    var failure = el('p', 'rigs-inline'); failure.setAttribute('role', 'status');
+    var row = el('div', 'rigs-actions');
+    var close = function () { app.dialog = null; drawProfileBar(true); };
+    function run(b, progress, work, after) {
+      b.disabled = true; var original = b.textContent; b.textContent = progress;
+      work().then(async function (result) {
+        if (result.ok) { if (result.body && result.body.rigs) adopt(result.body); if (after) await after(result); await reloadAfterProfileChange(); }
+        else { b.disabled = false; b.textContent = original; say(failure, failureText(result), 'err'); if (result.status === 409 && result.body && result.body.conflict) await load(); }
+      });
+    }
+    if (d.type === 'switch' || d.type === 'switch-unsaved') {
+      var impact = model.switchImpact(app.data, d.target);
+      box.setAttribute('aria-label', 'Switch to ' + impact.name);
+      box.appendChild(el('h3', 'rigs-subheading', d.type === 'switch-unsaved' ? 'Unsaved changes' : 'Switch profile?'));
+      if (d.type === 'switch-unsaved') {
+        box.appendChild(el('p', 'rigs-info', 'This profile has changes you have not saved:'));
+        var list = el('ul', 'rigs-impact'); info.changeLines.forEach(function (line) { list.appendChild(el('li', null, line)); }); box.appendChild(list);
+      }
+      box.appendChild(el('p', 'rigs-info', 'Switching to "' + impact.name + '" reconnects cameras and changes what the X / A / B / Y buttons select.'));
+      if (impact.programWarning) { var warn = el('p', 'rigs-notice is-error', impact.programWarning); warn.setAttribute('role', 'alert'); box.appendChild(warn); }
+      if (impact.lines.length) { var changes = el('ul', 'rigs-impact'); impact.lines.forEach(function (line) { changes.appendChild(el('li', null, line)); }); box.appendChild(changes); }
+      else box.appendChild(el('p', 'rigs-info', 'The rigs are the same in both profiles.'));
+      var switchTo = function () { return call('POST', '/api/profiles/active', { profile: d.target }); };
+      if (d.type === 'switch') {
+        row.appendChild(dialogButton('Switch profile', 'is-primary', function (b) { run(b, 'Switching…', switchTo); }));
+      } else {
+        row.appendChild(dialogButton('Save and switch', 'is-primary', function (b) {
+          run(b, 'Saving…', async function () { var saved = await call('POST', '/api/profiles/save', { expectedVersion: app.data && app.data.version }); return saved.ok ? switchTo() : saved; });
+        }));
+        row.appendChild(dialogButton('Save as…', '', function () { app.dialog = { type: 'save-as' }; drawProfileBar(true); }));
+        row.appendChild(dialogButton('Discard and switch', 'is-danger', function (b) { run(b, 'Switching…', function () { return call('POST', '/api/profiles/active', { profile: d.target, discard: true }); }); }));
+      }
+      row.appendChild(dialogButton('Cancel', '', close));
+    } else if (d.type === 'save-as') {
+      box.setAttribute('aria-label', 'Save as a new profile');
+      box.appendChild(el('h3', 'rigs-subheading', 'Save as a new profile'));
+      box.appendChild(el('p', 'rigs-info', 'The new profile keeps your changes and becomes the active one. "' + info.activeLabel + '" stays exactly as it was saved.'));
+      var name = el('input', 'cfg-input rigs-input'); name.type = 'text'; name.maxLength = 64; name.value = d.name !== undefined ? d.name : info.saveAsSuggestion;
+      name.setAttribute('aria-label', 'Name of the new profile'); name.addEventListener('input', function () { d.name = name.value; });
+      box.appendChild(name);
+      row.appendChild(dialogButton('Save as new profile', 'is-primary', function (b) {
+        var label = name.value.trim();
+        if (!label) { say(failure, 'Give the profile a name', 'err'); return; }
+        run(b, 'Saving…', function () { return call('POST', '/api/profiles/save-as', { label: label, expectedVersion: app.data && app.data.version }); });
+      }));
+      row.appendChild(dialogButton('Cancel', '', close));
+      window.setTimeout(function () { name.focus(); name.select(); }, 0);
+    } else if (d.type === 'revert') {
+      box.setAttribute('aria-label', 'Revert unsaved changes');
+      box.appendChild(el('h3', 'rigs-subheading', 'Revert to the saved profile?'));
+      box.appendChild(el('p', 'rigs-info', 'These changes will be dropped and the presets put back:'));
+      var lost = el('ul', 'rigs-impact'); info.changeLines.forEach(function (line) { lost.appendChild(el('li', null, line)); }); box.appendChild(lost);
+      box.appendChild(el('p', 'rigs-info', 'Names and addresses you changed stay: they are shared by every profile.'));
+      row.appendChild(dialogButton('Revert changes', 'is-danger', function (b) { run(b, 'Reverting…', function () { return call('POST', '/api/profiles/revert'); }); }));
+      row.appendChild(dialogButton('Keep editing', '', close));
+    } else if (d.type === 'rename') {
+      box.setAttribute('aria-label', 'Rename profile');
+      box.appendChild(el('h3', 'rigs-subheading', 'Rename "' + info.activeLabel + '"'));
+      var newName = el('input', 'cfg-input rigs-input'); newName.type = 'text'; newName.maxLength = 64; newName.value = d.name !== undefined ? d.name : info.activeLabel;
+      newName.setAttribute('aria-label', 'New name'); newName.addEventListener('input', function () { d.name = newName.value; });
+      box.appendChild(newName);
+      row.appendChild(dialogButton('Rename', 'is-primary', function (b) {
+        var label = newName.value.trim();
+        if (!label) { say(failure, 'Give the profile a name', 'err'); return; }
+        run(b, 'Renaming…', function () { return call('PATCH', '/api/profiles/' + encodeURIComponent(info.active), { label: label, expectedVersion: app.data && app.data.version }); });
+      }));
+      row.appendChild(dialogButton('Cancel', '', close));
+      window.setTimeout(function () { newName.focus(); newName.select(); }, 0);
+    } else if (d.type === 'delete') {
+      box.setAttribute('aria-label', 'Delete a profile');
+      box.appendChild(el('h3', 'rigs-subheading', 'Delete a profile'));
+      var others = info.options.filter(function (o) { return o.value !== info.active; });
+      if (!others.length) {
+        box.appendChild(el('p', 'rigs-info', 'There is no other profile to delete. The active profile cannot be deleted; switch to another one first.'));
+        row.appendChild(dialogButton('Close', '', close));
+      } else {
+        var which = el('select', 'cfg-input rigs-input'); which.setAttribute('aria-label', 'Profile to delete');
+        others.forEach(function (o) { var option = el('option', null, o.label); option.value = o.value; which.appendChild(option); });
+        if (d.which) which.value = d.which; else d.which = which.value;
+        which.addEventListener('change', function () { d.which = which.value; });
+        box.appendChild(which);
+        box.appendChild(el('p', 'rigs-info', 'This cannot be undone. The active profile "' + info.activeLabel + '" is not affected.'));
+        row.appendChild(dialogButton('Delete profile', 'is-danger', function (b) { run(b, 'Deleting…', function () { return call('DELETE', '/api/profiles/' + encodeURIComponent(d.which), { expectedVersion: app.data && app.data.version }); }); }));
+        row.appendChild(dialogButton('Cancel', '', close));
+      }
+    }
+    box.appendChild(row);
+    box.appendChild(failure);
+    return box;
+  }
+
+  function drawProfileBar(force) {
+    if (!force && profileBar.contains(document.activeElement)) return; // never rebuild it under someone typing in it
+    clear(profileBar);
+    if (!app.data) return;
+    var info = model.profileInfo(app.data);
+    if (info.legacy || !info.options.length) { profileBar.appendChild(el('div', 'rigs-profile', 'Legacy config (no profiles)')); return; }
+    var top = el('div', 'rigs-profile-row');
+    var select = el('select', 'cfg-input rigs-input rigs-profile-select');
+    select.setAttribute('aria-label', 'Active profile');
+    info.options.forEach(function (o) { var option = el('option', null, o.label); option.value = o.value; select.appendChild(option); });
+    select.value = info.active;
+    select.addEventListener('change', function () {
+      var target = select.value;
+      select.value = info.active; // nothing changes until the operator confirms
+      if (target === info.active) return;
+      app.dialog = { type: info.modified ? 'switch-unsaved' : 'switch', target: target };
+      drawProfileBar(true);
+    });
+    top.appendChild(select);
+    var menu = button('⋯', 'rigs-profile-menu', function () {
+      var open = profileBar.querySelector('.rigs-profile-actions');
+      if (open) { open.hidden = !open.hidden; menu.setAttribute('aria-expanded', open.hidden ? 'false' : 'true'); }
+    });
+    menu.setAttribute('aria-label', 'Profile actions'); menu.setAttribute('aria-expanded', 'false'); menu.title = 'Rename or delete a profile';
+    top.appendChild(menu);
+    profileBar.appendChild(top);
+    var actions = el('div', 'rigs-profile-actions'); actions.hidden = true;
+    actions.appendChild(dialogButton('Rename this profile…', '', function () { app.dialog = { type: 'rename' }; drawProfileBar(true); }));
+    actions.appendChild(dialogButton('Delete a profile…', '', function () { app.dialog = { type: 'delete' }; drawProfileBar(true); }));
+    profileBar.appendChild(actions);
+
+    if (info.modified) {
+      var badge = el('div', 'rigs-unsaved');
+      badge.appendChild(tone('warn', 'Unsaved changes'));
+      badge.appendChild(el('span', 'rigs-note', 'Applied now and kept if the app restarts; "' + info.activeLabel + '" is not changed until you save.'));
+      profileBar.appendChild(badge);
+      var bar = el('div', 'rigs-actions');
+      bar.appendChild(dialogButton('Save', 'is-primary', function (b) {
+        b.disabled = true; b.textContent = 'Saving…';
+        call('POST', '/api/profiles/save', { expectedVersion: app.data && app.data.version }).then(async function (result) {
+          if (result.ok) { adopt(result.body); app.messages = {}; app.dialog = null; drawAll(true); drawProfileBar(true); }
+          else { b.disabled = false; b.textContent = 'Save'; app.dialog = null; var m = profileBar.querySelector('.rigs-profile-msg'); if (m) say(m, failureText(result), 'err'); if (result.body && result.body.conflict) await load(); }
+        });
+      }));
+      bar.appendChild(dialogButton('Save as…', '', function () { app.dialog = { type: 'save-as' }; drawProfileBar(true); }));
+      bar.appendChild(dialogButton('Revert', 'is-danger', function () { app.dialog = { type: 'revert' }; drawProfileBar(true); }));
+      var msg = el('span', 'rigs-inline rigs-profile-msg'); msg.setAttribute('role', 'status'); bar.appendChild(msg);
+      profileBar.appendChild(bar);
+      var details = el('details', 'rigs-changes');
+      details.appendChild(el('summary', null, 'What changed (' + info.changeLines.length + ')'));
+      var list = el('ul', 'rigs-impact'); info.changeLines.forEach(function (line) { list.appendChild(el('li', null, line)); });
+      details.appendChild(list);
+      profileBar.appendChild(details);
+    }
+    if (info.notice) {
+      var note = el('p', 'rigs-notice', info.notice); note.setAttribute('role', 'status'); profileBar.appendChild(note);
+    }
+    var dialog = drawDialog(info);
+    if (dialog) profileBar.appendChild(dialog);
+  }
+
   // ---- the + menu
   function closeMenu(returnFocus) {
     addMenu.hidden = true;
@@ -757,6 +927,7 @@
 
   function drawAll(forceInspector) {
     drawNotice();
+    drawProfileBar();
     drawList();
     drawInspector(forceInspector);
     drawStatus();

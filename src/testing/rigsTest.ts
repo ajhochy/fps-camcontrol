@@ -158,6 +158,10 @@ const moved = buildRigs(cameraInWorking, state, 'v13', seen);
 check('a camera moved to another rig in the working copy is reported on that rig', moved.rigs[0].camera === null && moved.rigs[2].camera === 'sony-a' && moved.rigs[2].cameraLabel === 'a7S III — stage left');
 check('the Sony device lists the working rig as the one using it', moved.sonyDevices.find((d) => d.key === 'sony-a')?.usedByRigs.map((r) => r.id).join() === 'cam3');
 
+// ---- profiles carry their rigs (for the switch confirmation)
+check('each profile lists its rigs with name and ATEM input', view.profiles.find((p) => p.name === 'production')?.rigs.map((r) => r.label + ':' + r.inputId).join() === 'V-BOT:6,BirdDog 1:7,DJI RS3:2');
+check('a profile rig with no input reports null', view.profiles.find((p) => p.name === 'test')?.rigs[1].inputId === null);
+
 check('the payload carries no secrets or credentials', !/password|token|secret|fingerprint/i.test(payload));
 check('the payload is JSON round-trippable', JSON.stringify(JSON.parse(payload)) === payload);
 
