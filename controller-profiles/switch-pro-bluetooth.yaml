@@ -1,0 +1,37 @@
+# Nintendo Switch Pro Controller (macOS, Bluetooth HID)
+# Full input reports are 49 bytes beginning with report ID 0x30.
+name: "Nintendo Switch Pro Controller (Bluetooth)"
+connectionType: bluetooth
+vendorIds:
+  - 0x057E
+productIds:
+  - 0x2009
+reportId:
+  byte: 0
+
+axes:
+  # Sticks are 12-bit unsigned values packed little-endian: X at bit 0, Y at bit 12.
+  leftStickX:  { byte: 6, type: uint12le, bitOffset: 0,  range: [0, 4095] }
+  leftStickY:  { byte: 6, type: uint12le, bitOffset: 12, range: [0, 4095] }
+  rightStickX: { byte: 9, type: uint12le, bitOffset: 0,  range: [0, 4095] }
+  rightStickY: { byte: 9, type: uint12le, bitOffset: 12, range: [0, 4095] }
+
+buttons:
+  Y:            { byte: 3, bit: 0 }
+  X:            { byte: 3, bit: 1 }
+  B:            { byte: 3, bit: 2 }
+  A:            { byte: 3, bit: 3 }
+  RB:           { byte: 3, bit: 6 }
+  rightTrigger: { byte: 3, bit: 7 }
+  back:         { byte: 4, bit: 0 }
+  start:        { byte: 4, bit: 1 }
+  RS:           { byte: 4, bit: 2 }
+  LS:           { byte: 4, bit: 3 }
+  home:         { byte: 4, bit: 4 }
+  capture:      { byte: 4, bit: 5 }
+  dpadDown:     { byte: 5, bit: 0 }
+  dpadUp:       { byte: 5, bit: 1 }
+  dpadRight:    { byte: 5, bit: 2 }
+  dpadLeft:     { byte: 5, bit: 3 }
+  LB:           { byte: 5, bit: 6 }
+  leftTrigger:  { byte: 5, bit: 7 }

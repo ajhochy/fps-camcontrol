@@ -4,7 +4,7 @@ repo: fps-camcontrol
 branch: main
 pr: 2
 issues: none
-status: verification passed; deployed; integrated into PR 2; main merge pending
+status: verification passed; deployed; live controller validation passed; integrated into PR 2; main merge pending
 tags: [run, fps-camcontrol]
 index: "[[fps-camcontrol]]"
 ---
@@ -128,8 +128,20 @@ index: "[[fps-camcontrol]]"
 - A forced client disconnect initially logged `ConnectionClosedError`. The
   focused regression test passed, the fix was redeployed, and a clean disconnect
   was confirmed.
-- Remaining live-use checks: controller-driven motion, preset `moveTo`/`recenter`,
-  SIGTERM/Ethernet yank, reconnect/reboot, and 30-minute idle/show soaks.
+- Switch Pro `057e:2009` Bluetooth detection and captured 49-byte `0x30`
+  packed-axis reports passed profile/parser verification. Main state reported
+  `activeConnectionType: bluetooth`.
+- Device Config's `cam4` VISCA/undefined downgrade was fixed at the root by
+  preserving the `dji-bridge` protocol and complete bridge data. RS3 was
+  restored and connected live.
+- Controller camera selection, all-direction pan/tilt, and stop-on-release passed.
+  A direct 200-unit command moved about 10° in one second; deployed
+  `DJI_RS3_MAX_JOYSTICK=200` felt good.
+- After redeployment, the Pi service was active and the app, RS3, and controller
+  were all live-connected. Final automated checks passed: Python 7/7, build,
+  smoke 43/43, and `git diff --check`.
+- Remaining live-use checks: tune against actual video, emergency stop,
+  preset/recenter, Ethernet yank plus reboot/reconnect, and soak.
 - The `websockets.server` type-import deprecation warning is non-blocking future cleanup.
 
 ## PR 2 integration

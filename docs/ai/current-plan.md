@@ -5,21 +5,23 @@ type: project
 # Current Plan — fps-camcontrol
 
 ## Active plan
-Finish the remaining live-use checks for the verified and deployed DJI RS3 BLE bridge. Implementation, formal verification, target-Pi BLE motion, app handshake, end-to-end pan streaming, watchdog stop, and clean disconnect behavior have passed.
+Finish the remaining live-use checks for the verified and deployed DJI RS3 BLE bridge. Switch Pro Bluetooth detection, DJI configuration preservation, controller camera selection, all-direction pan/tilt, and stop-on-release have passed with the physical RS3. The deployed joystick maximum is `200` and felt good in the initial live test.
 
 ## Next steps
 
-1. Run a controller-driven live pan/tilt test through FPS CamControl.
-2. Verify preset `moveTo` and `recenter` against the physical RS3.
-3. Verify safe stop on bridge SIGTERM and Ethernet yank.
-4. Verify app/bridge recovery after reconnect and Pi reboot.
-5. Complete 30-minute idle and representative-show soaks.
+1. Tune controller speed while viewing actual camera video.
+2. Verify emergency stop and preset `moveTo`/`recenter` against the physical RS3.
+3. Verify safe stop and recovery across Ethernet yank, reconnect, and Pi reboot.
+4. Complete idle and representative-show soaks.
 
 The deployed target is `dji-bridge.local` (`192.168.10.150`), user `worship`.
 The active and enabled `dji-bridge` service uses `/home/worship/dji-bridge`, a
 symlink to `/home/worship/fps-camcontrol/pi-bridge`; RS3 address
 `34:D2:62:15:A5:47` is set in `/etc/default/dji-bridge`. FPS CamControl `cam4`
 is enabled as DJI RS3.
+
+After redeployment, the Pi service remained active and the app, RS3, and Switch
+Pro controller were all live-connected.
 
 The `websockets.server` type-import deprecation warning is non-blocking cleanup,
 not a live-use gate.

@@ -19,7 +19,9 @@ from .base import Attitude, GimbalError, NotSupported
 NOTIFY_UUID = "0000fff4-0000-1000-8000-00805f9b34fb"
 WRITE_UUID = "0000fff5-0000-1000-8000-00805f9b34fb"
 CENTER = 1024
-MAX_JOYSTICK = 80
+DEFAULT_MAX_JOYSTICK = 200
+MIN_MAX_JOYSTICK = 1
+MAX_MAX_JOYSTICK = 1000
 POLL_PAYLOADS = (
     bytes.fromhex("660cc01d108401000e000c000050000000000000000010"),
     bytes.fromhex("660cc01d103e010000000c000050"),
@@ -110,6 +112,14 @@ def _joystick_payload(tilt: int = 0, roll: int = 0, pan: int = 0) -> bytes:
     return b"".join((CENTER + value).to_bytes(2, "little") for value in (tilt, roll, pan)) + b"\0\0\x02"
 
 
+def _max_joystick(value: int | str | None) -> int:
+    try:
+        configured = DEFAULT_MAX_JOYSTICK if value is None else int(value)
+    except (TypeError, ValueError):
+        configured = DEFAULT_MAX_JOYSTICK
+    return max(MIN_MAX_JOYSTICK, min(MAX_MAX_JOYSTICK, configured))
+
+
 def _embedded_frames(data: bytes) -> list[bytes]:
     frames: list[bytes] = []
     offset = 0
@@ -152,11 +162,15 @@ class DjiRsDriver:
         address: str | None = None,
         timeout: float = 15.0,
         transport_factory: Callable[[str, float], BleTransport] = _BleakTransport,
+        max_joystick: int | None = None,
     ) -> None:
         self.address = address or os.environ.get("DJI_RS3_BLE_ADDRESS")
         if not self.address:
             raise GimbalError("set --ble-address or DJI_RS3_BLE_ADDRESS")
         self.timeout = timeout
+        self.max_joystick = _max_joystick(
+            max_joystick if max_joystick is not None else os.environ.get("DJI_RS3_MAX_JOYSTICK")
+        )
         self._transport = transport_factory(self.address, timeout)
         self._sequence = 0x5000
         self._pose: Attitude | None = None
@@ -227,9 +241,8 @@ class DjiRsDriver:
     async def set_mode(self, mode: str) -> None:
         raise NotSupported("set_mode is not implemented for dji-rs3-ble")
 
-    @staticmethod
-    def _joystick(value: float) -> int:
-        return round(max(-1.0, min(1.0, value)) * MAX_JOYSTICK)
+    def _joystick(self, value: float) -> int:
+        return round(max(-1.0, min(1.0, value)) * self.max_joystick)
 
     async def _write(self, cmd_set: int, cmd_id: int, payload: bytes, receiver: int = 0x04) -> None:
         if not self.connected:

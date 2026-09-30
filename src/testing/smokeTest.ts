@@ -369,6 +369,32 @@ async function runTests(): Promise<void> {
   assert('LT sends a zoom command', outCmd !== null);
   assert('LT zooms OUT (wide, 0x3X)', outCmd !== null && (outCmd & 0xF0) === 0x30);
 
+  // ===== Switch Pro Controller regression =====
+  console.log('\nTest 13: Switch Pro Bluetooth profile and packed axes');
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { normalizeHIDReport } = require('../input/normalizers');
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { loadProfiles, detectConnectionType, detectProfile } = require('../input/profileDetector');
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const path = require('path');
+  const switchProfile = loadProfiles(path.join(process.cwd(), 'controller-profiles')).find((p: any) => p.name === 'Nintendo Switch Pro Controller (Bluetooth)');
+  const switchDevice = { vendorId: 0x057e, productId: 0x2009, path: 'DevSrvsID:4297576981', serialNumber: '98:B6:E9:24:69:83' };
+  assert('Switch Pro MAC serial is detected as Bluetooth', detectConnectionType(switchDevice) === 'bluetooth');
+  assert('Switch Pro profile matches at startup', detectProfile(switchDevice, [switchProfile]) === switchProfile);
+  const idleSwitchReport = Buffer.from('30a48000000000f87f00f87f0c0ffdc6fe3111d4ffc9fffbff10fdc6fe3011d5ffcafffbff10fdc6fe3011d5ffcafffbff', 'hex');
+  const idleSwitchInput = normalizeHIDReport(idleSwitchReport, switchProfile);
+  assert('Switch Pro captured idle sticks normalize near zero', Object.values(idleSwitchInput.axes).every((axis: any) => Math.abs(axis) < 0.001));
+  const extremeSwitchReport = Buffer.alloc(49, 0);
+  function packSwitchStick(offset: number, x: number, y: number): void {
+    extremeSwitchReport[offset] = x & 0xff;
+    extremeSwitchReport[offset + 1] = ((x >> 8) & 0x0f) | ((y & 0x0f) << 4);
+    extremeSwitchReport[offset + 2] = y >> 4;
+  }
+  packSwitchStick(6, 0, 4095);
+  packSwitchStick(9, 4095, 0);
+  const extremeSwitchInput = normalizeHIDReport(extremeSwitchReport, switchProfile);
+  assert('Switch Pro packed 12-bit extremes normalize correctly', extremeSwitchInput.axes.leftStickX === -1 && extremeSwitchInput.axes.leftStickY === 1 && extremeSwitchInput.axes.rightStickX === 1 && extremeSwitchInput.axes.rightStickY === -1);
+
   // ===== DJI bridge device =====
   console.log('\nTest 10: DJI bridge — hello, velocity, getPosition, moveTo, stop');
   // eslint-disable-next-line @typescript-eslint/no-var-requires
