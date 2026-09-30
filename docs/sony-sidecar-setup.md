@@ -86,7 +86,7 @@ profiles:
 - A Sony device can never be a rig's `device:` (controller). Every rule is checked when the config loads and when profiles are saved, and is enforced for profiles that are not active too.
 - **Approval is separate and stays on this machine.** Adding a Sony device does not approve the camera: connecting is still an explicit click, and the approved list is in `sony-cameras.json` (not committed). Saved cameras are listed after an app restart even while they are powered off, and reconnect on their own when they come back.
 
-Until the rigs screen lands (see `docs/ai/plans/2026-09-30-device-config-rigs-ui.md`), these entries are edited in the YAML file; the dashboard only reads them.
+These entries can be edited in the YAML file or through the API (the rigs screen in `docs/ai/plans/2026-09-30-device-config-rigs-ui.md` will use the same calls): `POST /api/sony-devices` (create: `{label, sonyCameraId?}`), `PATCH /api/sony-devices/:key` (`{label?, sonyCameraId?}`; `null` unbinds), `DELETE /api/sony-devices/:key` (refused with 409 while a rig in any profile uses it), and `PATCH /api/rigs/:key` with `{camera: "<sony device key>" | null}` to put a camera on a rig. Every edit is validated against the rules above before anything is written, keeps the file's comments, and is applied to the running app immediately.
 
 ## Camera-specific notes
 

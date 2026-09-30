@@ -113,6 +113,8 @@ async function selfTest(): Promise<number> {
     return { status: response.status, body, type };
   };
   const post = (p: string, body?: unknown) => api(p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const patch = (p: string, body: unknown) => api(p, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const del = (p: string) => api(p, { method: 'DELETE' });
   const put = (p: string, body: unknown) => api(p, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   const ctl = async (p: string, body: unknown): Promise<void> => { await fetch(control + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }); };
   const cameraState = async (id: string): Promise<string | undefined> => (await api('/api/sony/status')).body.cameras?.find((c: any) => c.id === id)?.state;
@@ -144,6 +146,37 @@ async function selfTest(): Promise<number> {
       return r.length === 4 && r.every((rig: any) => rig.live.connected === true) && r;
     }, 30000).catch(() => undefined);
     check('VISCA and gimbal rigs connect to their fakes', !!allLinked);
+
+
+    // --- rig edits: hardware records save immediately, are validated, keep the file documented
+    const yamlFile = path.join(runDir, 'devices.yaml');
+    const commentCount = (): number => fs.readFileSync(yamlFile, 'utf8').split('\n').filter((line) => line.includes('#')).length;
+    const commentsBefore = commentCount();
+    const version0 = (await api('/api/rigs')).body.version;
+    const renamed = await patch('/api/rigs/vbot', { label: 'V-BOT main', speedScale: 3 });
+    check('PATCH /api/rigs/:key renames a rig and answers with the new rig view', renamed.status === 200 && renamed.body.ok === true && renamed.body.rigs?.[0]?.label === 'V-BOT main');
+    const liveConfig = (await api('/api/config')).body;
+    check('the edit is applied to the running app at once', liveConfig.cameras?.[0]?.label === 'V-BOT main' && liveConfig.cameras?.[0]?.speedScale === 3);
+    check('the edit is on disk and every comment is still there', fs.readFileSync(yamlFile, 'utf8').includes('V-BOT main') && commentCount() === commentsBefore);
+    check('the edit keeps the gimbal a gimbal and the file free of a stray cameras: list', !/^cameras:/m.test(fs.readFileSync(yamlFile, 'utf8')) && /protocol: "?dji-bridge"?/.test(fs.readFileSync(yamlFile, 'utf8')));
+    check('a rig edit answers 400 for a protocol change', (await patch('/api/rigs/rs3', { protocol: 'visca' })).status === 400);
+    check('a rig edit answers 404 for an unknown device', (await patch('/api/rigs/ghost', { label: 'x' })).status === 404);
+    check('a rig edit refuses an ATEM input another rig uses', (await patch('/api/rigs/birddog1', { inputId: 6 })).status === 400);
+    check('a rig edit refuses a Sony camera on a BirdDog rig', (await patch('/api/rigs/birddog1', { camera: 'sony-spare' })).status === 400);
+    check('a rig edit refuses wiring for a device outside the active profile', (await patch('/api/rigs/rs3pro-a', { inputId: 3 })).status === 400);
+    check('a refused edit changes nothing on disk', commentCount() === commentsBefore && !fs.readFileSync(yamlFile, 'utf8').includes('inputId: 3\n      - { device: rs3pro-a'));
+    const stale = await patch('/api/rigs/vbot', { label: 'too late', expectedVersion: version0 });
+    check('an edit based on an old file version answers 409 conflict', stale.status === 409 && stale.body.conflict === true);
+    const fresh = (await api('/api/rigs')).body.version;
+    check('an edit with the current version goes through', (await patch('/api/rigs/vbot', { label: 'V-BOT', expectedVersion: fresh })).status === 200);
+
+    // --- Sony camera devices: create, name, bind, delete
+    const madeSony = await post('/api/sony-devices', { label: 'Backup FX3' });
+    check('POST /api/sony-devices creates a named Sony device (201) with a key made from the name', madeSony.status === 201 && madeSony.body.key === 'sony-backup-fx3');
+    check('the new device is listed and not bound to a camera yet', madeSony.body.sonyDevices?.find((d: any) => d.key === 'sony-backup-fx3')?.sonyCameraId === null);
+    check('a Sony device in use cannot be deleted (409)', (await del('/api/sony-devices/sony-stage-left')).status === 409);
+    check('a Sony device can be renamed', (await patch('/api/sony-devices/sony-backup-fx3', { label: 'Backup FX3 (truck)' })).body.sonyDevices?.find((d: any) => d.key === 'sony-backup-fx3')?.label === 'Backup FX3 (truck)');
+    check('giving a camera id another device has is refused (400)', (await patch('/api/sony-devices/sony-backup-fx3', { sonyCameraId: 'aa:00:00:00:00:01' })).status === 400);
 
     // --- connect the a7S III through the app
     check('connecting the a7S III through the app succeeds', (await post(`/api/sony/cameras/${A}/connect`)).status === 200);
@@ -185,6 +218,12 @@ async function selfTest(): Promise<number> {
       return r.unboundCameras?.find((c: any) => c.id === D) && r;
     }, 15000);
     check('a newly powered camera with no device appears in unboundCameras', !!unbound);
+    const bound = await patch('/api/sony-devices/sony-backup-fx3', { sonyCameraId: D });
+    check('binding a discovered camera to a Sony device removes it from unboundCameras', bound.status === 200 && !bound.body.unboundCameras?.some((c: any) => c.id === D));
+    const named = (await api('/api/sony/status')).body.cameras?.find((c: any) => c.id === D);
+    check('the bound camera shows the name the operator gave it', named?.name === 'Backup FX3 (truck)');
+    check('an unused Sony device can be deleted', (await del('/api/sony-devices/sony-backup-fx3')).status === 200);
+    check('the file is still fully documented after all the edits', commentCount() === commentsBefore);
   } catch (error) {
     check('the self-test ran to completion', false, String(error instanceof Error ? error.message : error));
   }

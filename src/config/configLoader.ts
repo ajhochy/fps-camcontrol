@@ -528,6 +528,11 @@ function devicesConfigPath(): string {
   return process.env.DEVICES_CONFIG ?? path.join(process.cwd(), 'config/devices.yaml');
 }
 
+/** The parsed devices.yaml as it is on disk now (empty object when missing or unreadable). */
+export function readDevicesFile(): Record<string, unknown> {
+  return readDevicesYaml();
+}
+
 function readDevicesYaml(): Record<string, unknown> {
   try {
     return (YAML.parse(fs.readFileSync(devicesConfigPath(), 'utf8')) as Record<string, unknown>) ?? {};
@@ -595,6 +600,11 @@ function stripUndefined(value: unknown): unknown {
  * inputId. A dump()-style write erases all of that on the first UI save
  * (issue #14), because comments are not part of the parsed value at all.
  */
+/** Write devices.yaml through the comment-preserving merge; refuses with ConfigConflictError if `expectedVersion` is stale. */
+export function writeDevicesFile(data: Record<string, unknown>, expectedVersion?: string): void {
+  writeDevicesYaml(data, expectedVersion);
+}
+
 function writeDevicesYaml(data: Record<string, unknown>, expectedVersion?: string): void {
   const devicesPath = devicesConfigPath();
   // Checked here, right before the merge re-reads the file, so nothing can slip in between.

@@ -9,10 +9,11 @@ import { AppState, CameraId, trackDeviceLinkState, clearCameraLinkState } from '
 import {
   AppConfig, MappingConfig, saveMappings, validateDevicesConfig, saveDevicesConfig,
   resolveProfile, saveActiveProfile, saveProfiles, CameraConfig,
-  devicesFileVersion, ConfigConflictError,
+  devicesFileVersion, ConfigConflictError, loadConfig, readDevicesFile, writeDevicesFile,
   type Profile as CameraProfile,
 } from '../config/configLoader';
 import { buildRigs } from '../config/rigs';
+import { applyRigPatch, createSonyDevice, patchSonyDevice, deleteSonyDevice, RigEditError } from '../config/rigEdit';
 import { PresetManager } from '../model/presetManager';
 import { ActivityLog } from '../app/activityLog';
 import { ViscaDevice } from '../devices/viscaDevice';
@@ -131,11 +132,65 @@ export function createStatusServer(
     });
   });
 
-  // GET /api/rigs — the rig view of the running config for the Device Config screen:
-  // one entry per camera position plus the ATEM, profile list and Sony camera status.
-  app.get('/api/rigs', (_req, res) => {
+  // The rig view of the running config: one entry per camera position plus the ATEM, profile list,
+  // Sony devices and Sony camera status. Also returned by every rig edit so the page can redraw from it.
+  const rigsBody = () => {
     const sony = sonyManager ? sonyManager.getStatus() : null;
-    res.json({ ...buildRigs(config, state, devicesFileVersion(), sony ? sony.cameras : []), sony });
+    return { ...buildRigs(config, state, devicesFileVersion(), sony ? sony.cameras : []), sony };
+  };
+  app.get('/api/rigs', (_req, res) => { res.json(rigsBody()); });
+
+  // ---- rig edits. Hardware records (name, addresses, bound Sony camera) are shared by every profile and
+  // are saved immediately. Each edit is validated as a whole file first, written through the
+  // comment-preserving writer, re-read from disk, and applied to the running cameras.
+  const commitConfigEdit = (expectedVersion: string | undefined, edit: (raw: Record<string, any>) => Record<string, any>): void => {
+    const next = edit(readDevicesFile());
+    writeDevicesFile(next, expectedVersion);
+    const fresh = loadConfig();
+    config.devices = fresh.devices;
+    config.profiles = fresh.profiles;
+    config.activeProfile = fresh.activeProfile;
+    reconcileCameras(fresh.cameras);
+  };
+  const splitVersion = (body: unknown): { expectedVersion: string | undefined; change: unknown } => {
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) return { expectedVersion: undefined, change: body };
+    const { expectedVersion, ...change } = body as Record<string, unknown>;
+    return { expectedVersion: typeof expectedVersion === 'string' ? expectedVersion : undefined, change };
+  };
+  const editFailed = (res: express.Response, err: unknown): void => {
+    if (err instanceof ConfigConflictError) { res.status(409).json({ ok: false, conflict: true, error: err.message }); return; }
+    if (err instanceof RigEditError) { res.status(err.status).json({ ok: false, error: err.message }); return; }
+    logger.error({ err }, 'rig edit failed');
+    res.status(500).json({ ok: false, error: 'the change could not be saved' });
+  };
+  const deviceKeyOf = (req: express.Request, res: express.Response): string | null => {
+    const key = req.params.key;
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(key)) { res.status(400).json({ ok: false, error: 'invalid device key' }); return null; }
+    return key;
+  };
+
+  app.patch('/api/rigs/:key', (req, res) => {
+    const key = deviceKeyOf(req, res); if (!key) return;
+    const { expectedVersion, change } = splitVersion(req.body);
+    try { commitConfigEdit(expectedVersion, (raw) => applyRigPatch(raw, key, change)); res.json({ ok: true, ...rigsBody() }); } catch (err) { editFailed(res, err); }
+  });
+  app.post('/api/sony-devices', (req, res) => {
+    const { expectedVersion, change } = splitVersion(req.body);
+    try {
+      let created = '';
+      commitConfigEdit(expectedVersion, (raw) => { const result = createSonyDevice(raw, change); created = result.key; return result.raw; });
+      res.status(201).json({ ok: true, key: created, ...rigsBody() });
+    } catch (err) { editFailed(res, err); }
+  });
+  app.patch('/api/sony-devices/:key', (req, res) => {
+    const key = deviceKeyOf(req, res); if (!key) return;
+    const { expectedVersion, change } = splitVersion(req.body);
+    try { commitConfigEdit(expectedVersion, (raw) => patchSonyDevice(raw, key, change)); res.json({ ok: true, ...rigsBody() }); } catch (err) { editFailed(res, err); }
+  });
+  app.delete('/api/sony-devices/:key', (req, res) => {
+    const key = deviceKeyOf(req, res); if (!key) return;
+    const { expectedVersion } = splitVersion(req.body);
+    try { commitConfigEdit(expectedVersion, (raw) => deleteSonyDevice(raw, key)); res.json({ ok: true, ...rigsBody() }); } catch (err) { editFailed(res, err); }
   });
 
   app.get('/api/presets', (_req, res) => {

@@ -55,7 +55,9 @@ The app starts and adopts the fake Sony service; bound cameras show their names;
 VISCA and gimbal rigs connect; connect a7S III, read and change a setting with the dashboard's hex values,
 a raw number is refused, a live-view frame arrives; the FX3A refuses until pairing opens and its aperture
 is read-only; power-off shows disconnected and power-on reconnects by itself; a newly powered camera with no
-device entry appears as unbound.
+device entry appears as unbound; rig edits (`PATCH /api/rigs/:key`: rename, speed, refused protocol change, duplicate ATEM
+input, camera on a BirdDog rig, wiring outside the active profile, stale-version 409, comments kept on disk, applied to the
+running app) and Sony device create / rename / bind / delete (including a 409 for a device still in use).
 
 ## Running the tests without stopping the live app
 
@@ -69,4 +71,5 @@ npx ts-node src/testing/sonyManagerTest.ts
 npx ts-node src/testing/sonyConfigStoreTest.ts
 npx ts-node src/testing/rigsTest.ts
 npx ts-node src/testing/rigSchemaTest.ts
+npx ts-node src/testing/rigEditTest.ts
 ```

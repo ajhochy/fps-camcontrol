@@ -176,3 +176,21 @@ Suggested first slice (issues 1 and 2 are done): issues 6 (safe foundation, read
 - Confirm D1–D12 above (especially D1 as updated, D3 and D6).
 - Should deleting a rig also delete its inventory device (hardware description) or keep it available to re-add?
 - D10–D13 record your answer (live working copy, Save as creates a new profile, original untouched). Confirmed 2026-09-30: the working copy is saved across restarts and applied immediately (D11/D12); hardware details (name, IP, bound Sony camera) are shared by all profiles and save immediately (D10).
+
+## 11. API as built (issues 2-4)
+
+| Call | Purpose |
+| --- | --- |
+| `GET /api/rigs` | Rig view: `rigs[]` (position, id, deviceKey, label, controller, visca/gimbal connection, speedScale, inputId, hotkey, builtInCamera, camera, cameraLabel, usedInProfiles, live), `sonyDevices[]`, `unboundCameras[]`, `profiles[]`, `atem`, `graphics`, `sony`, `version`, `legacy`. Also returned by every edit below |
+| `PATCH /api/rigs/:deviceKey` | Body: any of `label`, `speedScale`, `visca:{host,port,address}`, `gimbal:{host,port,gimbalModel,safetyTimeoutMs,rollEnabled,reconnectBackoffMs}`, `inputId` (null = control-only), `camera` (Sony device key or null), `position` (only when one device fills several rigs), `expectedVersion`. Protocol and controller type cannot be changed. Unknown fields are refused, not ignored |
+| `POST /api/sony-devices` | `{label, sonyCameraId?}` -> 201 with the new `key` (made from the name, unique) |
+| `PATCH /api/sony-devices/:key` | `{label?, sonyCameraId?}`; `sonyCameraId: null` unbinds |
+| `DELETE /api/sony-devices/:key` | 409 while any rig in any profile uses it |
+| errors | 400 invalid (message says why), 404 unknown device, 409 stale `expectedVersion` (`conflict: true`) or device in use |
+
+Every edit: validated as a whole file (same rules as load) before anything is written -> written through the
+comment-preserving writer (atomic, version-checked) -> re-read from disk -> applied to the running cameras.
+
+**Interim behaviour:** until issue 9a, wiring edits (`inputId`, `camera`) are written straight into the active
+profile in `devices.yaml`. Issue 9a moves them into the working copy (D11) and makes hardware fields the only
+immediate writes. Not built yet: rig add/delete (issue 5), any UI.
