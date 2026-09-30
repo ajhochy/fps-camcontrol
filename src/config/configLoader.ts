@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 // The `yaml` package (not js-yaml) is used here on purpose: its Document API
@@ -406,6 +407,58 @@ export function validateDevicesConfig(raw: unknown): ValidatedDevicesConfig {
   };
 }
 
+/** A save was based on a version of devices.yaml that is no longer on disk (edited by hand, or by another save). */
+export class ConfigConflictError extends Error {
+  constructor() {
+    super('devices.yaml changed on disk since this page loaded it; reload and try again');
+    this.name = 'ConfigConflictError';
+  }
+}
+
+/**
+ * Replace `target` with `content` so a crash or power loss can never leave a
+ * half-written file: write a temp file in the same directory, flush it to disk,
+ * then rename over the target (an atomic replace on the same filesystem). The
+ * original file's permissions are kept. `rename` is injectable so a test can
+ * prove the old content survives a failure at the last step.
+ */
+export function writeFileAtomic(
+  target: string,
+  content: string,
+  io: { rename?: (from: string, to: string) => void } = {},
+): void {
+  const dir = path.dirname(target);
+  const temp = path.join(dir, `.${path.basename(target)}.${crypto.randomBytes(6).toString('hex')}.tmp`);
+  let mode = 0o644;
+  try { mode = fs.statSync(target).mode & 0o777; } catch { /* new file: default mode */ }
+  let fd: number | undefined;
+  try {
+    fd = fs.openSync(temp, 'wx', mode);
+    fs.writeSync(fd, content, 0, 'utf8');
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fd = undefined;
+    (io.rename ?? fs.renameSync)(temp, target);
+  } catch (error) {
+    if (fd !== undefined) { try { fs.closeSync(fd); } catch { /* already closed */ } }
+    try { fs.unlinkSync(temp); } catch { /* temp never created or already gone */ }
+    throw error;
+  }
+}
+
+/**
+ * Short fingerprint of devices.yaml as it is on disk right now. Read endpoints
+ * hand it to the page; a save that sends it back is refused when the file has
+ * changed in between (hand edit, another save, a profile switch).
+ */
+export function devicesFileVersion(): string {
+  try {
+    return crypto.createHash('sha256').update(fs.readFileSync(devicesConfigPath())).digest('hex').slice(0, 16);
+  } catch {
+    return 'missing';
+  }
+}
+
 function devicesConfigPath(): string {
   return process.env.DEVICES_CONFIG ?? path.join(process.cwd(), 'config/devices.yaml');
 }
@@ -477,8 +530,10 @@ function stripUndefined(value: unknown): unknown {
  * inputId. A dump()-style write erases all of that on the first UI save
  * (issue #14), because comments are not part of the parsed value at all.
  */
-function writeDevicesYaml(data: Record<string, unknown>): void {
+function writeDevicesYaml(data: Record<string, unknown>, expectedVersion?: string): void {
   const devicesPath = devicesConfigPath();
+  // Checked here, right before the merge re-reads the file, so nothing can slip in between.
+  if (expectedVersion !== undefined && expectedVersion !== devicesFileVersion()) throw new ConfigConflictError();
   let doc: YAML.Document | null = null;
   try {
     doc = YAML.parseDocument(fs.readFileSync(devicesPath, 'utf8'));
@@ -487,11 +542,11 @@ function writeDevicesYaml(data: Record<string, unknown>): void {
   }
   // No parsable mapping to merge into (missing or empty file): nothing to preserve.
   if (!doc || !YAML.isMap(doc.contents)) {
-    fs.writeFileSync(devicesPath, YAML.stringify(stripUndefined(data), { lineWidth: 120 }), 'utf8');
+    writeFileAtomic(devicesPath, YAML.stringify(stripUndefined(data), { lineWidth: 120 }));
     return;
   }
   applyToDocument(doc, [], data);
-  fs.writeFileSync(devicesPath, doc.toString({ lineWidth: 120 }), 'utf8');
+  writeFileAtomic(devicesPath, doc.toString({ lineWidth: 120 }));
 }
 
 /** Persist which profile is active, leaving the rest of the file untouched. */
@@ -506,7 +561,7 @@ export function saveActiveProfile(profileName: string): void {
 }
 
 /** Persist profile slot definitions, validating them before touching the file. */
-export function saveProfiles(profiles: Record<string, Profile>): void {
+export function saveProfiles(profiles: Record<string, Profile>, expectedVersion?: string): void {
   const existing = readDevicesYaml();
   const inventory = (existing.devices ?? {}) as Record<string, unknown>;
   for (const [name, profile] of Object.entries(profiles)) {
@@ -522,10 +577,10 @@ export function saveProfiles(profiles: Record<string, Profile>): void {
   // next load doesn't fail validation.
   const active = existing.activeProfile as string | undefined;
   if (active && !profiles[active]) existing.activeProfile = Object.keys(profiles)[0];
-  writeDevicesYaml(existing);
+  writeDevicesYaml(existing, expectedVersion);
 }
 
-export function saveDevicesConfig(config: ValidatedDevicesConfig): void {
+export function saveDevicesConfig(config: ValidatedDevicesConfig, expectedVersion?: string): void {
   // Merge into the existing file rather than replacing it. `cameras` is derived
   // from the active profile, so a blind write of {atem, cameras, graphics} would
   // delete the whole `devices:` inventory and every profile.
@@ -583,11 +638,11 @@ export function saveDevicesConfig(config: ValidatedDevicesConfig): void {
     out.cameras = config.cameras;
   }
 
-  writeDevicesYaml(out);
+  writeDevicesYaml(out, expectedVersion);
 }
 
 export function saveMappings(mappings: MappingConfig): void {
   const mappingsPath = process.env.MAPPINGS_FILE ?? path.join(process.cwd(), 'config/mappings.yaml');
   const header = '# Controller button mappings - managed by FPS CamControl UI\n';
-  fs.writeFileSync(mappingsPath, header + YAML.stringify(mappings), 'utf8');
+  writeFileAtomic(mappingsPath, header + YAML.stringify(mappings));
 }

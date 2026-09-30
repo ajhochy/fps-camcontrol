@@ -5,7 +5,7 @@ import * as YAML from 'yaml';
 import { createInitialState, trackDeviceLinkState, AppState, CameraId } from '../app/state';
 import {
   AppConfig, resolveProfile, validateDevicesConfig, saveDevicesConfig,
-  saveActiveProfile, saveProfiles,
+  saveActiveProfile, saveProfiles, devicesFileVersion, ConfigConflictError, writeFileAtomic,
 } from '../config/configLoader';
 import { VirtualAtem } from './virtualAtem';
 import { VirtualVisca } from './virtualVisca';
@@ -1074,6 +1074,74 @@ async function runTests(): Promise<void> {
   saveDevicesConfig(legacy);
   assert('a legacy cameras-only config still saves', readYaml().cameras[0].viscaIp === '10.0.0.3');
   assert('a legacy config with a blank input stores no inputId', readYaml().cameras[0].inputId === undefined);
+
+  // Rigs plan #1: writes are atomic, and a save based on a stale view of the file is refused.
+  console.log('\nTest 16b: devices.yaml saves are atomic and refuse a stale version');
+  resetFixture();
+  const loadedVersion = devicesFileVersion();
+  assert('the file version is a stable fingerprint of the file', loadedVersion === devicesFileVersion() && loadedVersion !== 'missing');
+  fs.writeFileSync(cfgPath, fixture.replace('192.168.50.15"', '192.168.50.99"'), 'utf8'); // a hand edit after the page loaded
+  assert('a hand edit changes the file version', devicesFileVersion() !== loadedVersion);
+  const beforeStale = fs.readFileSync(cfgPath, 'utf8');
+  let staleRefused = false;
+  try { saveDevicesConfig(validateDevicesConfig(uiPayload), loadedVersion); } catch (err) { staleRefused = err instanceof ConfigConflictError; }
+  assert('a device-config save with a stale version is refused', staleRefused);
+  assert('a refused save leaves the file byte-identical', fs.readFileSync(cfgPath, 'utf8') === beforeStale);
+  let staleProfilesRefused = false;
+  try { saveProfiles({ production: { label: 'Production', slots: [{ device: 'vbot', inputId: 6 }] } }, loadedVersion); } catch (err) { staleProfilesRefused = err instanceof ConfigConflictError; }
+  assert('a profile save with a stale version is refused', staleProfilesRefused);
+  assert('a refused profile save leaves the file byte-identical', fs.readFileSync(cfgPath, 'utf8') === beforeStale);
+  saveDevicesConfig(validateDevicesConfig(uiPayload), devicesFileVersion());
+  assert('a save with the current version goes through', readYaml().devices.vbot.label === 'V-BOT MAIN');
+  assert('a save with the current version still keeps every comment', commentLines(fs.readFileSync(cfgPath, 'utf8')).length === commentLines(fixture).length);
+  resetFixture();
+  saveDevicesConfig(validateDevicesConfig(uiPayload));
+  assert('a save with no version is not checked (older clients keep working)', readYaml().devices.vbot.label === 'V-BOT MAIN');
+  assert('saves leave no temp files behind', fs.readdirSync(cfgDir).every((name) => !name.endsWith('.tmp')));
+  fs.chmodSync(cfgPath, 0o600);
+  saveDevicesConfig(validateDevicesConfig(uiPayload));
+  assert('a save keeps the file permissions', (fs.statSync(cfgPath).mode & 0o777) === 0o600);
+
+  // A failure at the very last step (the rename) must leave the old file whole and no temp file behind.
+  resetFixture();
+  const beforeCrash = fs.readFileSync(cfgPath, 'utf8');
+  let crashed = false;
+  try { writeFileAtomic(cfgPath, 'half written garbage', { rename: () => { throw new Error('simulated power loss'); } }); } catch (_) { crashed = true; }
+  assert('a failed atomic write throws', crashed);
+  assert('a failed atomic write leaves the original file intact', fs.readFileSync(cfgPath, 'utf8') === beforeCrash);
+  assert('a failed atomic write leaves no temp file behind', fs.readdirSync(cfgDir).every((name) => !name.endsWith('.tmp')));
+  const freshPath = path.join(cfgDir, 'fresh.yaml');
+  writeFileAtomic(freshPath, 'a: 1\n');
+  assert('an atomic write creates a new file with the content', fs.readFileSync(freshPath, 'utf8') === 'a: 1\n');
+
+  // The same guarantees through the real HTTP routes.
+  resetFixture();
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { createStatusServer: createConfigApp } = require('../ui/statusServer');
+  const configServer: any = await new Promise((resolve) => {
+    const server = createConfigApp(state, config, presetManager).listen(0, '127.0.0.1', () => resolve(server));
+  });
+  const configBase = `http://127.0.0.1:${configServer.address().port}`;
+  const getConfig: any = await (await fetch(`${configBase}/api/config`)).json();
+  assert('GET /api/config returns the file version', getConfig.version === devicesFileVersion());
+  const getProfiles: any = await (await fetch(`${configBase}/api/profiles`)).json();
+  assert('GET /api/profiles returns the file version', getProfiles.version === devicesFileVersion());
+  fs.writeFileSync(cfgPath, fixture.replace('192.168.50.15"', '192.168.50.98"'), 'utf8');
+  const beforeHttp = fs.readFileSync(cfgPath, 'utf8');
+  const staleHttp = await fetch(`${configBase}/api/config`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ ...uiPayload, expectedVersion: getConfig.version }),
+  });
+  const staleBody: any = await staleHttp.json();
+  assert('POST /api/config with a stale version answers 409 conflict', staleHttp.status === 409 && staleBody.conflict === true && staleBody.ok === false);
+  assert('a 409 save leaves the file untouched', fs.readFileSync(cfgPath, 'utf8') === beforeHttp);
+  const staleProfilesHttp = await fetch(`${configBase}/api/profiles`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ profiles: getProfiles.profiles, expectedVersion: getProfiles.version }),
+  });
+  assert('POST /api/profiles with a stale version answers 409 conflict', staleProfilesHttp.status === 409);
+  await new Promise<void>((resolve) => configServer.close(() => resolve()));
+  resetFixture();
 
   if (previousDevicesConfig === undefined) delete process.env.DEVICES_CONFIG;
   else process.env.DEVICES_CONFIG = previousDevicesConfig;

@@ -9,6 +9,7 @@ import { AppState, CameraId, trackDeviceLinkState, clearCameraLinkState } from '
 import {
   AppConfig, MappingConfig, saveMappings, validateDevicesConfig, saveDevicesConfig,
   resolveProfile, saveActiveProfile, saveProfiles, CameraConfig,
+  devicesFileVersion, ConfigConflictError,
   type Profile as CameraProfile,
 } from '../config/configLoader';
 import { PresetManager } from '../model/presetManager';
@@ -111,12 +112,19 @@ export function createStatusServer(
     res.json(state);
   });
 
+  // The version of devices.yaml the page was looking at when it saved. Absent for older clients: no check.
+  const expectedVersionOf = (body: unknown): string | undefined => {
+    const version = (body as { expectedVersion?: unknown } | undefined)?.expectedVersion;
+    return typeof version === 'string' ? version : undefined;
+  };
+
   app.get('/api/config', (_req, res) => {
     res.json({
       cameras: config.cameras,
       atem: config.atem,
       graphics: config.graphics,
       speeds: config.speeds,
+      version: devicesFileVersion(),
     });
   });
 
@@ -273,6 +281,7 @@ export function createStatusServer(
       activeProfile: config.activeProfile ?? null,
       profiles: config.profiles ?? {},
       devices: config.devices ?? {},
+      version: devicesFileVersion(),
     });
   });
 
@@ -319,7 +328,7 @@ export function createStatusServer(
     try {
       const body = req.body as { profiles?: Record<string, CameraProfile> };
       if (!body?.profiles) { res.status(400).json({ ok: false, error: 'missing "profiles"' }); return; }
-      saveProfiles(body.profiles);
+      saveProfiles(body.profiles, expectedVersionOf(req.body));
       config.profiles = body.profiles;
 
       // If the profile being edited is the live one, apply the edit immediately.
@@ -327,8 +336,9 @@ export function createStatusServer(
       if (active && body.profiles[active]) {
         reconcileCameras(resolveProfile(config.devices ?? {}, body.profiles[active]));
       }
-      res.json({ ok: true });
+      res.json({ ok: true, version: devicesFileVersion() });
     } catch (err) {
+      if (err instanceof ConfigConflictError) { res.status(409).json({ ok: false, conflict: true, error: err.message }); return; }
       logger.error({ err }, 'profile save failed');
       res.status(400).json({ ok: false, error: String(err) });
     }
@@ -341,8 +351,8 @@ export function createStatusServer(
       // Detect ATEM IP change before mutating config
       const atemIpChanged = parsed.atem.ip !== config.atem.ip;
 
-      // Save to disk
-      saveDevicesConfig(parsed);
+      // Save to disk (refused with 409 if devices.yaml changed since the page loaded it)
+      saveDevicesConfig(parsed, expectedVersionOf(req.body));
 
       // Update in-memory config
       config.atem = parsed.atem;
@@ -356,8 +366,9 @@ export function createStatusServer(
         atem.connect().catch(err => logger.warn({ err }, 'ATEM reconnect after config change failed'));
       }
 
-      res.json({ ok: true });
+      res.json({ ok: true, version: devicesFileVersion() });
     } catch (err) {
+      if (err instanceof ConfigConflictError) { res.status(409).json({ ok: false, conflict: true, error: err.message }); return; }
       logger.error({ err }, 'config save failed');
       res.status(400).json({ ok: false, error: String(err) });
     }
@@ -1827,8 +1838,9 @@ async function saveProfileSlots(btn) {
     var r = await fetch('/api/profiles', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ profiles: out }),
+      body: JSON.stringify({ profiles: out, expectedVersion: profilesData ? profilesData.version : undefined }),
     }).then(function(x) { return x.json(); });
+    if (r.conflict) { document.getElementById('tab-profiles').dataset.editing = 'false'; await refreshProfiles(); }
     if (!r.ok) throw new Error(r.error || 'save failed');
     st.textContent = 'Saved';
     document.getElementById('tab-profiles').dataset.editing = 'false';
@@ -2189,14 +2201,21 @@ async function saveDeviceConfig() {
     var r = await fetch('/api/config', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ atem: atem, cameras: cameras, graphics: graphics }),
+      body: JSON.stringify({ atem: atem, cameras: cameras, graphics: graphics, expectedVersion: deviceConfigData ? deviceConfigData.version : undefined }),
     });
     var j = await r.json();
     if (j.ok) {
+      if (deviceConfigData) deviceConfigData.version = j.version;
       statusEl.textContent = 'Saved & applied ✓';
       statusEl.style.color = '#4f4';
       document.getElementById('tab-config').dataset.editing = 'false';
       setTimeout(function() { statusEl.textContent = ''; }, 3000);
+    } else if (j.conflict) {
+      // The file changed under the page (hand edit, profile switch): drop the stale form and reload it.
+      statusEl.textContent = 'devices.yaml changed since this page loaded — reloaded, please redo your edit.';
+      statusEl.style.color = '#f44';
+      document.getElementById('tab-config').dataset.editing = 'false';
+      refreshDeviceConfig();
     } else {
       statusEl.textContent = 'Error: ' + j.error;
       statusEl.style.color = '#f44';
