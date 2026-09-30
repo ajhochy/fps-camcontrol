@@ -99,9 +99,13 @@ async function main() {
     eventBus.emit('controllerData', { type: 'rawHidData', raw: data, normalized: input });
   });
 
-  supervisor.start();
+  // CAMCONTROL_NO_CONTROLLER=1 (the sandbox, isolated tests): never open the real
+  // HID controller, so a second copy of the app cannot take it from the live one.
+  const controllerDisabled = process.env.CAMCONTROL_NO_CONTROLLER === '1';
+  if (controllerDisabled) logger.warn('controller input disabled (CAMCONTROL_NO_CONTROLLER=1)');
+  else supervisor.start();
 
-  if (!supervisor.isAttached()) {
+  if (!controllerDisabled && !supervisor.isAttached()) {
     logger.warn('no known controller found — watching for one to connect; calibration wizard available at http://localhost:8080');
     const wizard = new CalibrationWizard();
     wizard.start();
