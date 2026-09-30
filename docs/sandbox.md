@@ -57,7 +57,7 @@ a raw number is refused, a live-view frame arrives; the FX3A refuses until pairi
 is read-only; power-off shows disconnected and power-on reconnects by itself; a newly powered camera with no
 device entry appears as unbound; rig edits (`PATCH /api/rigs/:key`: rename, speed, refused protocol change, duplicate ATEM
 input, camera on a BirdDog rig, wiring outside the active profile, stale-version 409, comments kept on disk, applied to the
-running app) and Sony device create / rename / bind / delete (including a 409 for a device still in use).
+running app) and Sony device create / rename / bind / delete (including a 409 for a device still in use); adding a rig at the end, removing one only after confirmation (409 with the impact first), presets moving with their cameras when a middle rig is removed (the sandbox presets are seeded for this), adding a removed device back, and refusing to remove a profile's last rig.
 
 ## Running the tests without stopping the live app
 

@@ -58,6 +58,33 @@ function validated(next: Raw): Raw {
   return next;
 }
 
+function setVisca(device: Raw, v: unknown): void {
+  if (!isObject(v)) return fail('visca must be an object');
+  expectKeys(v, ['host', 'port', 'address'], 'visca');
+  if ('host' in v) device.viscaIp = text(v.host, 'camera address (IP)', 253);
+  if ('port' in v) device.viscaPort = integer(v.port, 'port', 1, 65535);
+  if ('address' in v) device.cameraAddress = integer(v.address, 'VISCA address', 0, 7);
+}
+
+function setGimbal(device: Raw, g: unknown): void {
+  if (!isObject(g)) return fail('gimbal must be an object');
+  expectKeys(g, ['host', 'port', 'gimbalModel', 'safetyTimeoutMs', 'rollEnabled', 'reconnectBackoffMs'], 'gimbal');
+  const bridge: Raw = isObject(device.bridge) ? device.bridge : {};
+  if ('host' in g) bridge.host = text(g.host, 'bridge host', 253);
+  if ('port' in g) bridge.port = integer(g.port, 'port', 1, 65535);
+  if ('gimbalModel' in g) { if (g.gimbalModel === null) delete bridge.gimbalModel; else bridge.gimbalModel = text(g.gimbalModel, 'gimbal model', 32); }
+  if ('safetyTimeoutMs' in g) bridge.safetyTimeoutMs = integer(g.safetyTimeoutMs, 'safety stop timeout (ms)', 50, 2000);
+  if ('rollEnabled' in g) { if (typeof g.rollEnabled !== 'boolean') fail('roll must be on or off'); bridge.rollEnabled = g.rollEnabled; }
+  if ('reconnectBackoffMs' in g) {
+    const b = g.reconnectBackoffMs;
+    if (!Array.isArray(b) || b.length < 1 || b.length > 10 || b.some((n) => typeof n !== 'number' || !Number.isInteger(n) || n < 100 || n > 120000)) {
+      fail('reconnect back-off must be 1 to 10 whole numbers of milliseconds, each 100 to 120000');
+    }
+    bridge.reconnectBackoffMs = b;
+  }
+  device.bridge = bridge;
+}
+
 export interface RigPatch {
   /** Hardware record, shared by every profile. */
   label?: string;
@@ -87,32 +114,11 @@ export function applyRigPatch(current: Raw, deviceKey: string, patch: unknown): 
   }
   if ('visca' in patch) {
     if ((device.protocol ?? 'visca') !== 'visca') fail(`"${deviceKey}" is not a VISCA camera, so it has no VISCA connection settings`);
-    const v = patch.visca;
-    if (!isObject(v)) return fail('visca must be an object');
-    expectKeys(v, ['host', 'port', 'address'], 'visca');
-    if ('host' in v) device.viscaIp = text(v.host, 'camera address (IP)', 253);
-    if ('port' in v) device.viscaPort = integer(v.port, 'port', 1, 65535);
-    if ('address' in v) device.cameraAddress = integer(v.address, 'VISCA address', 0, 7);
+    setVisca(device, patch.visca);
   }
   if ('gimbal' in patch) {
     if (device.protocol !== 'dji-bridge') fail(`"${deviceKey}" is not a gimbal, so it has no bridge settings`);
-    const g = patch.gimbal;
-    if (!isObject(g)) return fail('gimbal must be an object');
-    expectKeys(g, ['host', 'port', 'gimbalModel', 'safetyTimeoutMs', 'rollEnabled', 'reconnectBackoffMs'], 'gimbal');
-    const bridge: Raw = isObject(device.bridge) ? device.bridge : {};
-    if ('host' in g) bridge.host = text(g.host, 'bridge host', 253);
-    if ('port' in g) bridge.port = integer(g.port, 'port', 1, 65535);
-    if ('gimbalModel' in g) { if (g.gimbalModel === null) delete bridge.gimbalModel; else bridge.gimbalModel = text(g.gimbalModel, 'gimbal model', 32); }
-    if ('safetyTimeoutMs' in g) bridge.safetyTimeoutMs = integer(g.safetyTimeoutMs, 'safety stop timeout (ms)', 50, 2000);
-    if ('rollEnabled' in g) { if (typeof g.rollEnabled !== 'boolean') fail('roll must be on or off'); bridge.rollEnabled = g.rollEnabled; }
-    if ('reconnectBackoffMs' in g) {
-      const b = g.reconnectBackoffMs;
-      if (!Array.isArray(b) || b.length < 1 || b.length > 10 || b.some((n) => typeof n !== 'number' || !Number.isInteger(n) || n < 100 || n > 120000)) {
-        fail('reconnect back-off must be 1 to 10 whole numbers of milliseconds, each 100 to 120000');
-      }
-      bridge.reconnectBackoffMs = b;
-    }
-    device.bridge = bridge;
+    setGimbal(device, patch.gimbal);
   }
 
   // ---- wiring in the active profile
@@ -201,4 +207,115 @@ export function deleteSonyDevice(current: Raw, key: string): Raw {
   if (users.length) throw new RigEditError(`"${device.label}" is still used by ${users.join(', ')}; take it off those rigs first`, 409);
   delete raw.devices[key];
   return validated(raw);
+}
+
+// ------------------------------------------------------------ add / remove rigs
+
+function deviceSlug(label: string): string {
+  return label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'rig';
+}
+
+function activeSlots(raw: Raw): { active: string; slots: Raw[] } {
+  const active: string | undefined = raw.activeProfile;
+  const slots: Raw[] | undefined = active ? raw.profiles?.[active]?.slots : undefined;
+  if (!active || !Array.isArray(slots)) return fail('this config has no active profile, so rigs cannot be added or removed');
+  return { active, slots };
+}
+
+/**
+ * Add a rig to the end of the active profile (so no existing rig changes position). Either put an existing
+ * controller from the inventory on a new rig (`deviceKey`), or describe new hardware (`label`, `controller`
+ * and its connection). Returns the edited config, the device key and the new rig's 1-based position.
+ */
+export function createRig(current: Raw, input: unknown): { raw: Raw; key: string; position: number } {
+  const raw = clone(current);
+  if (!isObject(input)) return fail('the new rig must be an object');
+  expectKeys(input, ['deviceKey', 'label', 'controller', 'visca', 'gimbal', 'speedScale', 'inputId', 'camera'], 'rig');
+  const { slots } = activeSlots(raw);
+  raw.devices = isObject(raw.devices) ? raw.devices : {};
+
+  let key: string;
+  if ('deviceKey' in input) {
+    for (const field of ['label', 'controller', 'visca', 'gimbal', 'speedScale']) {
+      if (field in input) fail(`an existing device is added as it is; "${field}" can be changed afterwards`);
+    }
+    key = text(input.deviceKey, 'device', 64);
+    const existing = raw.devices[key];
+    if (!isObject(existing)) throw new RigEditError(`unknown device "${key}"`, 404);
+    if (existing.protocol === 'sony') fail('a Sony camera is not a controller; add it to a rig as its camera');
+    if (slots.some((slot) => slot.device === key)) fail(`"${key}" is already a rig in the active profile`);
+  } else {
+    const controller = input.controller;
+    if (!['vbot', 'birddog', 'gimbal', 'generic'].includes(controller as string)) fail('controller must be vbot, birddog, gimbal or generic');
+    const label = text(input.label, 'name', 64);
+    const device: Raw = { label };
+    if (controller === 'gimbal') {
+      if (!isObject(input.gimbal) || !('host' in input.gimbal)) fail('a gimbal needs its bridge host');
+      device.protocol = 'dji-bridge';
+      setGimbal(device, { port: 7878, ...(input.gimbal as Raw) });
+      if ('visca' in input) fail('a gimbal has no VISCA settings');
+    } else {
+      if (!isObject(input.visca) || !('host' in input.visca)) fail('a camera needs its IP address');
+      device.protocol = 'visca';
+      device.cameraType = controller;
+      setVisca(device, { port: 52381, address: 1, ...(input.visca as Raw) });
+      if ('gimbal' in input) fail('only a gimbal has bridge settings');
+    }
+    if ('speedScale' in input) {
+      if (typeof input.speedScale !== 'number' || !(input.speedScale >= 0.1 && input.speedScale <= 5)) fail('speed multiplier must be a number from 0.1 to 5');
+      device.speedScale = input.speedScale;
+    }
+    key = deviceSlug(label);
+    for (let n = 2; raw.devices[key]; n++) key = `${deviceSlug(label)}-${n}`;
+    if (!DEVICE_KEY.test(key)) fail('could not make a key from that name');
+    raw.devices[key] = device;
+  }
+
+  const slot: Raw = { device: key };
+  if ('inputId' in input && input.inputId !== null) {
+    slot.inputId = integer(input.inputId, 'ATEM input', 1, 99);
+    const clash = slots.findIndex((other) => other.inputId === slot.inputId);
+    if (clash >= 0) fail(`ATEM input ${slot.inputId} is already used by rig ${clash + 1}`);
+  }
+  if ('camera' in input && input.camera !== null) slot.camera = text(input.camera, 'camera', 64);
+  slots.push(slot);
+  return { raw: validated(raw), key, position: slots.length };
+}
+
+export interface RigRemoval { raw: Raw; position: number; deviceRemoved: boolean }
+
+/** Which 1-based rig position `deviceKey` fills in the active profile (`position` picks one when it fills several). */
+export function rigPositionOf(current: Raw, deviceKey: string, position?: unknown): number {
+  const { active, slots } = activeSlots(current);
+  const matches = slots.map((slot, i) => (slot.device === deviceKey ? i : -1)).filter((i) => i >= 0);
+  if (!matches.length) throw new RigEditError(`"${deviceKey}" is not a rig in the active profile "${active}"`, 404);
+  if (matches.length === 1) return matches[0] + 1;
+  if (position === undefined) return fail(`"${deviceKey}" fills more than one rig; say which with position`);
+  const index = integer(position, 'position', 1, slots.length) - 1;
+  if (slots[index]?.device !== deviceKey) fail(`rig ${index + 1} is not "${deviceKey}"`);
+  return index + 1;
+}
+
+/**
+ * Remove a rig from the active profile. Later rigs move up one position (and so change id and hotkey); the caller
+ * is responsible for shifting their presets. The hardware entry stays in the inventory unless `deleteDevice` is
+ * set, which is refused while any other rig in any profile still uses it.
+ */
+export function removeRig(current: Raw, deviceKey: string, options: { position?: unknown; deleteDevice?: boolean } = {}): RigRemoval {
+  const raw = clone(current);
+  const position = rigPositionOf(raw, deviceKey, options.position);
+  const { slots } = activeSlots(raw);
+  if (slots.length <= 1) fail('a profile needs at least one rig');
+  slots.splice(position - 1, 1);
+  let deviceRemoved = false;
+  if (options.deleteDevice) {
+    const users: string[] = [];
+    for (const [name, profile] of Object.entries<Raw>(raw.profiles ?? {})) {
+      (profile.slots ?? []).forEach((slot: Raw, i: number) => { if (slot.device === deviceKey) users.push(`${name} rig ${i + 1}`); });
+    }
+    if (users.length) throw new RigEditError(`"${deviceKey}" is still used by ${users.join(', ')}; it was not deleted`, 409);
+    delete raw.devices[deviceKey];
+    deviceRemoved = true;
+  }
+  return { raw: validated(raw), position, deviceRemoved };
 }

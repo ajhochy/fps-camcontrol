@@ -175,3 +175,45 @@ export function buildRigs(
     unboundCameras: sonyCameras.filter((camera) => !boundIds.has(camera.id.toUpperCase())),
   };
 }
+
+export interface RigDeleteImpact {
+  position: number;
+  id: string;
+  label: string;
+  deviceKey: string | null;
+  /** Preset slots (e.g. A, X) that hold a saved position and are lost with the rig. */
+  presetsLost: string[];
+  /** Later rigs move up one position: their camera id and hotkey change, and their presets move with them. */
+  shifted: { deviceKey: string | null; label: string; fromId: string; toId: string; fromHotkey: string | null; toHotkey: string | null; presetsMoved: string[] }[];
+  /** Other profiles that use the same hardware. */
+  usedInOtherProfiles: string[];
+}
+
+/** What removing the rig at `position` would change, for the confirmation shown before deleting. */
+export function describeRigDelete(
+  view: RigsView,
+  presets: Record<string, Record<string, unknown>>,
+  mappings: Record<string, unknown>,
+  position: number,
+  slotsSet: (entry: Record<string, unknown> | undefined) => string[],
+): RigDeleteImpact {
+  const rig = view.rigs[position - 1];
+  const hotkeyAt = (p: number): string | null => (p <= 4 ? ((mappings[`selectCam${p}`] as string | undefined) ?? null) : null);
+  return {
+    position,
+    id: rig.id,
+    label: rig.label,
+    deviceKey: rig.deviceKey,
+    presetsLost: slotsSet(presets[rig.id]),
+    shifted: view.rigs.slice(position).map((later) => ({
+      deviceKey: later.deviceKey,
+      label: later.label,
+      fromId: later.id,
+      toId: `cam${later.position - 1}`,
+      fromHotkey: hotkeyAt(later.position),
+      toHotkey: hotkeyAt(later.position - 1),
+      presetsMoved: slotsSet(presets[later.id]),
+    })),
+    usedInOtherProfiles: rig.usedInProfiles.filter((name) => name !== view.activeProfile),
+  };
+}

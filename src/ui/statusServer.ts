@@ -12,8 +12,9 @@ import {
   devicesFileVersion, ConfigConflictError, loadConfig, readDevicesFile, writeDevicesFile,
   type Profile as CameraProfile,
 } from '../config/configLoader';
-import { buildRigs } from '../config/rigs';
-import { applyRigPatch, createSonyDevice, patchSonyDevice, deleteSonyDevice, RigEditError } from '../config/rigEdit';
+import { buildRigs, describeRigDelete } from '../config/rigs';
+import { applyRigPatch, createRig, removeRig, rigPositionOf, createSonyDevice, patchSonyDevice, deleteSonyDevice, RigEditError } from '../config/rigEdit';
+import { presetSlotsSet } from '../model/presetShift';
 import { PresetManager } from '../model/presetManager';
 import { ActivityLog } from '../app/activityLog';
 import { ViscaDevice } from '../devices/viscaDevice';
@@ -174,6 +175,44 @@ export function createStatusServer(
     const { expectedVersion, change } = splitVersion(req.body);
     try { commitConfigEdit(expectedVersion, (raw) => applyRigPatch(raw, key, change)); res.json({ ok: true, ...rigsBody() }); } catch (err) { editFailed(res, err); }
   });
+  // Add a rig at the end of the active profile: an existing controller ({deviceKey}) or new hardware
+  // ({label, controller, visca|gimbal}), with an optional ATEM input and Sony camera.
+  app.post('/api/rigs', (req, res) => {
+    const { expectedVersion, change } = splitVersion(req.body);
+    try {
+      let result = { key: '', position: 0 };
+      commitConfigEdit(expectedVersion, (raw) => { const made = createRig(raw, change); result = { key: made.key, position: made.position }; return made.raw; });
+      res.status(201).json({ ok: true, ...result, ...rigsBody() });
+    } catch (err) { editFailed(res, err); }
+  });
+
+  // Remove a rig. Later rigs move up a position (new camera id and hotkey), so the request must say
+  // `confirm: true`; without it the answer (409) describes exactly what would change and nothing is touched.
+  app.delete('/api/rigs/:key', (req, res) => {
+    const key = deviceKeyOf(req, res); if (!key) return;
+    const body = (typeof req.body === 'object' && req.body !== null ? req.body : {}) as Record<string, unknown>;
+    const expectedVersion = typeof body.expectedVersion === 'string' ? body.expectedVersion : undefined;
+    try {
+      const position = rigPositionOf(readDevicesFile(), key, body.position);
+      const totalBefore = config.cameras.length;
+      const impact = describeRigDelete(buildRigs(config, state, devicesFileVersion()), presetManager.getData(), config.mappings as unknown as Record<string, unknown>, position, presetSlotsSet);
+      if (body.confirm !== true) {
+        res.status(409).json({ ok: false, confirmationRequired: true, error: 'Removing this rig moves the rigs after it up one position. Confirm to continue.', impact });
+        return;
+      }
+      commitConfigEdit(expectedVersion, (raw) => removeRig(raw, key, { position, deleteDevice: body.deleteDevice === true }).raw);
+      presetManager.removeRigSlot(position, totalBefore);
+      // The rig being controlled may have moved or gone: point control at one that exists.
+      const stillThere = config.cameras.findIndex((camera) => camera.id === state.controlledCamera);
+      if (stillThere >= 0) state.cameraIndex = stillThere;
+      else {
+        const target = config.cameras.find((camera) => camera.inputId !== undefined) ?? config.cameras[0];
+        if (target) { state.controlledCamera = target.id as CameraId; state.cameraIndex = config.cameras.indexOf(target); state.previewCamera = target.id as CameraId; }
+      }
+      res.json({ ok: true, removed: impact, ...rigsBody() });
+    } catch (err) { editFailed(res, err); }
+  });
+
   app.post('/api/sony-devices', (req, res) => {
     const { expectedVersion, change } = splitVersion(req.body);
     try {

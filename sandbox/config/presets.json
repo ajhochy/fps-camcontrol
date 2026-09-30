@@ -1,1 +1,6 @@
-{}
+{
+  "cam1": { "A": null, "B": null, "X": null, "Y": null },
+  "cam2": { "A": { "kind": "visca", "pan": 100, "tilt": 10, "zoom": 1 }, "B": null, "X": null, "Y": null },
+  "cam3": { "A": null, "B": null, "X": { "kind": "visca", "pan": 300, "tilt": 30, "zoom": 3 }, "Y": null },
+  "cam4": { "A": null, "B": null, "X": null, "Y": { "kind": "gimbal", "yaw": 12, "pitch": -5, "roll": 0 } }
+}

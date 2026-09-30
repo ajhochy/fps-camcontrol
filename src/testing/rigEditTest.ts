@@ -4,7 +4,8 @@ import os from 'os';
 import path from 'path';
 import * as YAML from 'yaml';
 import { readDevicesFile, writeDevicesFile, ConfigConflictError, devicesFileVersion } from '../config/configLoader';
-import { applyRigPatch, createSonyDevice, patchSonyDevice, deleteSonyDevice, RigEditError } from '../config/rigEdit';
+import { applyRigPatch, createRig, removeRig, rigPositionOf, createSonyDevice, patchSonyDevice, deleteSonyDevice, RigEditError } from '../config/rigEdit';
+import { shiftPresetsAfterRemoval, presetSlotsSet } from '../model/presetShift';
 
 /**
  * Rig and Sony-device edits (plan issues #4/#5), through the real comment-preserving
@@ -152,6 +153,84 @@ check('deleting a Sony device leaves the others', Object.keys(deleteSonyDevice(u
 writeDevicesFile(createSonyDevice(current(), { label: 'New one', sonyCameraId: '9C:50:D1:AC:7B:98' }).raw);
 check('creating a Sony device through the writer keeps every comment', comments(fs.readFileSync(file, 'utf8')) === comments(fixture));
 check('the created Sony device is on disk', onDisk().devices['sony-new-one'].protocol === 'sony');
+
+// ---- add rigs
+reset();
+let made = createRig(current(), { label: 'Side gimbal', controller: 'gimbal', gimbal: { host: 'pi.local', port: 7881 }, inputId: 12 });
+check('a new gimbal rig is appended at the end of the active profile', made.position === 4 && made.raw.profiles.production.slots[3].device === made.key);
+check('a new gimbal is a dji-bridge device with the host and port it was given', made.raw.devices[made.key].protocol === 'dji-bridge' && made.raw.devices[made.key].bridge.host === 'pi.local' && made.raw.devices[made.key].bridge.port === 7881);
+check('the new rig key is made from its name', made.key === 'side-gimbal');
+check('existing rigs do not move when one is added', made.raw.profiles.production.slots.slice(0, 3).map((slot: any) => slot.device).join() === 'vbot,birddog1,rs3');
+check('the new rig keeps the requested ATEM input', made.raw.profiles.production.slots[3].inputId === 12);
+check('adding a rig does not touch the other profile', JSON.stringify(made.raw.profiles.test) === JSON.stringify(current().profiles.test));
+made = createRig(current(), { label: 'V-BOT 2', controller: 'vbot', visca: { host: '192.168.50.40' }, speedScale: 2 });
+check('a new V-BOT is a VISCA device with its controller type, default port and address', made.raw.devices[made.key].protocol === 'visca' && made.raw.devices[made.key].cameraType === 'vbot' && made.raw.devices[made.key].viscaPort === 52381 && made.raw.devices[made.key].cameraAddress === 1);
+check('a rig with no ATEM input is control-only', !('inputId' in made.raw.profiles.production.slots[3]));
+check('two rigs with the same name get different keys', createRig(made.raw, { label: 'V-BOT 2', controller: 'vbot', visca: { host: '192.168.50.41' } }).key === 'v-bot-2-2');
+const withCamera = applyRigPatch(applyRigPatch(current(), 'rs3', { camera: null }), 'vbot', { camera: null });
+check('a new V-BOT rig can take a free Sony camera', createRig(withCamera, { label: 'Cam rig', controller: 'vbot', visca: { host: '10.0.0.5' }, camera: 'fx3' }).raw.profiles.production.slots[3].camera === 'fx3');
+refused('a new rig cannot take a Sony camera another rig already has', () => createRig(current(), { label: 'Dup', controller: 'vbot', visca: { host: '10.0.0.5' }, camera: 'a7s3' }), /is on both rig 1 and rig 4/);
+refused('a new BirdDog rig takes no Sony camera', () => createRig(current(), { label: 'BD', controller: 'birddog', visca: { host: '10.0.0.5' }, camera: 'fx3' }), /built-in camera/);
+refused('a new rig cannot use an ATEM input another rig has', () => createRig(current(), { label: 'Clash', controller: 'vbot', visca: { host: '10.0.0.5' }, inputId: 6 }), /already used by rig 1/);
+refused('a new camera rig needs an IP address', () => createRig(current(), { label: 'NoIP', controller: 'vbot' }), /needs its IP address/);
+refused('a new gimbal rig needs a bridge host', () => createRig(current(), { label: 'NoHost', controller: 'gimbal' }), /needs its bridge host/);
+refused('a new rig needs a known controller type', () => createRig(current(), { label: 'X', controller: 'ptz9000', visca: { host: '1.2.3.4' } }), /controller must be/);
+refused('a new rig needs a name', () => createRig(current(), { controller: 'vbot', visca: { host: '1.2.3.4' } }), /name must be text/);
+refused('a gimbal rig refuses VISCA settings', () => createRig(current(), { label: 'G', controller: 'gimbal', gimbal: { host: 'x' }, visca: { host: 'y' } }), /no VISCA settings/);
+refused('a camera rig refuses bridge settings', () => createRig(current(), { label: 'C', controller: 'vbot', visca: { host: 'y' }, gimbal: { host: 'x' } }), /only a gimbal has bridge settings/);
+const crowded = current(); for (let i = 0; i < 5; i++) crowded.profiles.production.slots.push({ device: 'vbot', inputId: 30 + i });
+refused('a profile cannot have more than 8 rigs', () => createRig(crowded, { label: 'Ninth', controller: 'vbot', visca: { host: '1.2.3.4' } }), /8/);
+made = createRig(current(), { deviceKey: 'rs3pro', inputId: 13 });
+check('an existing controller from the inventory can be put on a new rig', made.key === 'rs3pro' && made.position === 4 && made.raw.profiles.production.slots[3].inputId === 13);
+check('adding an existing device creates no new hardware entry', Object.keys(made.raw.devices).length === Object.keys(current().devices).length);
+refused('an existing controller already in the profile cannot be added twice', () => createRig(current(), { deviceKey: 'vbot' }), /already a rig in the active profile/);
+refused('a Sony camera cannot be added as a rig', () => createRig(current(), { deviceKey: 'fx3' }), /not a controller/);
+refused('an unknown device cannot be added', () => createRig(current(), { deviceKey: 'ghost' }), /unknown device/, 404);
+refused('an existing device is added as it is (no hardware fields)', () => createRig(current(), { deviceKey: 'rs3pro', label: 'new name' }), /added as it is/);
+reset();
+writeDevicesFile(createRig(current(), { label: 'Side gimbal', controller: 'gimbal', gimbal: { host: 'pi.local' } }).raw);
+check('adding a rig through the writer keeps every comment', comments(fs.readFileSync(file, 'utf8')) === comments(fixture));
+check('adding a rig through the writer appends the slot and the gimbal stays a gimbal', onDisk().profiles.production.slots.length === 4 && onDisk().devices['side-gimbal'].protocol === 'dji-bridge');
+reset();
+
+// ---- remove rigs
+check('rigPositionOf finds a rig', rigPositionOf(current(), 'birddog1') === 2);
+refused('rigPositionOf refuses a device that is not a rig in the active profile', () => rigPositionOf(current(), 'rs3pro'), /not a rig in the active profile/, 404);
+let removed = removeRig(current(), 'birddog1');
+check('removing a rig takes its slot out and later rigs move up', removed.position === 2 && removed.raw.profiles.production.slots.map((slot: any) => slot.device).join() === 'vbot,rs3');
+check('removing a rig keeps the hardware entry by default', removed.deviceRemoved === false && removed.raw.devices.birddog1 !== undefined);
+check('removing a rig leaves the other profile alone', JSON.stringify(removed.raw.profiles.test) === JSON.stringify(current().profiles.test));
+removed = removeRig(current(), 'rs3');
+check('removing the last rig changes no other rig', removed.position === 3 && removed.raw.profiles.production.slots.map((slot: any) => slot.device).join() === 'vbot,birddog1');
+check('removing a rig that has a Sony camera leaves the camera in the inventory', removed.raw.devices.fx3?.protocol === 'sony');
+removed = removeRig(current(), 'birddog1', { deleteDevice: true });
+check('the hardware entry can be deleted with the rig when nothing else uses it', removed.deviceRemoved === true && removed.raw.devices.birddog1 === undefined);
+refused('the hardware entry is kept (409) while another profile uses it', () => removeRig(current(), 'vbot', { deleteDevice: true }), /still used by test rig 1/, 409);
+const single = current(); single.profiles.production.slots = [single.profiles.production.slots[0]];
+refused('the last remaining rig cannot be removed', () => removeRig(single, 'vbot'), /at least one rig/);
+refused('a device filling two rigs needs a position to remove', () => removeRig(twice, 'vbot'), /fills more than one rig/);
+check('with a position the right rig is removed', removeRig(twice, 'vbot', { position: 4 }).raw.profiles.production.slots.length === 3);
+check('the input passed to removeRig is never mutated', current().profiles.production.slots.length === 3);
+reset();
+writeDevicesFile(removeRig(current(), 'birddog1').raw);
+const afterRemove = fs.readFileSync(file, 'utf8');
+check('removing a rig through the writer keeps the documentation that is not about that rig', afterRemove.includes('# Sandbox-style config') && afterRemove.includes('# The gimbals share one Pi') && afterRemove.includes('# Sony cameras.'));
+check('position comments stay with their position after a removal (slot 1 = X, slot 2 = A); only the now-missing last slot loses its comment', comments(afterRemove) === comments(fixture) - 1 && afterRemove.includes('# slot 1 = X') && afterRemove.includes('# slot 2 = A') && !afterRemove.includes('# slot 3 = B'));
+check('removing a rig through the writer keeps the gimbal a gimbal', onDisk().devices.rs3.protocol === 'dji-bridge');
+reset();
+
+// ---- presets follow their rig
+const presets: Record<string, Record<string, unknown>> = {
+  cam1: { A: null, X: null }, cam2: { A: { pan: 1 }, X: null }, cam3: { A: null, X: { pan: 3 } }, cam4: { A: null, X: null, Y: { yaw: 4 } },
+};
+const shifted = shiftPresetsAfterRemoval(presets, 2, 4);
+check('removing rig 2 moves rig 3 presets to cam2 and rig 4 presets to cam3', JSON.stringify(shifted.cam2) === JSON.stringify(presets.cam3) && JSON.stringify(shifted.cam3) === JSON.stringify(presets.cam4));
+check('removing rig 2 leaves rig 1 presets alone and drops the last camera id', shifted.cam1 === presets.cam1 && shifted.cam4 === undefined);
+check('the old presets object is never mutated', presets.cam4 !== undefined && presets.cam2.A !== null);
+check('removing the last rig just drops its presets', JSON.stringify(Object.keys(shiftPresetsAfterRemoval(presets, 4, 4))) === JSON.stringify(['cam1', 'cam2', 'cam3']));
+check('removing the first rig shifts everyone down', JSON.stringify(shiftPresetsAfterRemoval(presets, 1, 4).cam1) === JSON.stringify(presets.cam2));
+check('a camera with no saved presets entry shifts as empty', shiftPresetsAfterRemoval({ cam1: { A: null }, cam3: { A: { pan: 9 } } } as any, 1, 3).cam1 === undefined);
+check('presetSlotsSet lists only slots that hold a position', presetSlotsSet(presets.cam4).join() === 'Y' && presetSlotsSet(undefined).length === 0 && presetSlotsSet({ A: null }).length === 0);
 
 if (previous === undefined) delete process.env.DEVICES_CONFIG; else process.env.DEVICES_CONFIG = previous;
 fs.rmSync(dir, { recursive: true, force: true });

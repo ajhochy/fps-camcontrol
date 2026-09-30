@@ -115,6 +115,7 @@ async function selfTest(): Promise<number> {
   const post = (p: string, body?: unknown) => api(p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
   const patch = (p: string, body: unknown) => api(p, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   const del = (p: string) => api(p, { method: 'DELETE' });
+  const delWith = (p: string, body: unknown) => api(p, { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   const put = (p: string, body: unknown) => api(p, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   const ctl = async (p: string, body: unknown): Promise<void> => { await fetch(control + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }); };
   const cameraState = async (id: string): Promise<string | undefined> => (await api('/api/sony/status')).body.cameras?.find((c: any) => c.id === id)?.state;
@@ -224,6 +225,40 @@ async function selfTest(): Promise<number> {
     check('the bound camera shows the name the operator gave it', named?.name === 'Backup FX3 (truck)');
     check('an unused Sony device can be deleted', (await del('/api/sony-devices/sony-backup-fx3')).status === 200);
     check('the file is still fully documented after all the edits', commentCount() === commentsBefore);
+
+    // --- add and remove rigs; presets follow their camera
+    const added = await post('/api/rigs', { label: 'Sandbox gimbal', controller: 'gimbal', gimbal: { host: '127.0.0.1', port: 17880 }, inputId: 12 });
+    check('POST /api/rigs adds a rig at the end (201) and answers with the new rig view', added.status === 201 && added.body.position === 5 && added.body.key === 'sandbox-gimbal' && added.body.rigs?.length === 5);
+    check('the new rig is applied to the running app', (await api('/api/config')).body.cameras?.length === 5);
+    check('the new rig is on disk and the file is still documented', fs.readFileSync(yamlFile, 'utf8').includes('sandbox-gimbal') && commentCount() === commentsBefore);
+    check('adding a rig on an ATEM input another rig uses is refused (400)', (await post('/api/rigs', { label: 'Clash', controller: 'vbot', visca: { host: '127.0.0.1' }, inputId: 12 })).status === 400);
+    const askLast = await delWith('/api/rigs/sandbox-gimbal', {});
+    check('removing a rig without confirmation answers 409 with what would change, and changes nothing', askLast.status === 409 && askLast.body.confirmationRequired === true && askLast.body.impact?.shifted?.length === 0 && (await api('/api/config')).body.cameras?.length === 5);
+    const removedLast = await delWith('/api/rigs/sandbox-gimbal', { confirm: true, deleteDevice: true });
+    check('removing the last rig with confirmation works and can delete its hardware entry', removedLast.status === 200 && removedLast.body.rigs?.length === 4 && !fs.readFileSync(yamlFile, 'utf8').includes('sandbox-gimbal'));
+
+    const askMiddle = await delWith('/api/rigs/birddog1', {});
+    const impact = askMiddle.body.impact;
+    check('removing a middle rig asks first and lists the presets it loses and the rigs that move', askMiddle.status === 409 && impact?.presetsLost?.join() === 'A' && impact?.shifted?.length === 2);
+    check('the impact says which rig takes which camera id and hotkey', impact?.shifted?.[1]?.label === 'DJI RS3' && impact?.shifted?.[1]?.fromId === 'cam4' && impact?.shifted?.[1]?.toId === 'cam3' && impact?.shifted?.[1]?.fromHotkey === 'Y' && impact?.shifted?.[1]?.toHotkey === 'B');
+    check('nothing changed while the answer was only a question', (await api('/api/config')).body.cameras?.length === 4 && (await api('/api/presets')).body.cam2?.A !== null);
+    const removedMiddle = await delWith('/api/rigs/birddog1', { confirm: true });
+    check('removing the middle rig with confirmation works', removedMiddle.status === 200 && removedMiddle.body.rigs?.map((r: any) => r.deviceKey).join() === 'vbot,birddog2,rs3');
+    const presetsNow = (await api('/api/presets')).body;
+    check('presets moved with their cameras (old cam3 is now cam2, old cam4 is now cam3)', presetsNow.cam2?.X?.pan === 300 && presetsNow.cam3?.Y?.yaw === 12 && presetsNow.cam2?.A === null);
+    check('the last camera id is gone from the presets', presetsNow.cam4 === undefined);
+    const presetFile = JSON.parse(fs.readFileSync(path.join(runDir, 'presets.json'), 'utf8'));
+    check('the shifted presets are saved to disk', presetFile.cam2?.X?.pan === 300 && presetFile.cam4 === undefined);
+    check('the running app has three rigs with new ids', (await api('/api/config')).body.cameras?.map((c: any) => c.id).join() === 'cam1,cam2,cam3');
+    check('the rig that moved up carries its new hotkey', removedMiddle.body.rigs?.[2]?.id === 'cam3' && removedMiddle.body.rigs?.[2]?.hotkey === 'B');
+    check('the removed rig\'s hardware entry is still in the file (it can be added back)', fs.readFileSync(yamlFile, 'utf8').includes('birddog1:'));
+    const readded = await post('/api/rigs', { deviceKey: 'birddog1', inputId: 7 });
+    check('an existing device can be added back as a new rig', readded.status === 201 && readded.body.position === 4 && readded.body.rigs?.[3]?.deviceKey === 'birddog1');
+    check('the last rig of a profile cannot be removed', await (async () => {
+      for (const key of ['birddog1', 'birddog2', 'rs3']) await delWith(`/api/rigs/${key}`, { confirm: true });
+      const last = await delWith('/api/rigs/vbot', { confirm: true });
+      return last.status === 400 && /at least one rig/.test(last.body.error ?? '');
+    })());
   } catch (error) {
     check('the self-test ran to completion', false, String(error instanceof Error ? error.message : error));
   }

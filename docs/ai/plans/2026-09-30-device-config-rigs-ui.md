@@ -128,6 +128,7 @@ changes, no writes. This validates the layout and selection/polling behavior bef
 | --- | --- |
 | Comment loss on save (#14) | Only `applyToDocument`; keep and extend the comment-count assertions to every new write path |
 | Protocol silently changed on save (#18) | Address by device key; protocol is read-only after creation in v1; keep the assertions |
+| Per-rig comments in the YAML (`# slot 2 = A`) after add/delete | Verified: the writer merges slots by position, so position comments stay on their position and only the now-missing last slot loses its comment. A comment that describes one specific device would follow the position, not the device; the hotkey-order comments in use are position comments |
 | Presets/hotkeys point at the wrong camera after add/delete | No reorder in v1; delete confirms and lists affected presets; add appends only |
 | Half-written config on crash / concurrent hand edit | Atomic write; re-read the file before merge; reject if it changed since the UI loaded it (etag/mtime) |
 | 5 s poll re-renders the inspector mid-edit (lost keystrokes, lost focus) | Inspector owns a draft; polling updates only columns 1 and 3; never replace an input that has focus |
@@ -183,6 +184,8 @@ Suggested first slice (issues 1 and 2 are done): issues 6 (safe foundation, read
 | --- | --- |
 | `GET /api/rigs` | Rig view: `rigs[]` (position, id, deviceKey, label, controller, visca/gimbal connection, speedScale, inputId, hotkey, builtInCamera, camera, cameraLabel, usedInProfiles, live), `sonyDevices[]`, `unboundCameras[]`, `profiles[]`, `atem`, `graphics`, `sony`, `version`, `legacy`. Also returned by every edit below |
 | `PATCH /api/rigs/:deviceKey` | Body: any of `label`, `speedScale`, `visca:{host,port,address}`, `gimbal:{host,port,gimbalModel,safetyTimeoutMs,rollEnabled,reconnectBackoffMs}`, `inputId` (null = control-only), `camera` (Sony device key or null), `position` (only when one device fills several rigs), `expectedVersion`. Protocol and controller type cannot be changed. Unknown fields are refused, not ignored |
+| `POST /api/rigs` | Add a rig at the end of the active profile (existing rigs never move). Either `{deviceKey, inputId?, camera?}` (put an existing inventory controller on a new rig) or `{label, controller: vbot\|birddog\|gimbal\|generic, visca:{host,port?,address?} \| gimbal:{host,port?,gimbalModel?}, speedScale?, inputId?, camera?}` (new hardware; the device key is made from the name). 201 with `key`, `position` and the new rig view |
+| `DELETE /api/rigs/:deviceKey` | Body `{position?, deleteDevice?, confirm?, expectedVersion?}`. Without `confirm: true` the answer is **409 `confirmationRequired`** with `impact` (presets that would be lost, later rigs that move up with their old and new camera id and hotkey, other profiles using the hardware) and nothing changes. With it: the slot is removed, **later rigs' presets shift down one place** (`presets.json` is rewritten atomically), control is re-pointed if needed. The hardware entry stays in the inventory unless `deleteDevice: true` (refused with 409 while another rig in any profile uses it). The last rig of a profile cannot be removed |
 | `POST /api/sony-devices` | `{label, sonyCameraId?}` -> 201 with the new `key` (made from the name, unique) |
 | `PATCH /api/sony-devices/:key` | `{label?, sonyCameraId?}`; `sonyCameraId: null` unbinds |
 | `DELETE /api/sony-devices/:key` | 409 while any rig in any profile uses it |
@@ -193,4 +196,4 @@ comment-preserving writer (atomic, version-checked) -> re-read from disk -> appl
 
 **Interim behaviour:** until issue 9a, wiring edits (`inputId`, `camera`) are written straight into the active
 profile in `devices.yaml`. Issue 9a moves them into the working copy (D11) and makes hardware fields the only
-immediate writes. Not built yet: rig add/delete (issue 5), any UI.
+immediate writes. Removing or adding a rig renumbers nothing before it; removing rig N renumbers every later rig (`camN` ids, hotkeys), which is why delete needs `confirm`. The running cameras of shifted rigs reconnect briefly. Not built yet: any UI.

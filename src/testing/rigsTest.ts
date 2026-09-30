@@ -1,6 +1,7 @@
 import assert from 'assert';
 import { AppConfig, resolveProfile, InventoryDevice, Profile } from '../config/configLoader';
-import { buildRigs } from '../config/rigs';
+import { buildRigs, describeRigDelete } from '../config/rigs';
+import { presetSlotsSet } from '../model/presetShift';
 import { createInitialState } from '../app/state';
 
 /**
@@ -108,6 +109,27 @@ check('a Sony device lists every profile that uses it', sonyView.sonyDevices[0].
 check('an unused, unbound Sony device is listed with no camera id', sonyView.sonyDevices[2].sonyCameraId === null && sonyView.sonyDevices[2].state === null && sonyView.sonyDevices[2].usedByRigs.length === 0);
 check('only discovered cameras no device is bound to appear as unbound', sonyView.unboundCameras.map((c) => c.id).join() === 'AA:00:00:00:00:09');
 check('with no Sony service the lists are empty but devices still show', buildRigs(withSony, state, 'v7').unboundCameras.length === 0 && buildRigs(withSony, state, 'v7').sonyDevices.length === 3);
+
+// ---- delete impact
+const impactView = buildRigs(baseConfig('production'), state, 'v8');
+const impactPresets: Record<string, Record<string, unknown>> = {
+  cam1: { A: null, B: null, X: null, Y: null },
+  cam2: { A: { pan: 1 }, B: null, X: null, Y: { pan: 2 } },
+  cam3: { A: null, B: null, X: { yaw: 3 }, Y: null },
+};
+const impact = describeRigDelete(impactView, impactPresets, { selectCam1: 'X', selectCam2: 'A', selectCam3: 'B', selectCam4: 'Y' }, 2, presetSlotsSet);
+check('the impact names the rig being removed', impact.position === 2 && impact.id === 'cam2' && impact.label === 'BirdDog 1' && impact.deviceKey === 'birddog1');
+check('the impact lists the preset slots that will be lost', impact.presetsLost.join() === 'A,Y');
+check('the impact lists every later rig that moves up', impact.shifted.length === 1 && impact.shifted[0].label === 'DJI RS3');
+check('a moved rig reports its new camera id and hotkey', impact.shifted[0].fromId === 'cam3' && impact.shifted[0].toId === 'cam2' && impact.shifted[0].fromHotkey === 'B' && impact.shifted[0].toHotkey === 'A');
+check('a moved rig reports the presets that move with it', impact.shifted[0].presetsMoved.join() === 'X');
+check('removing the last rig shifts nothing', describeRigDelete(impactView, impactPresets, {}, 3, presetSlotsSet).shifted.length === 0);
+check('the impact lists other profiles that use the same hardware', describeRigDelete(impactView, impactPresets, {}, 1, presetSlotsSet).usedInOtherProfiles.join() === 'test');
+const sixConfig = baseConfig('production');
+sixConfig.cameras = Array.from({ length: 6 }, (_, i) => ({ ...sixConfig.cameras[i % 3], id: `cam${i + 1}` }));
+const sixImpact = describeRigDelete(buildRigs(sixConfig, state, 'v9'), {}, { selectCam1: 'X', selectCam2: 'A', selectCam3: 'B', selectCam4: 'Y' }, 4, presetSlotsSet);
+check('a rig moving from position 5 into position 4 gains the fourth hotkey', sixImpact.shifted[0].fromHotkey === null && sixImpact.shifted[0].toHotkey === 'Y');
+check('a rig moving from position 6 into position 5 has no hotkey before or after', sixImpact.shifted[1].fromHotkey === null && sixImpact.shifted[1].toHotkey === null);
 
 check('the payload carries no secrets or credentials', !/password|token|secret|fingerprint/i.test(payload));
 check('the payload is JSON round-trippable', JSON.stringify(JSON.parse(payload)) === payload);
