@@ -22,6 +22,8 @@ import { ControllerSupervisor, explainOpenFailure } from '../input/controllerSup
 import { applyCurve, applyDeadzone, clamp } from '../visca/speedCurves';
 import { panTilt, zoom } from '../visca/ptzActions';
 import { autoTransitionControlledCamera, toggleLowerThirds } from '../atem/switcherActions';
+import { SonyStateStore } from '../sony/sonyStateStore';
+import { SonyManager } from '../sony/sonyManager';
 
 // ---- minimal logger for tests ----
 const logger = {
@@ -294,7 +296,9 @@ async function runTests(): Promise<void> {
     req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
     req.on('end', () => {
       upstreamRequests.push({ method: req.method, url: req.url, body });
-      if (req.url === '/api/cameras') {
+      if (req.url === '/api/server/status') {
+        res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ success: true, server: { version: '3.0.0', sdkVersion: 'V2' } }));
+      } else if (req.url === '/api/cameras') {
         res.setHeader('content-type', 'application/json');
         res.end(JSON.stringify({ cameras: [
           { id: 'AA:BB:CC:DD:EE:01', model: 'ILCE-7SM3 A', connected: true, connectionType: 'USB' },
@@ -321,7 +325,12 @@ async function runTests(): Promise<void> {
   const fakeSonyPort = (fakeSony.address() as any).port;
   process.env.SONY_API_URL = `http://127.0.0.1:${fakeSonyPort}`;
   const { createStatusServer: createSonyStatusServer } = require('../ui/statusServer');
-  const sonyApp = createSonyStatusServer(state, config, presetManager);
+  const sonyStateFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'sony-smoke-')), 'approvals.json');
+  const sonyStore = new SonyStateStore(sonyStateFile);
+  for (const id of ['AA:BB:CC:DD:EE:01', 'AA:BB:CC:DD:EE:02', 'AA:BB:CC:DD:EE:03', 'AA:BB:CC:DD:EE:04']) await sonyStore.approve({ id });
+  const injectedSonyManager = new SonyManager({ enabled: true, apiUrl: process.env.SONY_API_URL!, stateFile: sonyStateFile }, sonyStore);
+  injectedSonyManager.start(); await injectedSonyManager.whenIdle();
+  const sonyApp = createSonyStatusServer(state, config, presetManager, undefined as any, undefined as any, undefined as any, injectedSonyManager);
   const sonyServer = await new Promise<any>(resolve => {
     const server = sonyApp.listen(0, '127.0.0.1', () => resolve(server));
   });
@@ -331,6 +340,8 @@ async function runTests(): Promise<void> {
     const text = await response.text();
     return { response, text };
   };
+  const statusResult = await sonyGet('/api/sony/status');
+  assert('Sony status route delegates to the injected manager', statusResult.response.status === 200 && JSON.parse(statusResult.text).sidecar.mode === 'external');
   const home = await sonyGet('/');
   assert('Sony UI is below existing home controls', home.text.indexOf('id="sony-cameras"') > home.text.indexOf('id="home"'));
   const expectedSonyProperties = ['aperture', 'shutter-speed', 'iso', 'white-balance', 'focus-mode', 'focus-area'];
@@ -351,13 +362,61 @@ async function runTests(): Promise<void> {
   // Re-review regression: repeated frames/failures must not rewrite aria-live;
   // these assertions fail if pollSonyFrame announces outside state transitions.
   assert('Sony preview aria-live updates only on loading/ready/stale/recovered transitions', home.text.includes("previewAnnouncementState:'loading'") && home.text.includes("state.previewAnnouncementState === 'loading') sonyStatus(id, 'Live preview ready.'") && home.text.includes("state.previewAnnouncementState === 'stale') sonyStatus(id, 'Live preview recovered.'") && home.text.includes("state.previewAnnouncementState !== 'stale') sonyStatus(id, 'Live preview stale.'") && !home.text.includes("sonyStatus(id, recovered ?"));
-  assert('Sony discovery and connect failures clear stale state and report accessibly', home.text.includes('sonyDiscovered = [];') && home.text.includes('sony-device-status') && home.text.includes("if (!response.ok) throw new Error('Connect failed')"));
+  assert('Sony discovery and connect failures clear stale state and report accessibly', home.text.includes('sonyDiscovered = [];') && home.text.includes('renderSonyCameras([])') && home.text.includes('sony-device-status') && home.text.includes('Sony camera connection failed.'));
   assert('Sony controls alone have 44px targets', home.text.includes('.sony-widget select, .sony-widget input, .sony-widget button { min-height:44px; }'));
   assert('Sony desktop layout has four equal widget columns with 16:9 previews', home.text.includes('grid-template-columns:repeat(4,minmax(0,1fr))') && home.text.includes('aspect-ratio:16 / 9'));
   assert('Sony layout uses two widget columns on tablet and one on mobile', home.text.includes('@media (max-width:1100px)') && home.text.includes('@media (max-width:700px)'));
   assert('Sony settings remain a compact two-column grid at desktop widths', home.text.includes('.sony-controls { display:grid; grid-template-columns:repeat(2,minmax(0,1fr));'));
   assert('Every Sony widget has a heading labeling its article and preview', (home.text.match(/aria-labelledby="sony-heading-/g) || []).length === 2 && home.text.includes('<h3 class="sony-widget__title" id="sony-heading-'));
   assert('Browser code only references CamControl Sony API', !home.text.includes(`127.0.0.1:${fakeSonyPort}`) && !home.text.includes('127.0.0.1:8181'));
+  // UI review repair: a connected camera must never look like an enabled retry;
+  // this fails if the state-action matrix routes Connected back through retry.
+  assert('Sony device action matrix gives Connected a noninteractive status and only retryable states Retry Connect',
+    home.text.includes("connected.textContent='Connected'") && home.text.includes("row.connected.hidden=state!=='connected'") &&
+    home.text.includes("state==='discovered_unapproved'") && home.text.includes("primary.textContent='Connect'") &&
+    home.text.includes("state==='connecting'") && home.text.includes("primary.textContent='Connecting'") &&
+    home.text.includes("state==='disconnected'||state==='needs_pairing'||state==='error'") && home.text.includes("primary.textContent='Retry Connect'") &&
+    home.text.includes("row.primary.onclick=null") && home.text.includes("row.forget.hidden=!camera.approved"));
+  // UI review repair: polling must reconcile rows in place so focus and a pending
+  // action survive; this fails if #sony-device-list is assigned innerHTML again.
+  assert('Sony device refresh reconciles stable rows without root replacement and keeps pending actions disabled',
+    home.text.includes('sonyDeviceRows = new Map()') && home.text.includes('sonyPendingActions = new Set()') &&
+    home.text.includes('sonyDeviceRoot.contains(document.activeElement)') && home.text.includes('sonyPendingActions.has(camera.id)') &&
+    home.text.includes('sonyPendingActions.add(id)') && home.text.includes('await refreshSony();\n  sonyPendingActions.delete(id)') &&
+    home.text.includes('replaceChild(sonySection, replacement)') && home.text.includes('root.appendChild(row.element)') && home.text.includes('row.element.remove()') &&
+    !home.text.includes('root.innerHTML=sidecarHtml'));
+  assert('Sony Device Config gives approved cameras one reconnect guidance line and wraps long IDs',
+    home.text.includes('Approved cameras reconnect automatically after app or camera restart') && home.text.includes('late power-on may take up to 75 seconds') &&
+    home.text.includes('.sony-device-id { overflow-wrap:anywhere; }'));
+  // Final UI review: a pending service retry must survive polling, then release
+  // its guard on both success and failure so an absent/crashed service is retryable again.
+  assert('Sony service retry blocks duplicates while pending and is reusable after settlement',
+    home.text.includes('var sonyServiceRetryPending = false;') && home.text.includes('if (sonyServiceRetryPending) return;') &&
+    home.text.includes('sonyServiceRetryPending = true;') && home.text.includes('sonyServiceRow.retry.disabled=sonyServiceRetryPending') &&
+    home.text.includes('finally { sonyServiceRetryPending = false; updateSonyServiceRow(); }'));
+  const setupPage = await sonyGet('/docs/sony-sidecar-setup');
+  const unsafeDocsPage = await sonyGet('/docs/current-plan');
+  assert('Sony setup link serves current setup content without exposing arbitrary docs paths',
+    setupPage.response.status === 200 && setupPage.text.includes('Sony CameraWebApp sidecar setup') && setupPage.text.includes('Sony SDK EULA') &&
+    unsafeDocsPage.response.status === 404 && home.text.includes("setup.href='/docs/sony-sidecar-setup'") &&
+    home.text.includes('.sony-setup-link { min-height:44px; display:inline-flex; align-items:center; }'));
+  // Failed status must remain after the empty-camera reconciliation; only the
+  // successful status path may clear it before rendering recovered cameras.
+  const renderSonyBody = home.text.match(/function renderSonyCameras\(cameras\) \{([\s\S]*?)\n\}/)?.[1] ?? '';
+  assert('Sony dashboard error persists through failed empty rendering and clears on recovery',
+    !renderSonyBody.includes('sony-dashboard-status') &&
+    home.text.includes("sonyDashboardStatus('Sony camera service unavailable. Existing controls are unaffected.', true);\n    renderSonyCameras([])") &&
+    home.text.includes("sonyDashboardStatus('');\n    renderSonyCameras(sonyDiscovered.filter"));
+  assert('Sony dashboard camera IDs wrap within four-up widgets',
+    home.text.includes('class="sony-widget__id"') && home.text.includes('.sony-widget__id { overflow-wrap:anywhere; }') &&
+    home.text.includes('grid-template-columns:repeat(4,minmax(0,1fr))'));
+  const sonySetupDoc = fs.readFileSync(path.join(process.cwd(), 'docs/sony-sidecar-setup.md'), 'utf8');
+  assert('Sony setup documentation describes implemented lifecycle without Future runtime wording',
+    !sonySetupDoc.includes('Future CamControl runtime configuration') && sonySetupDoc.includes('adopt a sidecar you start externally') &&
+    sonySetupDoc.includes('launch and supervise') && sonySetupDoc.includes('approved-camera state file') &&
+    sonySetupDoc.includes('select **Connect** explicitly') && sonySetupDoc.includes('automatic reconnect') &&
+    sonySetupDoc.includes('**Retry Connect**') && sonySetupDoc.includes('**Forget**') && sonySetupDoc.includes('Retry Sony service') &&
+    sonySetupDoc.includes('never Sony usernames, passwords') && sonySetupDoc.includes('Sony SDK EULA'));
 
   const camerasResult = await sonyGet('/api/sony/cameras');
   const camerasJson = JSON.parse(camerasResult.text);
@@ -369,9 +428,9 @@ async function runTests(): Promise<void> {
   await sonyGet('/api/sony/cameras/AA:BB:CC:DD:EE:01/connect', { method: 'POST' });
   const refreshedCameras = JSON.parse((await sonyGet('/api/sony/cameras')).text);
   assert('Sony repeated list reuses cached identities without rediscovery', discoveryRequests() === discoveredOnce);
-  assert('Sony connection checks merge nested camera and data fields', refreshedCameras.cameras[0]?.mode === 'remote' && refreshedCameras.cameras[0]?.connected === true);
-  const badId = await sonyGet('/api/sony/cameras/not-a-mac/properties');
-  assert('Sony proxy rejects non-MAC camera IDs', badId.response.status === 400);
+  assert('Sony manager connect publishes an approved connected camera', refreshedCameras.cameras[0]?.approved === true && refreshedCameras.cameras[0]?.connected === true);
+  const badId = await sonyGet('/api/sony/cameras/bad%2Fid/properties');
+  assert('Sony proxy accepts safe non-MAC IDs but rejects unsafe path IDs', badId.response.status === 400);
   const badProperty = await sonyGet('/api/sony/cameras/AA:BB:CC:DD:EE:01/properties/evil', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ value: 1 }) });
   assert('Sony proxy rejects properties outside six-name allowlist', badProperty.response.status === 400);
   for (const property of expectedSonyProperties) {
@@ -386,6 +445,7 @@ async function runTests(): Promise<void> {
   assert('Sony proxy accepts normalized touch coordinates', goodTouch.response.status === 200);
   assert('Sony upstream receives literal colon camera ID', upstreamRequests.some(request => request.url === '/api/cameras/AA:BB:CC:DD:EE:01/actions/touch'));
   await new Promise<void>(resolve => sonyServer.close(resolve));
+  await injectedSonyManager.stop();
   await new Promise<void>(resolve => fakeSony.close(resolve));
   delete process.env.SONY_API_URL;
 

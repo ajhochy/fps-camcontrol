@@ -77,6 +77,13 @@ const AtemSchema = z.object({
   meIndex: z.number().default(0),
 });
 
+const SonySchema = z.object({
+  enabled: z.boolean().default(true),
+  apiUrl: z.string().url().default('http://127.0.0.1:8181'),
+  executable: z.string().optional(),
+  stateFile: z.string().min(1).optional(),
+});
+
 // An entry in the device inventory: a piece of hardware that exists, described
 // once, independent of which camera slot (if any) currently uses it. Deliberately
 // has no `id` or `inputId` — those belong to the slot a profile puts it in.
@@ -123,6 +130,7 @@ const DevicesSchema = z.object({
   activeProfile: z.string().optional(),
   graphics: GraphicsSchema.optional(),
   lowerThirds: z.object({ type: z.string(), dskIndex: z.number() }).optional(),
+  sony: SonySchema.optional(),
 }).superRefine((cfg, ctx) => {
   const hasProfiles = !!cfg.profiles && !!cfg.activeProfile;
   if (!hasProfiles && !cfg.cameras) {
@@ -189,6 +197,14 @@ export type MappingConfig = z.infer<typeof MappingSchema>;
 export type InventoryDevice = z.infer<typeof InventoryDeviceSchema>;
 export type Profile = z.infer<typeof ProfileSchema>;
 
+/** Runtime-only Sony settings; approval data stays in its separate state file. */
+export interface SonyRuntimeConfig {
+  enabled: boolean;
+  apiUrl: string;
+  executable?: string;
+  stateFile: string;
+}
+
 export interface AppConfig {
   atem: { ip: string; defaultTransition: string; meIndex: number };
   /** The resolved camera slots (cam1..camN) the whole app operates on. */
@@ -200,6 +216,30 @@ export interface AppConfig {
   devices?: Record<string, InventoryDevice>;
   profiles?: Record<string, Profile>;
   activeProfile?: string;
+  sony?: SonyRuntimeConfig;
+}
+
+function parseSonyEnabled(value: string): boolean {
+  if (value === 'true' || value === '1') return true;
+  if (value === 'false' || value === '0') return false;
+  throw new Error('SONY_ENABLED must be true, false, 1, or 0');
+}
+
+function resolveSonyConfig(raw: z.infer<typeof SonySchema> | undefined, devicesPath: string): SonyRuntimeConfig {
+  const yaml = SonySchema.parse(raw ?? {});
+  const enabled = process.env.SONY_ENABLED === undefined ? yaml.enabled : parseSonyEnabled(process.env.SONY_ENABLED);
+  const apiUrl = process.env.SONY_API_URL ?? yaml.apiUrl;
+  const executable = process.env.SONY_SERVER_EXECUTABLE ?? yaml.executable;
+  if (executable !== undefined && !path.isAbsolute(executable)) {
+    throw new Error('Sony executable must be an absolute path');
+  }
+  const stateFile = process.env.SONY_STATE_FILE ?? yaml.stateFile ?? 'sony-cameras.json';
+  return {
+    enabled,
+    apiUrl,
+    executable,
+    stateFile: path.isAbsolute(stateFile) ? stateFile : path.resolve(path.dirname(devicesPath), stateFile),
+  };
 }
 
 /**
@@ -270,6 +310,7 @@ export function loadConfig(): AppConfig {
     devices: devices.devices,
     profiles: devices.profiles,
     activeProfile: devices.activeProfile,
+    sony: resolveSonyConfig(devices.sony, devicesPath),
   };
 }
 

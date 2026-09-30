@@ -1,0 +1,22 @@
+{
+  "issue": "sony-manager-lifecycle",
+  "date": "2026-08-13",
+  "test_command": "ts-node src/testing/sonyManagerTest.ts",
+  "evidence": "103 named assertions, each prefixed with its criterion id; the suite fails if any criterion is uncovered, if a name repeats, or if it exits before completing.",
+  "waiver": null,
+  "criteria": [
+    { "criterion_id": "task-sony-manager-lifecycle-c1", "text": "Disabled Sony performs no probes or process work and start is nonblocking/idempotent.", "mode": "unit", "test": "src/testing/sonyManagerTest.ts", "status": "pass", "reason": "" },
+    { "criterion_id": "task-sony-manager-lifecycle-c2", "text": "An unhealthy sidecar without an executable is absent and uses the approved 60-second dormant health interval.", "mode": "unit", "test": "src/testing/sonyManagerTest.ts", "status": "pass", "reason": "" },
+    { "criterion_id": "task-sony-manager-lifecycle-c3", "text": "A healthy existing endpoint is adopted as external and is never stopped or killed.", "mode": "unit", "test": "src/testing/sonyManagerTest.ts", "status": "pass", "reason": "" },
+    { "criterion_id": "task-sony-manager-lifecycle-c4", "text": "Managed launch is loopback-only and uses the configured absolute executable with fixed port arguments, cwd, shell false, and drained pipes.", "mode": "unit", "test": "src/testing/sonyManagerTest.ts", "status": "pass", "reason": "" },
+    { "criterion_id": "task-sony-manager-lifecycle-c5", "text": "Owned readiness failure and unexpected exits clean up/restart only within the bounded resettable crash budget.", "mode": "unit", "test": "src/testing/sonyManagerTest.ts", "status": "pass", "reason": "" },
+    { "criterion_id": "task-sony-manager-lifecycle-c6", "text": "Startup loads approvals, discovery leaves unknown cameras unapproved, and only explicit successful connect persists approval.", "mode": "integration", "test": "src/testing/sonyManagerTest.ts", "status": "pass", "reason": "" },
+    { "criterion_id": "task-sony-manager-lifecycle-c7", "text": "Approved cameras reconnect through a shared bounded discovery scheduler and forget cancels future automatic work.", "mode": "unit", "test": "src/testing/sonyManagerTest.ts", "status": "pass", "reason": "" },
+    { "criterion_id": "task-sony-manager-lifecycle-c8", "text": "Per-camera operations serialize while read polling coalesces or receives typed retryable backpressure.", "mode": "unit", "test": "src/testing/sonyManagerTest.ts", "status": "pass", "reason": "" },
+    { "criterion_id": "task-sony-manager-lifecycle-c9", "text": "Stop cancels work and gracefully shuts down only owned children before signal fallback.", "mode": "unit", "test": "src/testing/sonyManagerTest.ts", "status": "pass", "reason": "" },
+    { "criterion_id": "task-sony-manager-lifecycle-c10", "text": "Safe IDs allow alphanumeric, colon, and dash forms; upstream paths preserve literal colons after encoding validation.", "mode": "unit", "test": "src/testing/sonyManagerTest.ts", "status": "pass", "reason": "" },
+    { "criterion_id": "task-sony-manager-lifecycle-c11", "text": "Pairing is emitted only for exact injected numeric allowlist codes; ordinary outages remain disconnected/degraded.", "mode": "unit", "test": "src/testing/sonyManagerTest.ts", "status": "pass", "reason": "" },
+    { "criterion_id": "task-sony-manager-lifecycle-c12", "text": "Status and logs are curated and omit executable paths, raw logs, credentials, tokens, and fingerprints.", "mode": "unit", "test": "src/testing/sonyManagerTest.ts", "status": "pass", "reason": "" }
+  ],
+  "not_tested": []
+}

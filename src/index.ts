@@ -23,6 +23,8 @@ import { createStatusServer, startStatusServer } from './ui/statusServer';
 import { ActivityLog } from './app/activityLog';
 import { startWatchdog } from './safety/watchdog';
 import { CalibrationWizard } from './input/calibrationWizard';
+import { SonyStateStore } from './sony/sonyStateStore';
+import { SonyManager } from './sony/sonyManager';
 
 async function main() {
   logger.info('FPS CamControl starting…');
@@ -30,6 +32,9 @@ async function main() {
   const config = loadConfig();
   const state: AppState = createInitialState();
   const activityLog = new ActivityLog();
+  const sonyManager = new SonyManager(config.sony!, new SonyStateStore(config.sony!.stateFile));
+  // Sony is optional; readiness stays in the manager background lane.
+  sonyManager.start();
 
   // Step 1: Connect to ATEM
   const atem = new AtemClient(config.atem.ip);
@@ -138,20 +143,26 @@ async function main() {
   startWatchdog(state, atem, devices);
 
   // Step 10: Status UI
-  const app = createStatusServer(state, config, presetManager, activityLog, atem, devices);
+  const app = createStatusServer(state, config, presetManager, activityLog, atem, devices, sonyManager);
   const port = parseInt(process.env.STATUS_PORT ?? '8080', 10);
   startStatusServer(app, activityLog, port);
 
   logger.info({ controlledCamera: state.controlledCamera }, 'FPS CamControl running');
 
   // Graceful shutdown
-  process.on('SIGINT', () => {
+  let shuttingDown = false;
+  const shutdown = async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     logger.info('shutting down');
     supervisor.stop();
     atem.disconnect();
     for (const [, device] of devices) device.close();
+    await sonyManager.stop();
     process.exit(0);
-  });
+  };
+  process.on('SIGINT', () => void shutdown());
+  process.on('SIGTERM', () => void shutdown());
 }
 
 main().catch(err => {
