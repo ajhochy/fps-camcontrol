@@ -2,6 +2,8 @@
   "name": "fps-camcontrol",
   "version": "0.1.0",
   "description": "Game controller → live production camera control surface",
+  "license": "MIT",
+  "author": "AJ Hochhalter",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
