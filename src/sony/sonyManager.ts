@@ -10,6 +10,8 @@ const READ_TIMEOUT_MS = 5000;
 // A network scan (Wi-Fi/LAN cameras) routinely takes ~10s inside Sony's SDK.
 const DISCOVERY_TIMEOUT_MS = 30000;
 const FRAME_TIMEOUT_MS = 3000;
+const LINK_CHECK_MS = 5000;
+const LINK_CHECK_TIMEOUT_MS = 2000;
 const SHUTDOWN_REQUEST_TIMEOUT_MS = 2000;
 const SHUTDOWN_EXIT_WAIT_MS = 3000;
 const TERM_EXIT_WAIT_MS = 2000;
@@ -41,6 +43,8 @@ export interface SonyCameraStatus {
   lastSeenAt: string | null;
   nextRetryAt: string | null;
   message: string | null;
+  /** Key of the gimbal this camera is mounted on, if an operator linked one. */
+  gimbalDevice?: string | null;
 }
 
 export interface SonyStatus {
@@ -123,6 +127,7 @@ export class SonyManager {
   private readyTimer?: Timer;
   private restartTimer?: Timer;
   private discoveryTimer?: Timer;
+  private linkTimer?: Timer;
   private restartAttempts = 0;
   private outageStartedAt: number | null = null;
   private healthySince: number | null = null;
@@ -198,7 +203,7 @@ export class SonyManager {
         mode: this.mode, state: this.state, owned: this.owned, apiUrl: this.config.apiUrl,
         version: this.version, sdkVersion: this.sdkVersion, message: this.sidecarMessage,
       },
-      cameras: [...this.cameras.values()].map(({ missing: _missing, ...camera }) => ({ ...camera })),
+      cameras: [...this.cameras.values()].map(({ missing: _missing, ...camera }) => ({ ...camera, gimbalDevice: this.approved.get(camera.id)?.gimbalDevice ?? null })),
     };
   }
 
@@ -412,6 +417,7 @@ export class SonyManager {
 
   /** One shared timer for every pending camera: an outage costs one probe, not N. */
   private refreshDiscoverySchedule(): void {
+    this.refreshLinkCheck();
     const pending = [...this.cameras.values()].some((camera) => camera.approved && camera.state !== 'connected');
     if (!pending || this.stopped || this.state !== 'healthy') {
       this.cancelDiscovery();
@@ -431,6 +437,41 @@ export class SonyManager {
       if (this.isStale(epoch)) return;
       this.track(this.discover());
     }, delay);
+  }
+
+  /** A camera that loses power never announces it, so re-check the link of every camera shown as connected. */
+  private refreshLinkCheck(): void {
+    const watching = !this.stopped && this.state === 'healthy' && [...this.cameras.values()].some((camera) => camera.state === 'connected');
+    if (!watching) { this.cancelLinkCheck(); return; }
+    if (this.linkTimer) return;
+    const epoch = this.epoch;
+    this.linkTimer = this.setTimer(() => {
+      this.linkTimer = undefined;
+      if (this.isStale(epoch)) return;
+      this.track(this.checkLinks(epoch).finally(() => { if (!this.isStale(epoch)) this.refreshLinkCheck(); }));
+    }, LINK_CHECK_MS);
+  }
+
+  private async checkLinks(epoch: number): Promise<void> {
+    let lost = false;
+    for (const camera of [...this.cameras.values()]) {
+      if (camera.state !== 'connected') continue;
+      try {
+        const body = await this.request(`${this.cameraPath(camera.id)}/connection`, undefined, LINK_CHECK_TIMEOUT_MS);
+        if (this.isStale(epoch)) return;
+        if (!this.connectedFlag(body) && camera.state === 'connected') {
+          camera.state = 'disconnected';
+          camera.message = 'Camera stopped responding';
+          lost = true;
+        }
+      } catch (_) { /* inconclusive: a sidecar outage is handled by the health probe, not here */ }
+    }
+    if (lost) { this.burstIndex = 0; this.refreshDiscoverySchedule(); }
+  }
+
+  private cancelLinkCheck(): void {
+    if (this.linkTimer) this.clearTimer(this.linkTimer);
+    this.linkTimer = undefined;
   }
 
   private stampRetry(): void {
@@ -471,7 +512,7 @@ export class SonyManager {
         const camera = this.normalizeCamera(body, id, previous);
         // Only an explicit, successful Connect persists approval.
         if (!automatic) await this.store.approve({ id, model: camera.model, connectionType: camera.connectionType });
-        if (!automatic) this.approved.set(id, { id, model: camera.model, connectionType: camera.connectionType, approvedAt: this.now().toISOString() });
+        if (!automatic) this.approved.set(id, { ...this.approved.get(id), id, model: camera.model, connectionType: camera.connectionType, approvedAt: this.approved.get(id)?.approvedAt ?? this.now().toISOString() });
         this.cameras.set(id, { ...camera, approved: this.approved.has(id), state: 'connected', missing: false });
         this.refreshDiscoverySchedule();
       } catch (error) {
@@ -496,6 +537,14 @@ export class SonyManager {
     if (camera) { camera.approved = false; camera.state = 'discovered_unapproved'; camera.nextRetryAt = null; camera.message = null; }
     this.refreshDiscoverySchedule();
     await this.store.forget(id);
+  }
+
+  /** Records which gimbal a camera is mounted on (null clears). The store enforces one camera per gimbal. */
+  async setGimbalLink(id: string, device: string | null): Promise<void> {
+    this.assertId(id);
+    if (!this.approved.has(id)) throw new Error('Sony camera must be approved before linking a gimbal');
+    await this.store.setGimbalLink(id, device);
+    this.approved = new Map((await this.store.load()).map((camera) => [camera.id, camera]));
   }
 
   async retryCamera(id: string): Promise<void> {
@@ -661,10 +710,10 @@ export class SonyManager {
   }
 
   private cancelAllTimers(): void {
-    for (const timer of [this.healthTimer, this.readyTimer, this.restartTimer, this.discoveryTimer]) {
+    for (const timer of [this.healthTimer, this.readyTimer, this.restartTimer, this.discoveryTimer, this.linkTimer]) {
       if (timer) this.clearTimer(timer);
     }
-    this.healthTimer = this.readyTimer = this.restartTimer = this.discoveryTimer = undefined;
+    this.healthTimer = this.readyTimer = this.restartTimer = this.discoveryTimer = this.linkTimer = undefined;
     for (const wake of [...this.sleepers]) wake();
   }
 

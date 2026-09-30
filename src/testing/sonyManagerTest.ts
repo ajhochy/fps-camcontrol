@@ -20,7 +20,7 @@ const criteria = new Set<string>();
 
 function record(name: string): void {
   const criterion = name.split(':')[0];
-  assert.ok(/^c(?:[1-9]|1[0-2])$/.test(criterion), `check name must start with a criterion id: ${name}`);
+  assert.ok(/^c(?:[1-9]|1[0-4])$/.test(criterion), `check name must start with a criterion id: ${name}`);
   assert.ok(!checks.includes(name), `duplicate check name: ${name}`);
   checks.push(name);
   criteria.add(criterion);
@@ -552,8 +552,78 @@ async function main(): Promise<void> {
   await leakyStop;
   checkEqual('c12: a curated shutdown leaves no live timers', leaky.clock.pending(), 0);
 
+  // -- c13: a powered-off camera stops showing as connected --------------------
+  const camA = 'AA:BB:CC:DD:EE:01';
+  const camB = 'AA:BB:CC:DD:EE:02';
+  const powered = new Set<string>([camA, camB]);
+  const linked = new Set<string>();
+  const linkUpstream = (url: string, init?: RequestInit): Response => {
+    if (url.endsWith('/api/server/status')) return healthy();
+    if (url.endsWith('/api/cameras')) {
+      return json(200, { cameras: [camA, camB].filter((id) => powered.has(id)).map((id) => ({ id, model: 'ILCE-7SM3', connectionType: 'Network', connected: linked.has(id) })) });
+    }
+    const connection = url.match(/\/api\/cameras\/([^/]+)\/connection$/);
+    if (connection) {
+      const id = decodeURIComponent(connection[1]);
+      if (init?.method === 'POST') { linked.add(id); return json(200, { success: true, camera: { connected: true, model: 'ILCE-7SM3', id } }); }
+      return json(200, { success: true, camera: { connected: linked.has(id) && powered.has(id), model: '', id } });
+    }
+    return json(200, {});
+  };
+  const link = build({ stateFile: file('link.json') }, linkUpstream);
+  link.manager.start();
+  await link.manager.whenIdle();
+  await link.manager.connect(camA, false);
+  await link.manager.whenIdle();
+  const stateOf = (id: string): string | undefined => link.manager.getStatus().cameras.find((camera) => camera.id === id)?.state;
+  checkEqual('c13: an explicitly connected camera shows connected', stateOf(camA), 'connected');
+  await link.clock.run(link.manager, 5000);
+  check('c13: the link of a connected camera is re-checked every 5 s', link.calls.filter((call) => call === `GET http://127.0.0.1:8181/api/cameras/${camA}/connection`).length >= 1);
+  checkEqual('c13: a camera that still answers stays connected', stateOf(camA), 'connected');
+  check('c13: link checks use a short 2 s timeout', link.timeouts.includes(2000));
+  powered.delete(camA);
+  await link.clock.run(link.manager, 5000);
+  checkEqual('c13: a camera that powers off stops showing connected', stateOf(camA), 'disconnected');
+  checkEqual('c13: the lost link is explained to the operator', link.manager.getStatus().cameras.find((camera) => camera.id === camA)?.message, 'Camera stopped responding');
+  linked.delete(camA);
+  powered.add(camA);
+  await link.clock.run(link.manager, 30000);
+  checkEqual('c13: an approved camera reconnects by itself after power returns', stateOf(camA), 'connected');
+  const afterReconnect = link.calls.length;
+  await link.manager.stop();
+  checkEqual('c13: stop cancels the link check timer', link.clock.pending(), 0);
+  await link.clock.advance(20000);
+  checkEqual('c13: no link checks run after stop', link.calls.length, afterReconnect);
+
+  // -- c14: cameras are linked to the gimbal they are mounted on ---------------
+  const gimbal = build({ stateFile: file('gimbal.json') }, linkUpstream);
+  linked.clear(); powered.add(camA); powered.add(camB);
+  gimbal.manager.start();
+  await gimbal.manager.whenIdle();
+  await gimbal.manager.connect(camA, false);
+  await gimbal.manager.connect(camB, false);
+  await gimbal.manager.whenIdle();
+  const gimbalOf = (id: string): string | null | undefined => gimbal.manager.getStatus().cameras.find((camera) => camera.id === id)?.gimbalDevice;
+  checkEqual('c14: a new camera has no gimbal link', gimbalOf(camA), null);
+  await gimbal.manager.setGimbalLink(camA, 'rs3');
+  checkEqual('c14: an approved camera can be linked to a gimbal', gimbalOf(camA), 'rs3');
+  check('c14: the link is saved to the approval file', (await new SonyStateStore(file('gimbal.json')).load()).find((camera) => camera.id === camA)?.gimbalDevice === 'rs3');
+  await gimbal.manager.setGimbalLink(camB, 'rs3');
+  checkEqual('c14: a gimbal carries one camera, so linking it again moves it', [gimbalOf(camA), gimbalOf(camB)], [null, 'rs3']);
+  await gimbal.manager.setGimbalLink(camB, null);
+  checkEqual('c14: a link can be cleared', gimbalOf(camB), null);
+  await gimbal.manager.setGimbalLink(camA, 'rs3pro-a');
+  await gimbal.manager.connect(camA, false);
+  checkEqual('c14: reconnecting a camera keeps its gimbal link', gimbalOf(camA), 'rs3pro-a');
+  await checkRejects('c14: an unsafe gimbal key is refused', gimbal.manager.setGimbalLink(camA, '../etc'), /safe identifier/);
+  await checkRejects('c14: an unapproved camera cannot be linked', gimbal.manager.setGimbalLink('AA:BB:CC:DD:EE:99', 'rs3'), /approved/);
+  checkEqual('c14: a refused link leaves the existing link alone', gimbalOf(camA), 'rs3pro-a');
+  await gimbal.manager.forget(camA);
+  checkEqual('c14: forgetting a camera clears its gimbal link', (await new SonyStateStore(file('gimbal.json')).load()).find((camera) => camera.id === camA)?.gimbalDevice, undefined);
+  await gimbal.manager.stop();
+
   const covered = [...criteria].sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
-  assert.strictEqual(covered.length, 12, `every criterion needs a check; covered: ${covered.join(',')}`);
+  assert.strictEqual(covered.length, 14, `every criterion needs a check; covered: ${covered.join(',')}`);
   assert.strictEqual(new Set(checks).size, checks.length, 'check names must be unique');
   console.log(`sony manager: ${checks.length} checks passed across ${covered.length} criteria (${covered.join(' ')})`);
 }

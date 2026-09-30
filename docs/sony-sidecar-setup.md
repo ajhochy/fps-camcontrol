@@ -51,6 +51,8 @@ The executable is optional; without it, CamControl keeps probing the external lo
 
 Device Config lists discovered cameras. A new camera is not trusted or connected automatically: select **Connect** explicitly. After a successful connection, CamControl records the camera ID in the configured approved-camera state file (`SONY_STATE_FILE`, or the default `sony-cameras.json` beside the device config). The file stores approval metadata only—never Sony usernames, passwords, fingerprints, tokens, or pairing secrets.
 
+While a camera shows as connected, CamControl re-checks its link every 5 seconds. A camera that loses power is marked **Disconnected** ("Camera stopped responding") within about 5–10 seconds and then follows the normal reconnect behavior below.
+
 Approved cameras use automatic reconnect after an app or camera restart. If an approved camera is powered on later, bounded retries plus low-rate discovery can take up to about 75 seconds to reconnect it. Use **Retry Connect** for an immediate operator retry after restoring power or completing camera-side pairing/setup. Use **Forget** to remove approval and stop future automatic reconnect attempts.
 
 Keep the sidecar on loopback. It has no HTTP authentication and must not be exposed to a LAN or the public internet. Local use still requires each developer/operator to accept Sony's license and obtain the SDK directly from Sony; neither CamControl nor the setup helper supplies Sony SDK assets.
@@ -61,3 +63,17 @@ Keep the sidecar on loopback. It has no HTTP authentication and must not be expo
 - **The sidecar labels cameras `"connectionType": "USB"`** unless the ID contains `TCP:` or `192.`; a camera found over the network by MAC address is mislabeled. The label is cosmetic.
 - **Camera settings must be sent as the camera's hex value string** (for example `"0xfa"`). The sidecar rejects raw JSON numbers. The dashboard does this; use the `hex_value` field from `available_values` when scripting.
 - **A camera that is not in PC Remote mode** (or whose PC Remote connection method does not match how it is connected) is discovered but the connect times out after about 15 seconds.
+
+## Linking a camera to its gimbal
+
+In **Device Config → Sony Cameras**, each approved camera has a dropdown listing the DJI gimbals from `config/devices.yaml` (devices with `protocol: dji-bridge`). Choose the gimbal a camera is mounted on, or **No gimbal**. The Status page then shows "On gimbal: …" under that camera's name.
+
+- A gimbal carries one camera: linking a gimbal that is already linked moves it to the new camera.
+- The link is stored with the camera's approval in the state file (`SONY_STATE_FILE`), as the gimbal's device key only. **Forget** removes it.
+- Only approved (connected-at-least-once) cameras can be linked. The link is informational for now; it does not change how motion control or the ATEM inputs behave.
+
+## Camera-specific notes
+
+- **a7S III (ILCE-7SM3):** reconnects on its own after a power cycle once it has been approved.
+- **FX3A (ILME-FX3A):** over Wi-Fi it needed **Remote Shoot Function → Pairing** on the camera (MENU → Network → Cnct./Remote Sht.), completed with Sony's Imaging Edge Desktop (Remote), before the first connect. After a power cycle it had to be put into pairing mode again. A refused connection (`0x0000820A`, "Camera refused the connection") means the camera rejected the connection; close Imaging Edge Desktop, since the camera accepts one remote session at a time.
+- **Aperture on the FX3A** can show **(read-only)**: the camera reports no options when the lens's own aperture ring or electronics control it.
