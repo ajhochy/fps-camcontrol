@@ -1140,6 +1140,12 @@ async function runTests(): Promise<void> {
     body: JSON.stringify({ profiles: getProfiles.profiles, expectedVersion: getProfiles.version }),
   });
   assert('POST /api/profiles with a stale version answers 409 conflict', staleProfilesHttp.status === 409);
+  const rigsHttp: any = await (await fetch(`${configBase}/api/rigs`)).json();
+  assert('GET /api/rigs lists one rig per configured camera', Array.isArray(rigsHttp.rigs) && rigsHttp.rigs.length === config.cameras.length);
+  assert('GET /api/rigs reports the file version', rigsHttp.version === devicesFileVersion());
+  assert('GET /api/rigs flags a flat cameras: config as legacy', rigsHttp.legacy === true && rigsHttp.activeProfile === null);
+  assert('GET /api/rigs reports no Sony service when none is configured', rigsHttp.sony === null);
+  assert('GET /api/rigs includes the ATEM block', typeof rigsHttp.atem?.ip === 'string');
   await new Promise<void>((resolve) => configServer.close(() => resolve()));
   resetFixture();
 

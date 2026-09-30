@@ -1,0 +1,124 @@
+import type { AppState } from '../app/state';
+import type { AppConfig, CameraConfig } from './configLoader';
+
+/**
+ * The "rig" view of the running configuration (see docs/ai/plans/2026-09-30-device-config-rigs-ui.md).
+ *
+ * A rig is one camera position: a controller device (V-BOT, BirdDog or DJI
+ * gimbal), the ATEM input its video arrives on, and its name. In devices.yaml a
+ * rig is an entry in the active profile's `slots:` list; this module only
+ * *reads* that into a shape the Device Config screen can render. It has no
+ * side effects and touches no hardware, so it is tested without starting the app.
+ */
+
+export type RigController = 'vbot' | 'birddog' | 'gimbal' | 'generic';
+
+export interface RigConnectionVisca { host: string | null; port: number; address: number }
+export interface RigConnectionGimbal {
+  host: string; port: number; gimbalModel: string | null; safetyTimeoutMs: number; rollEnabled: boolean;
+}
+
+export interface RigView {
+  /** 1-based position in the active profile. Decides `id` and the selection hotkey. */
+  position: number;
+  /** `cam1..camN`: the id the rest of the app (presets, hotkeys, status) uses. */
+  id: string;
+  /** Inventory key in devices.yaml (e.g. `rs3`); null for a legacy flat `cameras:` config. */
+  deviceKey: string | null;
+  label: string;
+  controller: RigController;
+  protocol: CameraConfig['protocol'];
+  cameraType: CameraConfig['cameraType'];
+  /** Exactly one of these is set, following `protocol`. */
+  visca: RigConnectionVisca | null;
+  gimbal: RigConnectionGimbal | null;
+  speedScale: number;
+  /** ATEM input this rig's video arrives on; null = control-only (not wired to the switcher). */
+  inputId: number | null;
+  wired: boolean;
+  /** Controller button that selects this rig (from mappings.yaml `selectCamN`), if one is mapped. */
+  hotkey: string | null;
+  /** BirdDog cameras have a camera built in, so they never take a separate Sony camera. */
+  builtInCamera: boolean;
+  /** Key of the Sony camera device mounted on this rig. Always null until Sony cameras become inventory devices. */
+  camera: string | null;
+  /** Names of the profiles whose rigs include this device (edits to a device apply to all of them). */
+  usedInProfiles: string[];
+  /** Live link state; keys are present only when the app tracks them for this kind of camera. */
+  live: { connected: boolean | null; bridgeReachable?: boolean; gimbalAttached?: boolean };
+}
+
+export interface RigsView {
+  version: string;
+  activeProfile: string | null;
+  /** True for a flat `cameras:` config without profiles: rigs are shown read-only. */
+  legacy: boolean;
+  rigs: RigView[];
+  atem: AppConfig['atem'];
+  graphics: AppConfig['graphics'];
+  profiles: { name: string; label: string | null; active: boolean; rigCount: number }[];
+}
+
+function controllerOf(cam: CameraConfig): RigController {
+  if (cam.protocol === 'dji-bridge') return 'gimbal';
+  if (cam.cameraType === 'vbot') return 'vbot';
+  if (cam.cameraType === 'birddog') return 'birddog';
+  return 'generic';
+}
+
+export function buildRigs(config: AppConfig, state: AppState, version: string): RigsView {
+  const active = config.activeProfile && config.profiles?.[config.activeProfile] ? config.activeProfile : null;
+  const slots = active ? config.profiles![active].slots : [];
+
+  const rigs = config.cameras.map((cam, i): RigView => {
+    const deviceKey = slots[i]?.device ?? null;
+    const controller = controllerOf(cam);
+    const usedInProfiles = deviceKey
+      ? Object.entries(config.profiles ?? {})
+        .filter(([, profile]) => profile.slots.some((slot) => slot.device === deviceKey))
+        .map(([name]) => name)
+      : [];
+    const live: RigView['live'] = { connected: state.cameraConnected[cam.id] ?? null };
+    if (cam.id in state.cameraBridgeReachable) live.bridgeReachable = state.cameraBridgeReachable[cam.id];
+    if (cam.id in state.cameraGimbalAttached) live.gimbalAttached = state.cameraGimbalAttached[cam.id];
+
+    return {
+      position: i + 1,
+      id: cam.id,
+      deviceKey,
+      label: cam.label,
+      controller,
+      protocol: cam.protocol,
+      cameraType: cam.cameraType,
+      visca: cam.protocol === 'visca'
+        ? { host: cam.viscaIp ?? null, port: cam.viscaPort, address: cam.cameraAddress }
+        : null,
+      gimbal: cam.protocol === 'dji-bridge' && cam.bridge
+        ? {
+          host: cam.bridge.host, port: cam.bridge.port, gimbalModel: cam.bridge.gimbalModel ?? null,
+          safetyTimeoutMs: cam.bridge.safetyTimeoutMs, rollEnabled: cam.bridge.rollEnabled,
+        }
+        : null,
+      speedScale: cam.speedScale,
+      inputId: cam.inputId ?? null,
+      wired: cam.inputId !== undefined,
+      hotkey: i < 4 ? ((config.mappings as Record<string, unknown>)[`selectCam${i + 1}`] as string | undefined) ?? null : null,
+      builtInCamera: controller === 'birddog',
+      camera: null,
+      usedInProfiles,
+      live,
+    };
+  });
+
+  return {
+    version,
+    activeProfile: active,
+    legacy: active === null,
+    rigs,
+    atem: config.atem,
+    graphics: config.graphics,
+    profiles: Object.entries(config.profiles ?? {}).map(([name, profile]) => ({
+      name, label: profile.label ?? null, active: name === active, rigCount: profile.slots.length,
+    })),
+  };
+}

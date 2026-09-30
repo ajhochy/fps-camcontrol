@@ -12,6 +12,7 @@ import {
   devicesFileVersion, ConfigConflictError,
   type Profile as CameraProfile,
 } from '../config/configLoader';
+import { buildRigs } from '../config/rigs';
 import { PresetManager } from '../model/presetManager';
 import { ActivityLog } from '../app/activityLog';
 import { ViscaDevice } from '../devices/viscaDevice';
@@ -126,6 +127,12 @@ export function createStatusServer(
       speeds: config.speeds,
       version: devicesFileVersion(),
     });
+  });
+
+  // GET /api/rigs — the rig view of the running config for the Device Config screen:
+  // one entry per camera position plus the ATEM, profile list and Sony camera status.
+  app.get('/api/rigs', (_req, res) => {
+    res.json({ ...buildRigs(config, state, devicesFileVersion()), sony: sonyManager ? sonyManager.getStatus() : null });
   });
 
   app.get('/api/presets', (_req, res) => {
