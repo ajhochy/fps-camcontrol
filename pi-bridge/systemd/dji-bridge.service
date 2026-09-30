@@ -5,13 +5,14 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=pi
-WorkingDirectory=/home/pi/dji-bridge
+User=worship
+WorkingDirectory=/home/worship/dji-bridge
 Environment=PYTHONUNBUFFERED=1
-# Bring up CAN before launching the bridge (PiCAN3 / CANable Pro).
-# Comment out if you're running --driver mock.
-ExecStartPre=/usr/bin/sudo /sbin/ip link set can0 up type can bitrate 1000000
-ExecStart=/usr/bin/python3 /home/pi/dji-bridge/dji_bridge.py --host 0.0.0.0 --port 7878 --driver mock
+# Target deployment convention: /home/worship/dji-bridge -> repo pi-bridge/.
+# Create /etc/default/dji-bridge with DJI_RS3_BLE_ADDRESS and optional
+# DJI_RS3_MAX_JOYSTICK=200 (safe range 1..1000; tune while viewing camera video).
+EnvironmentFile=-/etc/default/dji-bridge
+ExecStart=/home/worship/dji-bridge/.venv/bin/python3 /home/worship/dji-bridge/dji_bridge.py --host 0.0.0.0 --port 7878 --driver dji-rs3-ble
 Restart=on-failure
 RestartSec=2
 

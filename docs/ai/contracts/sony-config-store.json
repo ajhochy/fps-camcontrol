@@ -1,0 +1,14 @@
+{
+  "issue": "sony-config-store",
+  "date": "2026-08-13",
+  "test_command": "ts-node src/testing/sonyConfigStoreTest.ts",
+  "waiver": null,
+  "criteria": [
+    { "criterion_id": "task-sony-config-store-c1", "text": "Optional top-level Sony config defaults to enabled, loopback API URL, and a state file beside DEVICES_CONFIG while existing configurations remain valid.", "mode": "unit", "test": "src/testing/sonyConfigStoreTest.ts", "status": "pass", "reason": "" },
+    { "criterion_id": "task-sony-config-store-c2", "text": "SONY_ENABLED, SONY_API_URL, SONY_SERVER_EXECUTABLE, and SONY_STATE_FILE override YAML; SONY_ENABLED accepts only true/false/1/0 and paths follow the specified resolution rules.", "mode": "unit", "test": "src/testing/sonyConfigStoreTest.ts", "status": "pass", "reason": "" },
+    { "criterion_id": "task-sony-config-store-c3", "text": "Approval state persists the version-1 safe-ID schema across a fresh store instance; approve updates metadata, forget removes it, and no credential fields are emitted.", "mode": "integration", "test": "src/testing/sonyConfigStoreTest.ts", "status": "pass", "reason": "" },
+    { "criterion_id": "task-sony-config-store-c4", "text": "Missing state returns empty and malformed, duplicate-ID state is quarantined without loading approvals.", "mode": "integration", "test": "src/testing/sonyConfigStoreTest.ts", "status": "pass", "reason": "" },
+    { "criterion_id": "task-sony-config-store-c5", "text": "Concurrent approvals serialize to valid persisted state, and a pre-rename failure preserves the old complete JSON file with best-effort 0600 output mode.", "mode": "integration", "test": "src/testing/sonyConfigStoreTest.ts", "status": "pass", "reason": "" }
+  ],
+  "not_tested": []
+}

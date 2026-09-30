@@ -386,7 +386,9 @@ Each phase is independently shippable and leaves the app working.
 
 **Phase 2 — Real Pi bridge**
 9. **Pi bridge service (Python).** Skeleton: WS server, hello, heartbeat, safety watchdog, capability advertising, mock SDK adapter. Run on dev box first.
-10. **DJI RS SDK adapter.** Evaluate ConstantRobotics/DJIR_SDK first (see §11). Implement `move_velocity`, `stop`, `get_attitude`. Pin to one model (RS4 Pro). Ship behind a `--driver dji-rs-sdk` flag; default driver remains `mock`.
+10. **Superseded for RS3.** The implemented `--driver dji-rs3-ble` adapter uses
+    the Pi's Bluetooth LE transport; CAN research in this document remains
+    fallback history only.
 11. **Hardware bring-up doc + systemd unit** for the Pi. Out-of-scope for app code but blocks Phase 3 acceptance.
 
 **Phase 3 — Polish**

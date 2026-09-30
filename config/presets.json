@@ -12,15 +12,40 @@
       "tilt": 0,
       "zoom": 0
     },
-    "B": null,
-    "X": null,
-    "Y": null
+    "B": {
+      "kind": "visca",
+      "pan": 147,
+      "tilt": 21,
+      "zoom": 12668
+    },
+    "X": {
+      "kind": "visca",
+      "pan": 65415,
+      "tilt": 17,
+      "zoom": 13735
+    },
+    "Y": {
+      "kind": "visca",
+      "pan": 29,
+      "tilt": 6,
+      "zoom": 12423
+    }
   },
   "cam3": {
-    "A": null,
+    "A": {
+      "kind": "visca",
+      "pan": 64993,
+      "tilt": -25,
+      "zoom": 6745
+    },
     "B": null,
     "X": null,
-    "Y": null
+    "Y": {
+      "kind": "visca",
+      "pan": 65050,
+      "tilt": -6,
+      "zoom": 12693
+    }
   },
   "cam4": {
     "A": {

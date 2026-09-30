@@ -16,7 +16,7 @@ export async function emergencyStopAll(
     device.stop();
   }
   if (state.lowerThirdsActive) {
-    await toggleLowerThirds(atem, state, config, false);
+    await toggleLowerThirds(atem, state, config, false, true); // instant kill, no fade
   }
   logger.warn('EMERGENCY STOP complete');
 }

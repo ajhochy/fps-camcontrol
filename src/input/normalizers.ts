@@ -23,6 +23,11 @@ function readUint8(buf: Buffer, offset: number): number {
   return buf[offset] ?? 0;
 }
 
+function readUint12LE(buf: Buffer, offset: number, bitOffset = 0): number {
+  const value = (buf[offset] ?? 0) | ((buf[offset + 1] ?? 0) << 8) | ((buf[offset + 2] ?? 0) << 16);
+  return (value >>> bitOffset) & 0x0fff;
+}
+
 function normalizeAxis(raw: number, def: AxisDef): number {
   const [min, max] = def.range;
   const mid = (min + max) / 2;
@@ -46,6 +51,8 @@ export function normalizeHIDReport(buf: Buffer, profile: ControllerProfile): Nor
       raw = readInt16LE(buf, def.byte);
     } else if (def.type === 'uint16le') {
       raw = readUint16LE(buf, def.byte);
+    } else if (def.type === 'uint12le') {
+      raw = readUint12LE(buf, def.byte, def.bitOffset);
     } else {
       raw = readUint8(buf, def.byte);
     }
@@ -59,8 +66,22 @@ export function normalizeHIDReport(buf: Buffer, profile: ControllerProfile): Nor
 
   for (const [name, def] of Object.entries(profile.buttons)) {
     const byte = buf[def.byte] ?? 0;
-    const bit = Boolean(byte & (1 << def.bit));
-    buttons[name] = def.activeLow ? !bit : bit;
+    let pressed: boolean;
+    if (def.hatValue != null) {
+      // Hat switch button: pressed iff the whole byte equals this exact value.
+      pressed = byte === def.hatValue;
+    } else if (def.bit != null) {
+      pressed = Boolean(byte & (1 << def.bit));
+    } else {
+      pressed = false;
+    }
+    pressed = def.activeLow ? !pressed : pressed;
+    if (name === 'leftTrigger' || name === 'rightTrigger') {
+      // Digital triggers (e.g. Switch Pro ZL/ZR) are reported as buttons: map to 0/1.
+      triggers[name] = pressed ? 1 : 0;
+    } else {
+      buttons[name] = pressed;
+    }
   }
 
   return { axes, buttons, triggers };

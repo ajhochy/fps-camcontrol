@@ -4,17 +4,17 @@ DJI RS gimbal bridge for fps-camcontrol.
 
 Speaks the WebSocket/JSON protocol documented in docs/dji-gimbal-spec.md §5.
 Hosts a WS server on configurable host:port, performs capability negotiation
-on `hello`, enforces a safety watchdog, and delegates motor commands to a
-pluggable driver (mock by default; real DJI SDK driver to be added once the
-SDK is downloaded and the CAN hardware is wired).
+    on `hello`, enforces a safety watchdog, and delegates motor commands to a
+    pluggable driver (mock by default; RS3 Bluetooth LE when selected).
 
 Usage:
     python3 dji_bridge.py --port 7878 --driver mock
-    python3 dji_bridge.py --port 7878 --driver dji-rs-sdk --can-iface can0
+    python3 dji_bridge.py --port 7878 --driver dji-rs3-ble --ble-address 34:D2:62:15:A5:47
 """
 
 import argparse
 import asyncio
+import fcntl
 import json
 import logging
 import signal
@@ -31,6 +31,12 @@ from drivers.mock_driver import MockDriver
 PROTOCOL_VERSION = 1
 DEFAULT_SAFETY_TIMEOUT_MS = 250
 STATUS_INTERVAL_S = 0.5
+# Shared by every bridge instance on this host; serialises BLE connects so
+# concurrent attempts don't fail with org.bluez.Error.InProgress.
+BLE_CONNECT_LOCK = "/tmp/dji-bridge-ble-connect.lock"
+GIMBAL_RETRY_MIN_S = 2.0
+GIMBAL_RETRY_MAX_S = 30.0
+GIMBAL_POLL_S = 2.0
 
 log = logging.getLogger("dji-bridge")
 
@@ -56,12 +62,19 @@ class Session:
         try:
             async for raw in self.ws:
                 await self._handle(raw)
+        except websockets.exceptions.ConnectionClosed:
+            log.info("client connection closed")
         finally:
             if self.safety_task and not self.safety_task.done():
                 self.safety_task.cancel()
             if self.status_task and not self.status_task.done():
                 self.status_task.cancel()
-            await self.driver.stop()
+            # A gimbal whose link just dropped cannot be stopped; that must not
+            # turn into an unhandled error on the way out.
+            try:
+                await self.driver.stop()
+            except Exception as e:  # noqa: BLE001
+                log.warning("stop on client disconnect failed: %s", e)
 
     async def _handle(self, raw: Any) -> None:
         try:
@@ -140,7 +153,10 @@ class Session:
     async def _safety_fire(self) -> None:
         try:
             await asyncio.sleep(self.safety_timeout_ms / 1000.0)
-            await self.driver.stop()
+            try:
+                await self.driver.stop()
+            except Exception as e:  # noqa: BLE001
+                log.warning("safety stop could not reach the gimbal: %s", e)
             await self._emit("safetyStop", {"reason": "app_timeout"})
             log.warning("safety stop: app_timeout")
         except asyncio.CancelledError:
@@ -153,16 +169,18 @@ class Session:
                 try:
                     pos = await self.driver.get_position()
                 except Exception:  # noqa: BLE001
-                    continue
-                await self._emit(
-                    "status",
-                    {
-                        "gimbalConnected": self.driver.connected,
-                        "sdkConnected": self.driver.connected,
-                        "mode": self.driver.mode,
-                        "position": {"yaw": pos.yaw, "pitch": pos.pitch, "roll": pos.roll},
-                    },
-                )
+                    pos = None
+                # Still report status when the read failed, otherwise a gimbal that
+                # dropped its link looks like a gimbal that is simply quiet and the
+                # app never learns that it is disconnected.
+                params: Dict[str, Any] = {
+                    "gimbalConnected": self.driver.connected,
+                    "sdkConnected": self.driver.connected,
+                    "mode": self.driver.mode,
+                }
+                if pos is not None:
+                    params["position"] = {"yaw": pos.yaw, "pitch": pos.pitch, "roll": pos.roll}
+                await self._emit("status", params)
         except asyncio.CancelledError:
             pass
 
@@ -188,8 +206,74 @@ class Session:
             pass
 
 
+async def _hold_ble_lock() -> Any:
+    """Acquire the host-wide BLE connect lock (blocking, off the event loop).
+
+    BlueZ serialises connection *attempts* per adapter: two concurrent connects
+    fail with `org.bluez.Error.InProgress`. Multiple established links are fine,
+    so we only serialise the connect itself. The lock is a file lock so it works
+    across the separate bridge processes (one per gimbal), not just within one.
+    """
+    def _acquire() -> Any:
+        fh = open(BLE_CONNECT_LOCK, "a+")
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        return fh
+
+    return await asyncio.to_thread(_acquire)
+
+
+def _release_ble_lock(fh: Any) -> None:
+    try:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+    finally:
+        fh.close()
+
+
+async def maintain_gimbal(driver: GimbalDriver) -> None:
+    """Keep the gimbal connected, retrying forever, without killing the server.
+
+    The bridge must stay reachable even when the gimbal is off: the app treats a
+    refused port as "the whole Pi is down". Previously `serve()` awaited
+    `driver.connect()` before binding the listener, so an absent gimbal raised
+    GimbalError -> exit(1) -> systemd restart, and port 7878 never opened.
+
+    This loop is also what recovers a gimbal that drops its link mid-service (DJI
+    gimbals sleep on their own). That only works because the driver now clears
+    `connected` when the link goes away instead of leaving it True forever.
+    """
+    backoff = GIMBAL_RETRY_MIN_S
+    was_connected = False
+    while True:
+        if driver.connected:
+            was_connected = True
+            await asyncio.sleep(GIMBAL_POLL_S)
+            continue
+        if was_connected:
+            # Dropped after a good connect: reconnect immediately, no backoff.
+            log.warning("gimbal link lost — reconnecting")
+            was_connected = False
+            backoff = GIMBAL_RETRY_MIN_S
+        lock = await _hold_ble_lock()
+        try:
+            await driver.connect()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("gimbal connect failed: %s (retry in %.0fs)", exc, backoff)
+            _release_ble_lock(lock)
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, GIMBAL_RETRY_MAX_S)
+            continue
+        else:
+            _release_ble_lock(lock)
+            log.info("gimbal connected (%s)", driver.model)
+            was_connected = True
+            backoff = GIMBAL_RETRY_MIN_S
+        await asyncio.sleep(GIMBAL_POLL_S)
+
+
 async def serve(host: str, port: int, driver: GimbalDriver, safety_timeout_ms: int) -> None:
-    await driver.connect()
+    # Bind the listener FIRST, then bring the gimbal up in the background, so the
+    # bridge is always reachable and reports gimbal state instead of vanishing.
+    connector = asyncio.create_task(maintain_gimbal(driver))
 
     async def handler(ws: WebSocketServerProtocol) -> None:
         log.info("client connected: %s", ws.remote_address)
@@ -200,29 +284,33 @@ async def serve(host: str, port: int, driver: GimbalDriver, safety_timeout_ms: i
             log.info("client disconnected: %s", ws.remote_address)
 
     log.info("DJI bridge listening on ws://%s:%d (driver=%s)", host, port, driver.name)
-    async with websockets.serve(handler, host, port):
-        stop = asyncio.Event()
-        loop = asyncio.get_running_loop()
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig, stop.set)
-        await stop.wait()
-
-    await driver.close()
+    try:
+        async with websockets.serve(handler, host, port):
+            stop = asyncio.Event()
+            loop = asyncio.get_running_loop()
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                loop.add_signal_handler(sig, stop.set)
+            await stop.wait()
+    finally:
+        connector.cancel()
+        try:
+            await connector
+        except asyncio.CancelledError:
+            pass
+        await driver.close()
 
 
 def build_driver(name: str, args: argparse.Namespace) -> GimbalDriver:
     if name == "mock":
         return MockDriver()
-    if name == "dji-rs-sdk":
-        # Real driver TBD — depends on SDK download + CAN hardware.
-        # Skeleton import is deferred so the bridge can run in mock mode
-        # without the SDK being present.
+    if name == "dji-rs3-ble":
+        # Deferred import keeps mock mode usable without bleak installed.
         try:
             from drivers.dji_rs_driver import DjiRsDriver  # type: ignore
         except ImportError as e:
-            print(f"dji-rs-sdk driver not yet implemented: {e}", file=sys.stderr)
+            print(f"dji-rs3-ble driver unavailable: {e}", file=sys.stderr)
             sys.exit(2)
-        return DjiRsDriver(can_iface=args.can_iface, bitrate=args.can_bitrate)
+        return DjiRsDriver(address=args.ble_address)
     print(f"unknown driver: {name}", file=sys.stderr)
     sys.exit(2)
 
@@ -231,10 +319,9 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=7878)
-    ap.add_argument("--driver", default="mock", choices=["mock", "dji-rs-sdk"])
+    ap.add_argument("--driver", default="mock", choices=["mock", "dji-rs3-ble"])
     ap.add_argument("--safety-timeout-ms", type=int, default=DEFAULT_SAFETY_TIMEOUT_MS)
-    ap.add_argument("--can-iface", default="can0")
-    ap.add_argument("--can-bitrate", type=int, default=1_000_000)
+    ap.add_argument("--ble-address", help="RS3 BLE address (or DJI_RS3_BLE_ADDRESS)")
     ap.add_argument("--log-level", default="INFO")
     args = ap.parse_args()
 

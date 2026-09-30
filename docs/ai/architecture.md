@@ -1,3 +1,7 @@
+---
+type: project
+---
+
 # Architecture — fps-camcontrol
 
 ## Overview
@@ -31,13 +35,13 @@ A macOS Node.js/TypeScript app that turns a game controller (Xbox / Wii U Pro) i
 | ATEM | `src/atem/atemClient.ts`, `switcherActions.ts` | atem-connection wrapper; cut / auto-transition / DSK·USK·graphics; forwards `stateChanged` |
 | Safety | `src/safety/emergencyStop.ts`, `watchdog.ts` | Stop-all on disconnect; VISCA reconnect + 30s probe loop |
 | Status / config UI | `src/ui/statusServer.ts` | Express status page + fully editable web config (ATEM, cameras, graphics) |
-| Pi bridge | `pi-bridge/dji_bridge.py` + `drivers/` | Async websockets server translating app commands to DJI CAN; 250ms safety watchdog; pluggable driver |
+| Pi bridge | `pi-bridge/dji_bridge.py` + `drivers/` | Async websockets server translating app commands to RS3 Bluetooth LE; 250ms safety watchdog; pluggable driver |
 
 ## Key flow
 ```
 Gamepad ──node-hid──▶ controllerLoop ──▶ controlStateMachine ──▶ Map<CameraId, MotionDevice>
                                               │                         ├─ ViscaDevice ──UDP/VISCA-IP──▶ BirdDog / V-BOT
-                                              │                         └─ DjiBridgeDevice ──WS/JSON──▶ Pi bridge ──CAN──▶ DJI gimbal
+                                               │                         └─ DjiBridgeDevice ──WS/JSON──▶ Pi bridge ──BLE──▶ DJI RS3
                                               └─ ATEM cut / transition ──▶ atemClient ──▶ Blackmagic ATEM
 ```
 
@@ -52,7 +56,7 @@ Gamepad ──node-hid──▶ controllerLoop ──▶ controlStateMachine ─
 - **cam1** = V-BOT @ `192.168.50.15`
 - **cam2** = BirdDog 1 @ `192.168.50.16`
 - **cam3** = BirdDog 2 @ `192.168.50.17`
-- **cam4** = DJI RS4 Pro (planned) @ Pi bridge `192.168.50.40:7878`
+- **cam4** = DJI RS3 @ Pi bridge `192.168.50.40:7878`
 - VISCA port `52381` (configurable per camera); ATEM IP set via web UI on first run.
 
 ## Cross-links
