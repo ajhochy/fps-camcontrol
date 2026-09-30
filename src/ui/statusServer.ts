@@ -1544,17 +1544,26 @@ async function loadSonyProperties(id) {
     var body = await response.json();
     if (sonyWidgets[id] !== state || !state.active) return;
     var properties = (body.data && body.data.properties) || body.properties || {};
+    var incomplete = false;
     SONY_PROPERTIES.forEach(function(name) {
       var property = properties[name];
       var select = document.getElementById('sony-' + id.replace(/:/g, '-') + '-' + name);
       if (!select) return;
-      if (!property || !Array.isArray(property.available_values)) { select.innerHTML = '<option>Unavailable</option>'; select.disabled = true; return; }
+      if (!property || !Array.isArray(property.available_values)) { incomplete = true; select.innerHTML = '<option>Unavailable</option>'; select.disabled = true; return; }
       state.confirmed[name] = property.current_value;
       select.innerHTML = property.available_values.map(function(item) { return '<option value="' + esc(JSON.stringify(item.value)) + '"' + (typeof item.hex_value === 'string' ? ' data-hex="' + esc(item.hex_value) + '"' : '') + '>' + esc(item.formatted != null ? item.formatted : item.value) + '</option>'; }).join('');
       select.value = JSON.stringify(property.current_value);
       select.disabled = property.writable !== true || property.available_values.length === 0;
     });
-    sonyStatus(id, 'Controls confirmed.');
+    // A camera that just (re)connected may not report every setting yet; ask again a few times.
+    if (incomplete && (state.propertyRetries || 0) < 6) {
+      state.propertyRetries = (state.propertyRetries || 0) + 1;
+      setTimeout(function() { if (sonyWidgets[id] === state && state.active) loadSonyProperties(id); }, 2000 * state.propertyRetries);
+      sonyStatus(id, 'Waiting for camera settings\u2026');
+    } else {
+      if (!incomplete) state.propertyRetries = 0;
+      sonyStatus(id, incomplete ? 'Some camera settings are unavailable.' : 'Controls confirmed.');
+    }
   } catch (error) { sonyStatus(id, String(error), true); }
   finally { if (sonyWidgets[id] === state) state.loadingProperties = false; }
 }
@@ -1567,14 +1576,23 @@ async function saveSonyProperty(select) {
     // The Sony API takes the camera's hex value as a string; raw numbers are rejected.
     var chosen = select.options[select.selectedIndex];
     var sendValue = chosen && chosen.dataset.hex ? chosen.dataset.hex : JSON.parse(select.value);
-    var response = await fetch('/api/sony/cameras/' + id + '/properties/' + name, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ value:sendValue }) });
-    if (!response.ok) throw new Error('Save failed');
+    var response;
+    for (var attempt = 0; attempt < 4; attempt++) {
+      response = await fetch('/api/sony/cameras/' + id + '/properties/' + name, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ value:sendValue }) });
+      // 503 means the camera is handling another action; wait briefly and try again.
+      if (response.status !== 503) break;
+      await new Promise(function(resolve) { setTimeout(resolve, 400 * (attempt + 1)); });
+    }
+    if (!response.ok) {
+      var detail = ''; try { detail = (await response.json()).error || ''; } catch (_) {}
+      throw new Error('HTTP ' + response.status + (detail ? ' ' + detail : ''));
+    }
     await loadSonyProperties(id);
     sonyStatus(id, name.replace(/-/g, ' ') + ' saved.');
   } catch (error) {
     select.value = JSON.stringify(state.confirmed[name]);
     select.disabled = false;
-    sonyStatus(id, name.replace(/-/g, ' ') + ' save failed; restored confirmed value.', true);
+    sonyStatus(id, name.replace(/-/g, ' ') + ' save failed (' + (error && error.message ? error.message : 'unknown error') + '); restored confirmed value.', true);
   }
 }
 
