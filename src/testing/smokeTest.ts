@@ -1150,6 +1150,18 @@ async function runTests(): Promise<void> {
   assert('GET /api/rigs flags a flat cameras: config as legacy', rigsHttp.legacy === true && rigsHttp.activeProfile === null);
   assert('GET /api/rigs reports no Sony service when none is configured', rigsHttp.sony === null);
   assert('GET /api/rigs includes the ATEM block', typeof rigsHttp.atem?.ip === 'string');
+  const uiPage = await (await fetch(`${configBase}/`)).text();
+  assert('the page has a Rigs tab and loads the rigs screen files', uiPage.includes('id="tab-btn-rigs"') && uiPage.includes('id="rigs-root"') && uiPage.includes('/ui/rigs/rigs.js') && uiPage.includes('/ui/rigs/rigsModel.js') && uiPage.includes('/ui/rigs/rigs.css'));
+  for (const file of ['rigs.js', 'rigsModel.js']) {
+    const served = await fetch(`${configBase}/ui/rigs/${file}`);
+    assert(`/ui/rigs/${file} is served as JavaScript`, served.status === 200 && (served.headers.get('content-type') ?? '').includes('javascript'));
+  }
+  const css = await fetch(`${configBase}/ui/rigs/rigs.css`);
+  assert('/ui/rigs/rigs.css is served as CSS', css.status === 200 && (css.headers.get('content-type') ?? '').includes('css'));
+  assert('the rigs files are not cached stale', (await fetch(`${configBase}/ui/rigs/rigs.js`)).headers.get('cache-control') === 'no-cache');
+  const traversal = await fetch(`${configBase}/ui/%2e%2e/package.json`);
+  assert('the /ui route cannot read files outside ui/', traversal.status !== 200);
+  assert('GET /api/rigs reports the ATEM connection state field', 'atemConnected' in rigsHttp);
   await new Promise<void>((resolve) => configServer.close(() => resolve()));
   resetFixture();
 

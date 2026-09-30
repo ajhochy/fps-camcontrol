@@ -49,6 +49,15 @@ settings must be sent as strings (a hex value such as `"0x190"`, or the text `"F
 a camera that loses power stops being connected on its own, and a scan can be slow. It is not the real
 Sony SDK: pairing, Wi-Fi discovery and the camera's own timing still need a hardware check.
 
+## Looking at the rigs screen
+
+`pnpm sandbox`, open http://127.0.0.1:8090 and choose the **Rigs (beta)** tab. It is the three-column Device Config
+(list | inspector | live status, see `docs/ai/plans/2026-09-30-device-config-rigs-ui.md`); its files are
+`ui/rigs/rigsModel.js` (logic, tested in Node by `rigsUiModelTest.ts`), `ui/rigs/rigs.js` (drawing) and
+`ui/rigs/rigs.css`. Check it at desktop width (three columns), about 1000 px (two), and phone width (one column
+with a Back button), with the keyboard (arrows, Home/End, Enter to the inspector, Escape back), and with a rename
+made behind its back (`curl -X PATCH ... /api/rigs/vbot`): the list updates, an inspector you are focused in does not.
+
 ## What the self-test covers (`pnpm sandbox:check`)
 
 The app starts and adopts the fake Sony service; bound cameras show their names; `GET /api/rigs` shape;
@@ -72,4 +81,5 @@ npx ts-node src/testing/sonyConfigStoreTest.ts
 npx ts-node src/testing/rigsTest.ts
 npx ts-node src/testing/rigSchemaTest.ts
 npx ts-node src/testing/rigEditTest.ts
+npx ts-node src/testing/rigsUiModelTest.ts
 ```

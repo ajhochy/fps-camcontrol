@@ -137,6 +137,10 @@ async function selfTest(): Promise<number> {
     check('a bound Sony device gives the camera its name', status.cameras.find((c: any) => c.id === A)?.name === 'a7S III — stage left');
 
     const rigs = (await api('/api/rigs')).body;
+    const pageHtml = await (await fetch(`${base}/`)).text();
+    check('the Rigs tab and its script files are on the page', pageHtml.includes('id="tab-btn-rigs"') && pageHtml.includes('/ui/rigs/rigs.js'));
+    check('the rigs screen files are served', (await fetch(`${base}/ui/rigs/rigs.js`)).status === 200 && (await fetch(`${base}/ui/rigs/rigsModel.js`)).status === 200 && (await fetch(`${base}/ui/rigs/rigs.css`)).status === 200);
+    check('GET /api/rigs reports the ATEM as not connected (none in the sandbox)', (await api('/api/rigs')).body.atemConnected === false);
     check('GET /api/rigs lists the four rigs of the production profile', rigs.rigs?.length === 4 && rigs.activeProfile === 'production');
     check('the V-BOT rig has its Sony camera assigned', rigs.rigs?.[0]?.camera === 'sony-stage-left' && rigs.rigs?.[0]?.cameraLabel === 'a7S III — stage left');
     check('BirdDog rigs report a built-in camera', rigs.rigs?.[1]?.builtInCamera === true && rigs.rigs?.[1]?.camera === null);

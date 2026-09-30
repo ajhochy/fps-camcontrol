@@ -37,6 +37,9 @@ export function createStatusServer(
 ): express.Express {
   const app = express();
   app.use(express.json());
+  // The rigs screen is plain JS/CSS files (not part of the page template) so they can be syntax-checked and
+  // tested on their own. dist/ui and src/ui are both two levels below the repo root.
+  app.use('/ui', express.static(path.join(__dirname, '../../ui'), { index: false, setHeaders: (res) => { res.setHeader('Cache-Control', 'no-cache'); } }));
 
   const sonyProperties = new Set(['aperture', 'shutter-speed', 'iso', 'white-balance', 'focus-mode', 'focus-area']);
   const sony = (res: express.Response): SonyManager | null => {
@@ -137,7 +140,7 @@ export function createStatusServer(
   // Sony devices and Sony camera status. Also returned by every rig edit so the page can redraw from it.
   const rigsBody = () => {
     const sony = sonyManager ? sonyManager.getStatus() : null;
-    return { ...buildRigs(config, state, devicesFileVersion(), sony ? sony.cameras : []), sony };
+    return { ...buildRigs(config, state, devicesFileVersion(), sony ? sony.cameras : []), atemConnected: atem ? atem.connected : null, sony };
   };
   app.get('/api/rigs', (_req, res) => { res.json(rigsBody()); });
 
@@ -602,6 +605,7 @@ function statusHtml(): string {
   } catch (_) {}
 </script>
 <title>FPS CamControl</title>
+<link rel="stylesheet" href="/ui/rigs/rigs.css">
 <style>
   :root {
     --bg:        oklch(0.11 0.008 235);
@@ -1356,6 +1360,7 @@ function statusHtml(): string {
   <button class="tab-btn active" id="tab-btn-status" role="tab" aria-selected="true" aria-controls="tab-status" onclick="switchTab('status',this)">Status</button>
   <button class="tab-btn" id="tab-btn-log" role="tab" aria-selected="false" aria-controls="tab-log" onclick="switchTab('log',this)">Activity Log</button>
   <button class="tab-btn" id="tab-btn-config" role="tab" aria-selected="false" aria-controls="tab-config" onclick="switchTab('config',this)">Device Config</button>
+  <button class="tab-btn" id="tab-btn-rigs" role="tab" aria-selected="false" aria-controls="tab-rigs" onclick="switchTab('rigs',this)">Rigs (beta)</button>
   <button class="tab-btn" id="tab-btn-profiles" role="tab" aria-selected="false" aria-controls="tab-profiles" onclick="switchTab('profiles',this)">Profiles</button>
   <button class="tab-btn" id="tab-btn-controllers" role="tab" aria-selected="false" aria-controls="tab-controllers" onclick="switchTab('controllers',this)">Controllers</button>
 </div>
@@ -1410,6 +1415,9 @@ function statusHtml(): string {
   <div id="device-config-content">Loading&hellip;</div>
 </div>
 
+<div class="panel tab-panel" id="tab-rigs" role="tabpanel" aria-labelledby="tab-btn-rigs" hidden>
+  <div id="rigs-root"></div>
+</div>
 <div class="panel tab-panel" id="tab-profiles" role="tabpanel" aria-labelledby="tab-btn-profiles" data-editing="false" hidden>
   <div class="log-meta">
     <h2 style="margin:0">Environment Profiles</h2>
@@ -1424,6 +1432,8 @@ function statusHtml(): string {
 </main>
 </div>
 
+<script src="/ui/rigs/rigsModel.js" defer></script>
+<script src="/ui/rigs/rigs.js" defer></script>
 <script>
 function switchTab(name, btn) {
   document.querySelectorAll('.tab-panel').forEach(function(p) {

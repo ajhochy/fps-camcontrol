@@ -1,0 +1,68 @@
+/* Rigs screen. Uses the page's theme variables (--surface, --border, --text, --amber, ...). */
+#rigs-root { min-width: 0; }
+.rigs-notice { padding: 8px 12px; margin-bottom: 10px; border: 1px solid var(--border-strong, #3b474e); background: var(--warn-bg, #332713); color: var(--warn-text, #ffc66d); }
+.rigs-notice.is-error { background: var(--err-bg, #34171a); color: var(--err-text, #ff8a91); }
+.rigs-shell { display: grid; grid-template-columns: minmax(250px, 320px) minmax(320px, 1fr) minmax(260px, 340px); gap: 12px; align-items: start; min-width: 0; }
+.rigs-col { border: 1px solid var(--border, #2a343a); background: var(--surface, #11161a); min-width: 0; padding: 10px; }
+.rigs-list-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.rigs-profile { font-family: var(--label-font, sans-serif); text-transform: uppercase; letter-spacing: .06em; font-size: .75rem; color: var(--text-2, #93a0a7); overflow-wrap: anywhere; }
+.rigs-add { min-width: 44px; min-height: 44px; font-size: 1.3rem; border: 1px solid var(--border-strong, #3b474e); background: var(--surface-2, #171d21); color: var(--text-2, #93a0a7); }
+.rigs-add:disabled { opacity: .5; cursor: not-allowed; }
+.rigs-section { margin: 12px 0 4px; font-family: var(--label-font, sans-serif); text-transform: uppercase; letter-spacing: .08em; font-size: .72rem; color: var(--amber, #ffb547); }
+.rigs-group:first-child .rigs-section { margin-top: 0; }
+.rigs-item { display: flex; align-items: center; gap: 8px; min-height: 52px; padding: 6px 8px; border: 1px solid transparent; cursor: pointer; min-width: 0; }
+.rigs-item:hover { background: var(--surface-2, #171d21); }
+.rigs-item:focus-visible { outline: 2px solid var(--blue, #55a7ff); outline-offset: -2px; }
+.rigs-item.is-selected { background: var(--surface-3, #1d252a); border-color: var(--border-strong, #3b474e); box-shadow: inset 3px 0 0 var(--amber, #ffb547); }
+.rigs-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--text-2, #93a0a7); }
+.rigs-dot-ok { background: var(--ok-text, #74d69a); }
+.rigs-dot-bad { background: var(--err-text, #ff8a91); }
+.rigs-dot-warn { background: var(--warn-text, #ffc66d); }
+.rigs-dot-idle { background: var(--text-2, #93a0a7); opacity: .6; }
+.rigs-badge { flex: none; min-width: 26px; padding: 2px 6px; text-align: center; font-family: var(--label-font, sans-serif); font-size: .8rem; font-weight: 700; border: 1px solid var(--border-strong, #3b474e); color: var(--amber, #ffb547); }
+.rigs-item-text { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; }
+.rigs-item-title { color: var(--text, #edf1f2); overflow-wrap: anywhere; }
+.rigs-item-sub { font-size: .75rem; color: var(--text-2, #93a0a7); overflow-wrap: anywhere; }
+.rigs-chips { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; max-width: 50%; }
+.rigs-chip { display: inline-block; padding: 2px 6px; font-size: .7rem; border: 1px solid var(--border-strong, #3b474e); color: var(--text-2, #93a0a7); overflow-wrap: anywhere; }
+.rigs-tone-ok { background: var(--ok-bg, #14291e); color: var(--ok-text, #74d69a); border-color: transparent; }
+.rigs-tone-bad { background: var(--err-bg, #34171a); color: var(--err-text, #ff8a91); border-color: transparent; }
+.rigs-tone-warn { background: var(--warn-bg, #332713); color: var(--warn-text, #ffc66d); border-color: transparent; }
+.rigs-tone-info { color: var(--blue, #55a7ff); }
+.rigs-empty { padding: 6px 8px; color: var(--text-2, #93a0a7); font-size: .85rem; }
+.rigs-heading { margin: 0 0 6px; font-size: 1.05rem; color: var(--text, #edf1f2); overflow-wrap: anywhere; }
+.rigs-heading:focus { outline: none; }
+.rigs-heading:focus-visible { outline: 2px solid var(--blue, #55a7ff); }
+.rigs-readonly, .rigs-info { margin: 6px 0; font-size: .8rem; color: var(--text-2, #93a0a7); }
+.rigs-fields { display: grid; grid-template-columns: minmax(110px, 160px) minmax(0, 1fr); gap: 6px 12px; margin: 10px 0; }
+.rigs-fields dt { color: var(--text-2, #93a0a7); font-size: .8rem; }
+.rigs-fields dd { margin: 0; overflow-wrap: anywhere; }
+.rigs-note { display: block; font-size: .75rem; color: var(--text-2, #93a0a7); }
+.rigs-advanced { margin-top: 10px; border-top: 1px solid var(--border, #2a343a); padding-top: 8px; }
+.rigs-advanced summary { cursor: pointer; color: var(--text-2, #93a0a7); min-height: 32px; }
+.rigs-back { display: none; min-height: 44px; margin-bottom: 8px; border: 1px solid var(--border-strong, #3b474e); background: var(--surface-2, #171d21); color: var(--text, #edf1f2); padding: 0 12px; }
+
+.rigs-subheading { margin: 16px 0 6px; font-family: var(--label-font, sans-serif); text-transform: uppercase; letter-spacing: .08em; font-size: .72rem; color: var(--amber, #ffb547); }
+.rigs-service { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0; }
+.rigs-service-label { color: var(--text-2, #93a0a7); font-size: .8rem; }
+.rigs-camera { border: 1px solid var(--border, #2a343a); background: var(--surface-2, #171d21); padding: 8px 10px; margin: 6px 0; min-width: 0; }
+.rigs-camera-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.rigs-camera-name { color: var(--text, #edf1f2); overflow-wrap: anywhere; }
+.rigs-camera-line { font-size: .78rem; color: var(--text-2, #93a0a7); overflow-wrap: anywhere; margin-top: 2px; }
+
+/* Two columns: the live status moves under the inspector. */
+@media (max-width: 1100px) {
+  .rigs-shell { grid-template-columns: minmax(230px, 300px) minmax(0, 1fr); }
+  .rigs-list { grid-row: 1 / span 2; }
+  .rigs-status { grid-column: 2; }
+}
+/* One column: the list, then the inspector (with its status) after a selection. */
+@media (max-width: 840px) {
+  .rigs-shell { grid-template-columns: minmax(0, 1fr); }
+  .rigs-list { grid-row: auto; }
+  .rigs-status { grid-column: 1; }
+  .rigs-shell[data-pane="list"] .rigs-inspector, .rigs-shell[data-pane="list"] .rigs-status { display: none; }
+  .rigs-shell[data-pane="detail"] .rigs-list { display: none; }
+  .rigs-back { display: block; }
+  .rigs-chips { max-width: 45%; }
+}
