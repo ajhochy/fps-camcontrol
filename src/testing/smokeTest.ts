@@ -355,7 +355,10 @@ async function runTests(): Promise<void> {
     home.text.includes('function retrySonyProperties') && home.text.includes('Could not read camera settings yet'));
   assert('a settings read that keeps failing is retried slowly for as long as the camera stays connected',
     home.text.includes('state.propertyRetries <= 6 ? 2000 * state.propertyRetries : 15000'));
-  assert('Device Config has explicit Sony discovery/connect controls', home.text.includes('sony-device-config') && home.text.includes('Connect'));
+  const rigsJs = (await sonyGet('/ui/rigs/rigs.js')).text;
+  const rigsModelJs = (await sonyGet('/ui/rigs/rigsModel.js')).text;
+  assert('Device Config has explicit Sony connect, retry, forget, refresh and add controls',
+    ['Connect', 'Retry connect', 'Forget', 'Refresh cameras', 'Retry Sony service', 'Add as named camera', 'Bind to a found camera'].every((label) => rigsJs.includes(`'${label}`) || rigsJs.includes(label)) && rigsJs.includes("'/api/sony/cameras/'"));
   // UI review repair: catches five-second wholesale DOM replacement that loses focus,
   // select values, previews, and can start overlapping property requests/pollers.
   assert('Sony refresh reconciles widgets by camera ID without replacing the root', home.text.includes('sony-grid-root') && home.text.includes('appendChild') && home.text.includes('state.article.remove()') && !home.text.includes("root.innerHTML = '<div class=\"section-header\">Sony Cameras"));
@@ -366,44 +369,33 @@ async function runTests(): Promise<void> {
   // Re-review regression: repeated frames/failures must not rewrite aria-live;
   // these assertions fail if pollSonyFrame announces outside state transitions.
   assert('Sony preview aria-live updates only on loading/ready/stale/recovered transitions', home.text.includes("previewAnnouncementState:'loading'") && home.text.includes("state.previewAnnouncementState === 'loading') sonyStatus(id, 'Live preview ready.'") && home.text.includes("state.previewAnnouncementState === 'stale') sonyStatus(id, 'Live preview recovered.'") && home.text.includes("state.previewAnnouncementState !== 'stale') sonyStatus(id, 'Live preview stale.'") && !home.text.includes("sonyStatus(id, recovered ?"));
-  assert('Sony discovery and connect failures clear stale state and report accessibly', home.text.includes('sonyDiscovered = [];') && home.text.includes('renderSonyCameras([])') && home.text.includes('sony-device-status') && home.text.includes('Sony camera connection failed.'));
+  assert('Sony failures on the Status page clear stale state and report accessibly', home.text.includes('sonyDiscovered = [];') && home.text.includes('renderSonyCameras([])') && home.text.includes('Sony camera service unavailable'));
   assert('Sony controls alone have 44px targets', home.text.includes('.sony-widget select, .sony-widget input, .sony-widget button { min-height:44px; }'));
   assert('Sony desktop layout has four equal widget columns with 16:9 previews', home.text.includes('grid-template-columns:repeat(4,minmax(0,1fr))') && home.text.includes('aspect-ratio:16 / 9'));
   assert('Sony layout uses two widget columns on tablet and one on mobile', home.text.includes('@media (max-width:1100px)') && home.text.includes('@media (max-width:700px)'));
   assert('Sony settings remain a compact two-column grid at desktop widths', home.text.includes('.sony-controls { display:grid; grid-template-columns:repeat(2,minmax(0,1fr));'));
   assert('Every Sony widget has a heading labeling its article and preview', (home.text.match(/aria-labelledby="sony-heading-/g) || []).length === 2 && home.text.includes('<h3 class="sony-widget__title" id="sony-heading-'));
   assert('Browser code only references CamControl Sony API', !home.text.includes(`127.0.0.1:${fakeSonyPort}`) && !home.text.includes('127.0.0.1:8181'));
-  // UI review repair: a connected camera must never look like an enabled retry;
-  // this fails if the state-action matrix routes Connected back through retry.
-  assert('Sony device action matrix gives Connected a noninteractive status and only retryable states Retry Connect',
-    home.text.includes("connected.textContent='Connected'") && home.text.includes("row.connected.hidden=state!=='connected'") &&
-    home.text.includes("state==='discovered_unapproved'") && home.text.includes("primary.textContent='Connect'") &&
-    home.text.includes("state==='connecting'") && home.text.includes("primary.textContent='Connecting'") &&
-    home.text.includes("state==='disconnected'||state==='needs_pairing'||state==='error'") && home.text.includes("primary.textContent='Retry Connect'") &&
-    home.text.includes("row.primary.onclick=null") && home.text.includes("row.forget.hidden=!camera.approved"));
-  // UI review repair: polling must reconcile rows in place so focus and a pending
-  // action survive; this fails if #sony-device-list is assigned innerHTML again.
-  assert('Sony device refresh reconciles stable rows without root replacement and keeps pending actions disabled',
-    home.text.includes('sonyDeviceRows = new Map()') && home.text.includes('sonyPendingActions = new Set()') &&
-    home.text.includes('sonyDeviceRoot.contains(document.activeElement)') && home.text.includes('sonyPendingActions.has(camera.id)') &&
-    home.text.includes('sonyPendingActions.add(id)') && home.text.includes('await refreshSony();\n  sonyPendingActions.delete(id)') &&
-    home.text.includes('replaceChild(sonySection, replacement)') && home.text.includes('root.appendChild(row.element)') && home.text.includes('row.element.remove()') &&
-    !home.text.includes('root.innerHTML=sidecarHtml'));
-  assert('Sony Device Config gives approved cameras one reconnect guidance line and wraps long IDs',
-    home.text.includes('Approved cameras reconnect automatically after app or camera restart') && home.text.includes('late power-on may take up to 75 seconds') &&
-    home.text.includes('.sony-device-id { overflow-wrap:anywhere; }'));
-  // Final UI review: a pending service retry must survive polling, then release
-  // its guard on both success and failure so an absent/crashed service is retryable again.
-  assert('Sony service retry blocks duplicates while pending and is reusable after settlement',
-    home.text.includes('var sonyServiceRetryPending = false;') && home.text.includes('if (sonyServiceRetryPending) return;') &&
-    home.text.includes('sonyServiceRetryPending = true;') && home.text.includes('sonyServiceRow.retry.disabled=sonyServiceRetryPending') &&
-    home.text.includes('finally { sonyServiceRetryPending = false; updateSonyServiceRow(); }'));
+  // The action rules now live in the tested rigs model (rigsUiModelTest); the page must still use them and never rebuild under the operator.
+  assert('the Sony action rules are in the rigs model: connect, retry, forget, bind, delete',
+    ['canConnect', 'canRetry', 'canForget', 'canBind', 'canDelete'].every((rule) => rigsModelJs.includes(rule)) && rigsModelJs.includes('RETRYABLE'));
+  assert('the rigs screen never rebuilds an inspector or the profile bar under someone using it',
+    rigsJs.includes('inspectBody.contains(document.activeElement)') && rigsJs.includes('profileBar.contains(document.activeElement)'));
+  assert('the rigs screen keeps action messages across redraws and always reloads after an action',
+    rigsJs.includes('app.messages[key]') && rigsJs.includes('await load();'));
+  assert('the Sony connections screen explains automatic reconnect and links to the setup guide',
+    rigsJs.includes('Approved cameras reconnect by themselves after an app or camera restart') && rigsJs.includes('up to about 75 seconds') && rigsJs.includes('/docs/sony-sidecar-setup'));
+  // A pending action must block duplicate clicks, and the button must be usable again once it settles
+  // (the screen reloads and rebuilds it), including when the Sony service is absent or crashed.
+  assert('a Sony action blocks duplicate clicks while pending and is usable again after it settles',
+    rigsJs.includes("b.disabled = true;\n    if (b.tagName === 'BUTTON') b.textContent = progress;") && rigsJs.includes('await load();\n    drawInspector(true);') &&
+    rigsJs.includes("'Retry Sony service'") && rigsModelJs.includes("service.state === 'absent' || service.state === 'crashed'"));
   const setupPage = await sonyGet('/docs/sony-sidecar-setup');
   const unsafeDocsPage = await sonyGet('/docs/current-plan');
   assert('Sony setup link serves current setup content without exposing arbitrary docs paths',
     setupPage.response.status === 200 && setupPage.text.includes('Sony CameraWebApp sidecar setup') && setupPage.text.includes('Sony SDK EULA') &&
-    unsafeDocsPage.response.status === 404 && home.text.includes("setup.href='/docs/sony-sidecar-setup'") &&
-    home.text.includes('.sony-setup-link { min-height:44px; display:inline-flex; align-items:center; }'));
+    unsafeDocsPage.response.status === 404 && rigsJs.includes("help.href = '/docs/sony-sidecar-setup'") &&
+    (await sonyGet('/ui/rigs/rigs.css')).text.includes('.rigs-link { display: inline-flex; align-items: center; min-height: 44px;'));
   // Failed status must remain after the empty-camera reconciliation; only the
   // successful status path may clear it before rendering recovered cameras.
   const renderSonyBody = home.text.match(/function renderSonyCameras\(cameras\) \{([\s\S]*?)\n\}/)?.[1] ?? '';
@@ -419,7 +411,7 @@ async function runTests(): Promise<void> {
     !sonySetupDoc.includes('Future CamControl runtime configuration') && sonySetupDoc.includes('adopt a sidecar you start externally') &&
     sonySetupDoc.includes('launch and supervise') && sonySetupDoc.includes('approved-camera state file') &&
     sonySetupDoc.includes('select **Connect** explicitly') && sonySetupDoc.includes('automatic reconnect') &&
-    sonySetupDoc.includes('**Retry Connect**') && sonySetupDoc.includes('**Forget**') && sonySetupDoc.includes('Retry Sony service') &&
+    sonySetupDoc.includes('**Retry connect**') && sonySetupDoc.includes('**Forget**') && sonySetupDoc.includes('Retry Sony service') &&
     sonySetupDoc.includes('never Sony usernames, passwords') && sonySetupDoc.includes('Sony SDK EULA'));
 
   const camerasResult = await sonyGet('/api/sony/cameras');
@@ -1151,7 +1143,12 @@ async function runTests(): Promise<void> {
   assert('GET /api/rigs reports no Sony service when none is configured', rigsHttp.sony === null);
   assert('GET /api/rigs includes the ATEM block', typeof rigsHttp.atem?.ip === 'string');
   const uiPage = await (await fetch(`${configBase}/`)).text();
-  assert('the page has a Rigs tab and loads the rigs screen files', uiPage.includes('id="tab-btn-rigs"') && uiPage.includes('id="rigs-root"') && uiPage.includes('/ui/rigs/rigs.js') && uiPage.includes('/ui/rigs/rigsModel.js') && uiPage.includes('/ui/rigs/rigs.css'));
+  assert('the page loads the rigs screen files in the Device Config tab', uiPage.includes('id="tab-btn-rigs"') && uiPage.includes('id="rigs-root"') && uiPage.includes('/ui/rigs/rigs.js') && uiPage.includes('/ui/rigs/rigsModel.js') && uiPage.includes('/ui/rigs/rigs.css'));
+  assert('the old Device Config tab and its editor are gone', !uiPage.includes('id="tab-config"') && !uiPage.includes('device-config-content') && !uiPage.includes('function saveDeviceConfig') && !uiPage.includes('cameras-editor') && !uiPage.includes('function renderDeviceConfig'));
+  assert('the Device Config tab is now the rigs screen', /id="tab-btn-rigs"[^>]*>Device Config</.test(uiPage));
+  assert('the dark mode switch moved into Device Config and still exists once', (uiPage.match(/id="dark-mode-toggle"/g) || []).length === 1 && uiPage.indexOf('id="dark-mode-toggle"') > uiPage.indexOf('id="tab-rigs"') && uiPage.indexOf('id="dark-mode-toggle"') < uiPage.indexOf('id="rigs-root"'));
+  assert('the Profiles tab is labelled classic and points to Device Config', uiPage.includes('Profiles (classic)') && uiPage.includes('managed in <strong>Device Config</strong>'));
+  assert('the Status page still has the Sony dashboard', uiPage.includes('id="sony-cameras"') && uiPage.includes('id="sony-grid-root"'));
   for (const file of ['rigs.js', 'rigsModel.js']) {
     const served = await fetch(`${configBase}/ui/rigs/${file}`);
     assert(`/ui/rigs/${file} is served as JavaScript`, served.status === 200 && (served.headers.get('content-type') ?? '').includes('javascript'));

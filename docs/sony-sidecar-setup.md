@@ -49,11 +49,11 @@ The executable is optional; without it, CamControl keeps probing the external lo
 
 ## Camera approval and reconnect
 
-Device Config lists discovered cameras. A new camera is not trusted or connected automatically: select **Connect** explicitly. After a successful connection, CamControl records the camera ID in the configured approved-camera state file (`SONY_STATE_FILE`, or the default `sony-cameras.json` beside the device config). The file stores approval metadata only—never Sony usernames, passwords, fingerprints, tokens, or pairing secrets.
+**Device Config → Sony connections** lists the cameras CamControl knows about (the ones you have named and any newly found on the network). A new camera is not trusted or connected automatically: select **Connect** explicitly. After a successful connection, CamControl records the camera ID in the configured approved-camera state file (`SONY_STATE_FILE`, or the default `sony-cameras.json` beside the device config). The file stores approval metadata only—never Sony usernames, passwords, fingerprints, tokens, or pairing secrets.
 
-While a camera shows as connected, CamControl re-checks its link every 5 seconds. A camera that loses power is marked **Disconnected** ("Camera stopped responding") within about 5–10 seconds and then follows the normal reconnect behavior below.
+While a camera shows as connected, CamControl re-checks its link every 5 seconds. A camera that loses power is marked **Disconnected** ("Camera stopped responding") and then follows the normal reconnect behavior below. On real cameras this took about 35 seconds; the 5-second check is CamControl's part of that, and why the rest takes as long has not been investigated.
 
-Approved cameras use automatic reconnect after an app or camera restart. If an approved camera is powered on later, bounded retries plus low-rate discovery can take up to about 75 seconds to reconnect it. Use **Retry Connect** for an immediate operator retry after restoring power or completing camera-side pairing/setup. Use **Forget** to remove approval and stop future automatic reconnect attempts.
+Approved cameras use automatic reconnect after an app or camera restart. If an approved camera is powered on later, bounded retries plus low-rate discovery can take up to about 75 seconds to reconnect it. Use **Retry connect** for an immediate operator retry after restoring power or completing camera-side pairing/setup, and **Retry Sony service** if the service itself is not running. Use **Forget** to remove approval and stop future automatic reconnect attempts.
 
 Keep the sidecar on loopback. It has no HTTP authentication and must not be exposed to a LAN or the public internet. Local use still requires each developer/operator to accept Sony's license and obtain the SDK directly from Sony; neither CamControl nor the setup helper supplies Sony SDK assets.
 

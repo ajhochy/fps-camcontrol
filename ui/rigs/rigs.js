@@ -395,9 +395,15 @@
     if (info.service.canRetry) service.appendChild(button('Retry Sony service', '', function (b) { act(b, 'Retrying…', function () { return sonyCall('POST', '/api/sony/service/retry'); }, 'Retry requested', 'service'); }));
     if (info.canRefresh) service.appendChild(button('Refresh cameras', '', function (b) { act(b, 'Scanning…', function () { return sonyCall('POST', '/api/sony/cameras/discover'); }, 'Scan finished', 'service'); }));
     service.appendChild(serviceMsg);
+    if (info.service.state !== 'healthy') {
+      var help = el('a', 'rigs-link', 'Sony sidecar setup');
+      help.href = '/docs/sony-sidecar-setup'; help.target = '_blank'; help.rel = 'noopener';
+      service.appendChild(help);
+    }
     inspectBody.appendChild(service);
 
     inspectBody.appendChild(el('h3', 'rigs-subheading', 'Cameras'));
+    inspectBody.appendChild(el('p', 'rigs-info', 'Approved cameras reconnect by themselves after an app or camera restart; a camera powered on late can take up to about 75 seconds.'));
     if (!info.devices.length) inspectBody.appendChild(el('p', 'rigs-empty', 'No Sony cameras have been named yet. Name a new camera below, or add one from "New cameras found".'));
     info.devices.forEach(function (device) {
       var key = 'device:' + device.key;

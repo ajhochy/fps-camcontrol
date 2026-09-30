@@ -103,6 +103,8 @@
 .rigs-dialog { margin-top: 10px; border: 1px solid var(--amber, #ffb547); background: var(--surface-2, #171d21); padding: 10px 12px; }
 .rigs-dialog .rigs-notice { margin: 6px 0; }
 
+.rigs-link { display: inline-flex; align-items: center; min-height: 44px; color: var(--blue, #55a7ff); }
+
 /* Two columns: the live status moves under the inspector. */
 @media (max-width: 1100px) {
   .rigs-shell { grid-template-columns: minmax(230px, 300px) minmax(0, 1fr); }

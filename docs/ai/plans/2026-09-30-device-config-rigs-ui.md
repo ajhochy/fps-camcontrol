@@ -220,3 +220,16 @@ deleted, device gone, invalid) is set aside as `working-profile.json.orphaned-<t
 Also: the classic Device Config and Profiles tab saves answer 409 while a working copy exists (they would write rigs
 behind it). Deleting a hardware entry together with a rig is refused while the profile is unsaved (the saved profile
 still lists it); the device stays in the inventory. A Sony device that the working copy uses cannot be deleted.
+
+### Retiring the old screens (issue 10, as built)
+
+The old Device Config tab (ATEM, Sony, Graphics, Cameras editors) and its code are removed; the rigs screen is now the
+**Device Config** tab and also holds the Dark mode switch that lived in the old panel. The standalone gimbal dropdown
+was already removed in issue 3. `POST /api/config` and `POST /api/profiles` remain as API routes (the smoke suite uses
+them) but nothing in the page calls them.
+
+**Kept on purpose: the Profiles tab, renamed "Profiles (classic)".** The new screen cannot yet reorder rigs or change
+which device fills a rig (follow-up F1), and the old Profiles tab can. Retire it when F1 lands. Also not carried over:
+changing a VISCA camera's controller type (V-BOT / BirdDog / generic) after it exists; the new screen keeps the
+controller type read-only by design (issue #18 turned gimbals into VISCA cameras when a form guessed the protocol).
+Edit it in `devices.yaml` if it ever needs to change.

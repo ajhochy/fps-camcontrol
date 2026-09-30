@@ -58,7 +58,7 @@ Sony SDK: pairing, Wi-Fi discovery and the camera's own timing still need a hard
 
 ## Looking at the rigs screen
 
-`pnpm sandbox`, open http://127.0.0.1:8090 and choose the **Rigs (beta)** tab. It is the three-column Device Config
+`pnpm sandbox`, open http://127.0.0.1:8090 and choose the **Device Config** tab. It is the three-column Device Config
 (list | inspector | live status, see `docs/ai/plans/2026-09-30-device-config-rigs-ui.md`); its files are
 `ui/rigs/rigsModel.js` (logic, tested in Node by `rigsUiModelTest.ts`), `ui/rigs/rigs.js` (drawing) and
 `ui/rigs/rigs.css`. Check it at desktop width (three columns), about 1000 px (two), and phone width (one column

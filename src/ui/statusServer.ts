@@ -1213,11 +1213,6 @@ function statusHtml(): string {
   .sony-touch-controls label { width:90px; color:var(--text-2); }
   .sony-widget select, .sony-widget input, .sony-widget button { min-height:44px; }
   .sony-widget select:disabled { opacity:.55; cursor:not-allowed; }
-  #sony-device-config button { min-height:44px; }
-  .sony-setup-link { min-height:44px; display:inline-flex; align-items:center; }
-  .sony-device-id { overflow-wrap:anywhere; }
-  .sony-device-actions { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; align-items:center; }
-  .sony-device-status { color:var(--text-2); }
   @media (max-width:1100px) { .sony-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
   @media (max-width:700px) { .sony-grid { grid-template-columns:1fr; } }
   @media (max-width:319px) {
@@ -1487,9 +1482,6 @@ function statusHtml(): string {
     .log-wrap { height: 58vh; overflow: auto; }
     .activity-table { min-width: 760px; }
     table:not(.activity-table) { display: block; overflow-x: auto; }
-    #tab-config table, #tab-config tbody, #tab-config tr, #tab-config td { display: block; width: 100% !important; }
-    #tab-config td:first-child { padding: 8px 0 2px; border-bottom: 0; }
-    #tab-config td:last-child { padding: 2px 0 8px; }
   }
   @media (max-width: 390px) {
     .cam-grid { grid-template-columns: 1fr; }
@@ -1521,9 +1513,8 @@ function statusHtml(): string {
 <div class="tab-bar" role="tablist" aria-label="CamControl sections">
   <button class="tab-btn active" id="tab-btn-status" role="tab" aria-selected="true" aria-controls="tab-status" onclick="switchTab('status',this)">Status</button>
   <button class="tab-btn" id="tab-btn-log" role="tab" aria-selected="false" aria-controls="tab-log" onclick="switchTab('log',this)">Activity Log</button>
-  <button class="tab-btn" id="tab-btn-config" role="tab" aria-selected="false" aria-controls="tab-config" onclick="switchTab('config',this)">Device Config</button>
-  <button class="tab-btn" id="tab-btn-rigs" role="tab" aria-selected="false" aria-controls="tab-rigs" onclick="switchTab('rigs',this)">Rigs (beta)</button>
-  <button class="tab-btn" id="tab-btn-profiles" role="tab" aria-selected="false" aria-controls="tab-profiles" onclick="switchTab('profiles',this)">Profiles</button>
+  <button class="tab-btn" id="tab-btn-rigs" role="tab" aria-selected="false" aria-controls="tab-rigs" onclick="switchTab('rigs',this)">Device Config</button>
+  <button class="tab-btn" id="tab-btn-profiles" role="tab" aria-selected="false" aria-controls="tab-profiles" onclick="switchTab('profiles',this)">Profiles (classic)</button>
   <button class="tab-btn" id="tab-btn-controllers" role="tab" aria-selected="false" aria-controls="tab-controllers" onclick="switchTab('controllers',this)">Controllers</button>
 </div>
 
@@ -1559,11 +1550,7 @@ function statusHtml(): string {
   </div>
 </div>
 
-<div class="panel tab-panel" id="tab-config" role="tabpanel" aria-labelledby="tab-btn-config" data-editing="false" hidden>
-  <div class="log-meta">
-    <h2 style="margin:0">Device Config</h2>
-    <span id="config-save-status" style="font-size:0.78rem;color:var(--text-2)"></span>
-  </div>
+<div class="panel tab-panel" id="tab-rigs" role="tabpanel" aria-labelledby="tab-btn-rigs" hidden>
   <div class="appearance-setting">
     <div class="appearance-setting__copy">
       <span class="appearance-setting__label" id="dark-mode-label">Dark mode</span>
@@ -1574,10 +1561,6 @@ function statusHtml(): string {
       <span class="theme-switch__track" aria-hidden="true"></span>
     </label>
   </div>
-  <div id="device-config-content">Loading&hellip;</div>
-</div>
-
-<div class="panel tab-panel" id="tab-rigs" role="tabpanel" aria-labelledby="tab-btn-rigs" hidden>
   <div id="rigs-root"></div>
 </div>
 <div class="panel tab-panel" id="tab-profiles" role="tabpanel" aria-labelledby="tab-btn-profiles" data-editing="false" hidden>
@@ -1585,6 +1568,7 @@ function statusHtml(): string {
     <h2 style="margin:0">Environment Profiles</h2>
     <span id="profiles-save-status" style="font-size:0.78rem;color:var(--text-2)"></span>
   </div>
+  <p class="rigs-info" style="margin:6px 0 10px;color:var(--text-2)">Profiles are now managed in <strong>Device Config</strong> (the profile bar at the top of its list). This older screen remains only for reordering rigs and changing which device fills a rig.</p>
   <div id="profiles-content">Loading&hellip;</div>
 </div>
 
@@ -1762,13 +1746,6 @@ var SONY_PROPERTIES = ['aperture','shutter-speed','iso','white-balance','focus-m
 var sonyWidgets = {};
 var sonyDiscovered = [];
 var sonySidecar = null;
-var sonyDeviceRows = new Map();
-var sonyPendingActions = new Set();
-var sonyDeviceRoot = null;
-var sonyServiceRow = null;
-var sonyReconnectGuidance = null;
-var sonyEmptyState = null;
-var sonyServiceRetryPending = false;
 
 async function refreshSony() {
   try {
@@ -1777,14 +1754,11 @@ async function refreshSony() {
     sonyDiscovered = data.cameras || [];
     sonyDashboardStatus('');
     renderSonyCameras(sonyDiscovered.filter(function(camera) { return camera.state === 'connected' || camera.connected; }));
-    renderSonyDeviceConfig();
   } catch (_) {
     sonySidecar = null;
     sonyDiscovered = [];
     sonyDashboardStatus('Sony camera service unavailable. Existing controls are unaffected.', true);
     renderSonyCameras([]);
-    renderSonyDeviceConfig();
-    sonyDeviceStatus('Sony camera discovery failed.', true);
   }
 }
 
@@ -1979,7 +1953,6 @@ function sonyStatus(id, message, error) { var el=document.getElementById('sony-s
 
 setInterval(refresh, 1000);
 setInterval(refreshControllers, 2000);
-setInterval(refreshDeviceConfig, 5000);
 setInterval(refreshSony, 5000);
 // ---- Environment profiles ----
 var HOTKEY_FOR_SLOT = ['X', 'A', 'B', 'Y'];
@@ -2135,351 +2108,7 @@ refreshProfiles();
 setInterval(refreshProfiles, 5000);
 refresh();
 refreshControllers();
-refreshDeviceConfig();
 refreshSony();
-
-// ---- Device Config Editor ----
-var deviceConfigData = null;
-
-async function refreshDeviceConfig() {
-  if (document.getElementById('tab-config').dataset.editing === 'true') return;
-  if (sonyDeviceRoot && sonyDeviceRoot.contains(document.activeElement)) return;
-  try {
-    var data = await fetch('/api/config').then(function(r) { return r.json(); });
-    deviceConfigData = data;
-    renderDeviceConfig(data);
-  } catch(e) { /* ignore */ }
-}
-
-function renderDeviceConfig(c) {
-  var html = '';
-
-  // ATEM
-  html += '<div class="section-header">ATEM Switcher</div>';
-  html += '<table style="width:100%;margin-bottom:8px"><tbody>';
-  html += '<tr><td style="color:#888;width:140px">IP Address</td><td style="display:flex;gap:6px"><input class="cfg-input" id="atem-ip" aria-label="ATEM IP address" value="' + esc(c.atem.ip) + '" style="flex:1"><button class="btn-sm" onclick="reconnectAtem(this)">Reconnect</button></td></tr>';
-  html += '<tr><td style="color:#888">Transition</td><td><select class="cfg-input" id="atem-transition" aria-label="Default ATEM transition"><option value="cut"' + (c.atem.defaultTransition==='cut'?' selected':'') + '>Cut</option><option value="auto"' + (c.atem.defaultTransition==='auto'?' selected':'') + '>Auto</option></select></td></tr>';
-  html += '<tr><td style="color:#888">M/E Index</td><td><input class="cfg-input" id="atem-me" aria-label="ATEM mix effect index" type="number" min="0" max="3" value="' + c.atem.meIndex + '"></td></tr>';
-  html += '</tbody></table>';
-
-  html += '<section id="sony-device-config"><div class="section-header"><span>Sony Cameras</span><button class="btn-sm" aria-label="Refresh Sony cameras" onclick="discoverSonyCameras()">Refresh cameras</button></div><div id="sony-device-status" aria-live="polite"></div><div id="sony-device-list">Loading Sony status…</div></section>';
-
-  // Graphics
-  html += '<div class="section-header">Graphics / Lower Thirds</div>';
-  html += '<table style="width:100%;margin-bottom:8px"><tbody>';
-  html += '<tr><td style="color:#888;width:140px">Type</td><td><select class="cfg-input" id="gfx-type" aria-label="Graphics key type"><option value="dsk"' + (c.graphics.type==='dsk'?' selected':'') + '>DSK</option><option value="usk"' + (c.graphics.type==='usk'?' selected':'') + '>USK</option><option value="auto"' + (c.graphics.type==='auto'?' selected':'') + '>Auto</option></select></td></tr>';
-  html += '<tr><td style="color:#888">DSK Index</td><td><input class="cfg-input" id="gfx-dsk" aria-label="Downstream key index" type="number" min="0" max="3" value="' + c.graphics.dskIndex + '"></td></tr>';
-  html += '<tr><td style="color:#888">USK Index</td><td><input class="cfg-input" id="gfx-usk" aria-label="Upstream key index" type="number" min="0" max="3" value="' + c.graphics.uskIndex + '"></td></tr>';
-  html += '<tr><td style="color:#888">M/E Index</td><td><input class="cfg-input" id="gfx-me" aria-label="Graphics mix effect index" type="number" min="0" max="3" value="' + c.graphics.meIndex + '"></td></tr>';
-  html += '</tbody></table>';
-
-  // Cameras
-  html += '<div class="section-header" style="display:flex;justify-content:space-between;align-items:center">';
-  html += '<span>Cameras</span>';
-  html += '<button class="btn-sm" onclick="addCameraRow()">+ Add Camera</button>';
-  html += '</div>';
-  html += '<div id="cameras-editor">';
-  for (var i = 0; i < c.cameras.length; i++) {
-    html += cameraRowHtml(c.cameras[i], i);
-  }
-  html += '</div>';
-
-  html += '<div style="margin-top:14px;display:flex;gap:8px;align-items:center">';
-  html += '<button class="btn" onclick="saveDeviceConfig()">Save &amp; Apply</button>';
-  html += '<button class="btn" onclick="refreshDeviceConfig()">Revert</button>';
-  html += '</div>';
-
-  var el = document.getElementById('device-config-content');
-  var sonySection = document.getElementById('sony-device-config');
-  el.innerHTML = html;
-  if (sonySection) {
-    var replacement = document.getElementById('sony-device-config');
-    replacement.parentNode.replaceChild(sonySection, replacement);
-  }
-  renderSonyDeviceConfig();
-  document.getElementById('tab-config').dataset.editing = 'false';
-  // Mark as editing when any input changes
-  el.addEventListener('input', function() {
-    document.getElementById('tab-config').dataset.editing = 'true';
-  }, { once: true });
-}
-
-function renderSonyDeviceConfig() {
-  var root=document.getElementById('sony-device-list'); if(!root) return;
-  if(sonyDeviceRoot!==root) {
-    sonyDeviceRoot=root; sonyDeviceRows=new Map();
-    while(root.firstChild) root.removeChild(root.firstChild);
-    sonyServiceRow=createSonyServiceRow(); root.appendChild(sonyServiceRow.element);
-    sonyReconnectGuidance=document.createElement('p'); sonyReconnectGuidance.className='sony-reconnect-guidance'; root.appendChild(sonyReconnectGuidance);
-    sonyEmptyState=document.createElement('div'); sonyEmptyState.className='empty-state'; root.appendChild(sonyEmptyState);
-  }
-  updateSonyServiceRow();
-  sonyReconnectGuidance.hidden=!sonyDiscovered.some(function(camera){return camera.approved;});
-  sonyReconnectGuidance.textContent='Approved cameras reconnect automatically after app or camera restart; late power-on may take up to 75 seconds.';
-  sonyEmptyState.hidden=sonyDiscovered.length!==0;
-  sonyEmptyState.textContent='No Sony cameras discovered.';
-  var liveIds=new Set();
-  sonyDiscovered.forEach(function(camera) {
-    liveIds.add(camera.id);
-    var row=sonyDeviceRows.get(camera.id);
-    if(!row) { row=createSonyDeviceRow(camera.id); sonyDeviceRows.set(camera.id,row); root.appendChild(row.element); }
-    updateSonyDeviceRow(row,camera);
-  });
-  sonyDeviceRows.forEach(function(row,id) { if(!liveIds.has(id)) { row.element.remove(); sonyDeviceRows.delete(id); sonyPendingActions.delete(id); } });
-}
-function createSonyServiceRow() {
-  var element=document.createElement('div'); element.className='cam-row';
-  var title=document.createElement('strong'), detail=document.createElement('span'), retry=document.createElement('button'), setup=document.createElement('a');
-  retry.className='btn-sm'; retry.textContent='Retry Sony service'; retry.onclick=function(){retrySonyService(retry);};
-  setup.className='sony-setup-link'; setup.href='/docs/sony-sidecar-setup'; setup.textContent='Sony sidecar setup';
-  element.appendChild(title); element.appendChild(detail); element.appendChild(document.createTextNode(' ')); element.appendChild(retry); element.appendChild(document.createTextNode(' ')); element.appendChild(setup);
-  return {element:element,title:title,detail:detail,retry:retry,setup:setup};
-}
-function updateSonyServiceRow() {
-  if(!sonyServiceRow) return;
-  sonyServiceRow.retry.disabled=sonyServiceRetryPending;
-  var sidecar=sonySidecar; sonyServiceRow.element.hidden=!sidecar; if(!sidecar) return;
-  sonyServiceRow.title.textContent='Sony service: '+sonyStateLabel(sidecar.state);
-  sonyServiceRow.detail.textContent=' — '+sonyStateLabel(sidecar.mode)+' mode'+(sidecar.version?' — version '+sidecar.version:'')+(sidecar.sdkVersion?' / SDK '+sidecar.sdkVersion:'')+(sidecar.message?' — '+sidecar.message:'');
-  sonyServiceRow.retry.hidden=sidecar.state!=='absent'&&sidecar.state!=='crashed';
-  sonyServiceRow.setup.hidden=sidecar.mode!=='absent'&&sidecar.state!=='absent';
-}
-function createSonyDeviceRow(id) {
-  var element=document.createElement('div'); element.className='cam-row'; element.dataset.cameraId=id;
-  var title=document.createElement('strong'), cameraId=document.createElement('span'), transport=document.createElement('span'), state=document.createElement('span'), detail=document.createElement('span'), actions=document.createElement('div');
-  cameraId.className='sony-device-id'; state.className='sony-device-status'; actions.className='sony-device-actions';
-  var connected=document.createElement('span'), primary=document.createElement('button'), forget=document.createElement('button');
-  connected.className='badge conn-usb'; connected.textContent='Connected'; primary.className='btn-sm'; forget.className='btn-sm'; forget.textContent='Forget';
-  primary.dataset.id=id; forget.dataset.id=id; forget.onclick=function(){forgetSonyCamera(forget);};
-  actions.appendChild(connected); actions.appendChild(primary); actions.appendChild(forget);
-  element.appendChild(title); element.appendChild(document.createTextNode(' — ')); element.appendChild(cameraId); element.appendChild(document.createTextNode(' — ')); element.appendChild(transport); element.appendChild(document.createTextNode(' — ')); element.appendChild(state); element.appendChild(detail); element.appendChild(actions);
-  return {element:element,title:title,cameraId:cameraId,transport:transport,state:state,detail:detail,actions:actions,connected:connected,primary:primary,forget:forget};
-}
-function updateSonyDeviceRow(row,camera) {
-  var state=camera.state||(camera.connected?'connected':'disconnected'), pending=sonyPendingActions.has(camera.id);
-  row.title.textContent=camera.name||camera.model||camera.id; row.cameraId.textContent=camera.id; row.transport.textContent=camera.connectionType||'Unknown'; row.state.textContent=sonyStateLabel(state);
-  row.detail.textContent=(camera.nextRetryAt?' — next retry '+camera.nextRetryAt:'')+(state==='needs_pairing'?' — Camera-side pairing/setup required before retry.':'');
-  row.connected.hidden=state!=='connected'; row.primary.hidden=true; row.primary.onclick=null;
-  if(state==='discovered_unapproved') { row.primary.hidden=false; row.primary.textContent='Connect'; row.primary.onclick=function(){connectSonyCamera(row.primary);}; }
-  else if(state==='connecting') { row.primary.hidden=false; row.primary.textContent='Connecting'; }
-  else if(state==='disconnected'||state==='needs_pairing'||state==='error') { row.primary.hidden=false; row.primary.textContent='Retry Connect'; row.primary.onclick=function(){retrySonyCamera(row.primary);}; }
-  row.primary.disabled=pending||state==='connecting'; row.forget.hidden=!camera.approved; row.forget.disabled=pending;
-}
-function sonyStateLabel(state) {
-  var labels={discovered_unapproved:'New camera — approval required',connecting:'Connecting',connected:'Connected',disconnected:'Disconnected',needs_pairing:'Needs pairing / camera setup',error:'Connection error',managed:'Managed',external:'External',disabled:'Disabled',absent:'Absent',starting:'Starting',healthy:'Healthy',crashed:'Crashed'};
-  return labels[state]||String(state||'Unknown').replace(/_/g,' ');
-}
-async function discoverSonyCameras() {
-  sonyDeviceStatus('Discovering Sony cameras…');
-  try { var response=await fetch('/api/sony/cameras/discover',{method:'POST'}); if(!response.ok) throw new Error(); sonyDiscovered=(await response.json()).cameras||[]; renderSonyCameras(sonyDiscovered.filter(function(camera){return camera.state==='connected'||camera.connected;})); renderSonyDeviceConfig(); sonyDeviceStatus('Sony cameras discovered.'); }
-  catch (_) { sonyDeviceStatus('Sony camera discovery failed.',true); }
-}
-async function retrySonyService(button) { if (sonyServiceRetryPending) return; sonyServiceRetryPending = true; button.disabled=true; try { var response=await fetch('/api/sony/service/retry',{method:'POST'}); if(!response.ok) throw new Error(); sonyDeviceStatus('Sony service retry requested.'); await refreshSony(); } catch (_) { sonyDeviceStatus('Sony service retry failed.',true); } finally { sonyServiceRetryPending = false; updateSonyServiceRow(); } }
-async function retrySonyCamera(button) { await runSonyCameraAction(button,'/retry','POST','Retrying Sony camera…','Sony camera retry requested.','Sony camera retry failed.'); }
-async function forgetSonyCamera(button) { if(!confirm('Forget this Sony camera? It will no longer reconnect automatically.')) return; await runSonyCameraAction(button,'/approval','DELETE','Forgetting Sony camera…','Sony camera forgotten.','Could not forget Sony camera.'); }
-async function connectSonyCamera(button) { await runSonyCameraAction(button,'/connect','POST','Connecting Sony camera…','Sony camera connected.','Sony camera connection failed.'); }
-async function runSonyCameraAction(button,path,method,progress,success,failure) {
-  var id=button.dataset.id; if(sonyPendingActions.has(id)) return;
-  sonyPendingActions.add(id); renderSonyDeviceConfig(); sonyDeviceStatus(progress);
-  var failed=false;
-  try { var response=await fetch('/api/sony/cameras/'+encodeURIComponent(id)+path,{method:method}); if(!response.ok) throw new Error(); }
-  catch (_) { failed=true; }
-  await refreshSony();
-  sonyPendingActions.delete(id); renderSonyDeviceConfig(); sonyDeviceStatus(failed?failure:success,failed);
-}
-function sonyDeviceStatus(message,error) { var el=document.getElementById('sony-device-status'); if(el){el.textContent=message;el.style.color=error?'var(--err-text)':'var(--text-2)';} }
-
-// A camera row renders the transport the camera actually uses. Rendering every
-// camera as VISCA is what destroyed the gimbals: a DJI camera has no viscaIp, so
-// the field showed the string "undefined" and saved it back as a real IP, while
-// the payload silently dropped protocol and bridge.
-function cameraRowHtml(cam, idx) {
-  var id = 'cam-' + idx;
-  var isBridge = cam.protocol === 'dji-bridge';
-  var proto = isBridge ? 'dji-bridge' : 'visca';
-  var bridge = cam.bridge || {};
-
-  // Fields the form does not render still have to survive a save, so they ride
-  // along on the row as data attributes (never as backticks or template
-  // interpolation, which collapse when this page is built).
-  var attrs = ' data-protocol="' + proto + '" data-camera-type="' + esc(cam.cameraType || 'generic') + '"';
-  if (isBridge) {
-    attrs += ' data-bridge-model="' + esc(bridge.gimbalModel) + '"' +
-      ' data-bridge-timeout="' + (bridge.safetyTimeoutMs != null ? bridge.safetyTimeoutMs : 250) + '"' +
-      ' data-bridge-roll="' + (bridge.rollEnabled ? 'true' : 'false') + '"';
-  }
-
-  var badge = isBridge
-    ? '<span class="badge" style="background:#3a2a00;color:#fb0">DJI BRIDGE</span>'
-    : '<span class="badge" style="background:#00263a;color:#7af">VISCA</span>';
-
-  var rows =
-    '<tr><td style="color:#888;width:110px">ID</td><td><input class="cfg-input" name="cam-id" value="' + esc(cam.id) + '"></td></tr>' +
-    '<tr><td style="color:#888">Label</td><td><input class="cfg-input" name="cam-label" value="' + esc(cam.label) + '"></td></tr>';
-
-  if (isBridge) {
-    rows +=
-      '<tr><td style="color:#888">Bridge Host</td><td style="display:flex;gap:6px"><input class="cfg-input" name="cam-bridge-host" value="' + esc(bridge.host) + '" style="flex:1" title="Host running the Pi bridge process for this gimbal."><button class="btn-sm" data-rowid="' + id + '" onclick="reconnectCamera(this.dataset.rowid)">Reconnect</button></td></tr>' +
-      '<tr><td style="color:#888">Bridge Port</td><td><input class="cfg-input" name="cam-bridge-port" type="number" min="1" max="65535" value="' + (bridge.port != null ? bridge.port : 7878) + '" title="Each gimbal has its own bridge instance on its own port: that port is how commands reach the right gimbal."></td></tr>' +
-      '<tr><td style="color:#888">Gimbal</td><td style="color:#888">' + esc(bridge.gimbalModel || 'DJI gimbal') + (bridge.rollEnabled ? ' &middot; roll enabled' : ' &middot; roll disabled') + '</td></tr>';
-  } else {
-    rows +=
-      '<tr><td style="color:#888">Type</td><td><select class="cfg-input" name="cam-type"><option value="generic"' + (cam.cameraType==='generic'?' selected':'') + '>generic</option><option value="birddog"' + (cam.cameraType==='birddog'?' selected':'') + '>birddog</option><option value="vbot"' + (cam.cameraType==='vbot'?' selected':'') + '>vbot</option></select></td></tr>' +
-      '<tr><td style="color:#888">VISCA IP</td><td style="display:flex;gap:6px"><input class="cfg-input" name="cam-ip" value="' + esc(cam.viscaIp) + '" style="flex:1"><button class="btn-sm" data-rowid="' + id + '" onclick="reconnectCamera(this.dataset.rowid)">Reconnect</button></td></tr>' +
-      '<tr><td style="color:#888">VISCA Port</td><td><input class="cfg-input" name="cam-port" type="number" min="1" max="65535" value="' + (cam.viscaPort != null ? cam.viscaPort : 52381) + '"></td></tr>' +
-      '<tr><td style="color:#888">Camera Addr</td><td><input class="cfg-input" name="cam-addr" type="number" min="0" max="7" value="' + (cam.cameraAddress != null ? cam.cameraAddress : 1) + '" title="VISCA bus address (Camera ID in Companion). Default 1."></td></tr>';
-  }
-
-  rows +=
-    '<tr><td style="color:#888">Speed Scale</td><td><input class="cfg-input" name="cam-speed" type="number" min="0.1" max="5" step="0.1" value="' + (cam.speedScale != null ? cam.speedScale : 1.0) + '" title="Per-camera speed multiplier. 1.0 = same as global preset; >1 = faster (use for slow cams like V-BOT)."></td></tr>' +
-    '<tr><td style="color:#888">ATEM Input</td><td><input class="cfg-input" name="cam-input" type="number" min="1" placeholder="not wired" title="Leave blank if this camera video is not connected to the switcher: motion still works, but it cannot be taken live." value="' + (cam.inputId != null ? cam.inputId : '') + '"></td></tr>';
-
-  return '<div class="cam-row" id="' + id + '"' + attrs + ' style="border:1px solid #2a2a2a;border-radius:4px;padding:8px;margin-bottom:6px">' +
-    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
-    '<span style="color:#7af;font-size:0.8rem">Camera ' + (idx+1) + '</span>' +
-    '<span style="display:flex;gap:6px;align-items:center">' + badge +
-    '<button class="btn-sm" style="color:#f44;border-color:#800" data-rowid="' + id + '" onclick="removeCameraRow(this.dataset.rowid)">Remove</button>' +
-    '</span>' +
-    '</div>' +
-    '<table style="width:100%"><tbody>' + rows + '</tbody></table></div>';
-}
-
-var newCamCounter = 0;
-function addCameraRow() {
-  document.getElementById('tab-config').dataset.editing = 'true';
-  newCamCounter++;
-  var idx = document.getElementById('cameras-editor').children.length;
-  var blank = { id: 'cam' + (idx+1), label: 'Camera ' + (idx+1), protocol: 'visca', cameraType: 'generic', viscaIp: '192.168.50.', viscaPort: 52381, cameraAddress: 1, speedScale: 1.0, inputId: idx+1 };
-  var div = document.createElement('div');
-  div.innerHTML = cameraRowHtml(blank, idx);
-  document.getElementById('cameras-editor').appendChild(div.firstChild);
-}
-
-function removeCameraRow(id) {
-  document.getElementById('tab-config').dataset.editing = 'true';
-  var el = document.getElementById(id);
-  if (el) el.remove();
-  // Re-label remaining rows
-  var rows = document.getElementById('cameras-editor').children;
-  for (var i = 0; i < rows.length; i++) {
-    var hdr = rows[i].querySelector('span');
-    if (hdr) hdr.textContent = 'Camera ' + (i+1);
-  }
-}
-
-function reconnectAtem(btn) {
-  btn.disabled = true;
-  btn.textContent = '...';
-  fetch('/api/reconnect/atem', { method: 'POST' }).then(function() {
-    btn.textContent = 'Reconnect';
-    btn.disabled = false;
-  });
-}
-
-function reconnectCamera(id) {
-  var btn = document.querySelector('[data-rowid="' + id + '"]');
-  if (btn) { btn.disabled = true; btn.textContent = '...'; }
-  fetch('/api/reconnect/camera/' + encodeURIComponent(id), { method: 'POST' }).then(function() {
-    if (btn) { btn.textContent = 'Reconnect'; btn.disabled = false; }
-  });
-}
-
-async function saveDeviceConfig() {
-  var atem = {
-    ip: document.getElementById('atem-ip').value.trim(),
-    defaultTransition: document.getElementById('atem-transition').value,
-    meIndex: parseInt(document.getElementById('atem-me').value, 10) || 0,
-  };
-  var graphics = {
-    type: document.getElementById('gfx-type').value,
-    dskIndex: parseInt(document.getElementById('gfx-dsk').value, 10) || 0,
-    uskIndex: parseInt(document.getElementById('gfx-usk').value, 10) || 0,
-    meIndex: parseInt(document.getElementById('gfx-me').value, 10) || 0,
-  };
-  var cameras = [];
-  var rows = document.getElementById('cameras-editor').children;
-  for (var i = 0; i < rows.length; i++) {
-    var r = rows[i];
-    var speedInput = r.querySelector('[name="cam-speed"]');
-    var speedVal = speedInput ? parseFloat(speedInput.value) : 1.0;
-    if (isNaN(speedVal) || speedVal < 0.1 || speedVal > 5) speedVal = 1.0;
-
-    // Blank means "not wired to the switcher". Send an explicit null, not
-    // undefined (JSON.stringify would drop the key and the server could not
-    // tell "clear this" from "leave it alone"), and never default to input 1 —
-    // that would silently make an unwired camera takeable to air.
-    var inputRaw = r.querySelector('[name="cam-input"]').value.trim();
-    var inputVal = null;
-    if (inputRaw !== '') {
-      var parsedInput = parseInt(inputRaw, 10);
-      if (!isNaN(parsedInput) && parsedInput > 0) inputVal = parsedInput;
-    }
-
-    // The protocol comes from the row, not from a guess: a payload that omitted
-    // it used to be defaulted to VISCA server-side, which converted every DJI
-    // gimbal into an unreachable VISCA camera on save.
-    var cam = {
-      id: r.querySelector('[name="cam-id"]').value.trim(),
-      label: r.querySelector('[name="cam-label"]').value.trim(),
-      protocol: r.dataset.protocol === 'dji-bridge' ? 'dji-bridge' : 'visca',
-      cameraType: r.dataset.cameraType || 'generic',
-      speedScale: speedVal,
-      inputId: inputVal,
-    };
-
-    if (cam.protocol === 'dji-bridge') {
-      var bridge = {
-        host: r.querySelector('[name="cam-bridge-host"]').value.trim(),
-        port: parseInt(r.querySelector('[name="cam-bridge-port"]').value, 10) || 7878,
-        rollEnabled: r.dataset.bridgeRoll === 'true',
-      };
-      if (r.dataset.bridgeModel) bridge.gimbalModel = r.dataset.bridgeModel;
-      var timeout = parseInt(r.dataset.bridgeTimeout, 10);
-      if (!isNaN(timeout)) bridge.safetyTimeoutMs = timeout;
-      cam.bridge = bridge;
-    } else {
-      var typeSelect = r.querySelector('[name="cam-type"]');
-      if (typeSelect) cam.cameraType = typeSelect.value;
-      var addrInput = r.querySelector('[name="cam-addr"]');
-      var addrVal = addrInput ? parseInt(addrInput.value, 10) : 1;
-      if (isNaN(addrVal) || addrVal < 0 || addrVal > 7) addrVal = 1;
-      cam.viscaIp = r.querySelector('[name="cam-ip"]').value.trim();
-      cam.viscaPort = parseInt(r.querySelector('[name="cam-port"]').value, 10) || 52381;
-      cam.cameraAddress = addrVal;
-    }
-    cameras.push(cam);
-  }
-  var statusEl = document.getElementById('config-save-status');
-  statusEl.textContent = 'Saving…';
-  statusEl.style.color = '#888';
-  try {
-    var r = await fetch('/api/config', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ atem: atem, cameras: cameras, graphics: graphics, expectedVersion: deviceConfigData ? deviceConfigData.version : undefined }),
-    });
-    var j = await r.json();
-    if (j.ok) {
-      if (deviceConfigData) deviceConfigData.version = j.version;
-      statusEl.textContent = 'Saved & applied ✓';
-      statusEl.style.color = '#4f4';
-      document.getElementById('tab-config').dataset.editing = 'false';
-      setTimeout(function() { statusEl.textContent = ''; }, 3000);
-    } else if (j.conflict) {
-      // The file changed under the page (hand edit, profile switch): drop the stale form and reload it.
-      statusEl.textContent = 'devices.yaml changed since this page loaded — reloaded, please redo your edit.';
-      statusEl.style.color = '#f44';
-      document.getElementById('tab-config').dataset.editing = 'false';
-      refreshDeviceConfig();
-    } else {
-      statusEl.textContent = 'Error: ' + j.error;
-      statusEl.style.color = '#f44';
-    }
-  } catch(e) {
-    statusEl.textContent = 'Save failed: ' + e;
-    statusEl.style.color = '#f44';
-  }
-}
 
 // ---- Controllers Tab ----
 var remappingAction = null;
