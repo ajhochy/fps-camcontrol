@@ -19,7 +19,9 @@ SONY_LICENSE_ACCEPTED=1 scripts/setup-sony-sidecar.sh --checkout /path/to/alpha-
 scripts/setup-sony-sidecar.sh --accept-sony-license --checkout /path/to/alpha-sdk-api --zip /path/to/sdk.zip
 ```
 
-Those opt-ins assert that **you** accepted Sony's terms; the script never accepts them silently. It invokes the checkout's `./crsdk install --zip <zip>` and `./crsdk build`, writes only to that checkout's normal SDK/build outputs, then prints the verified executable path. It does not install a service or leave one running.
+Those opt-ins assert that **you** accepted Sony's terms; the script never accepts them silently. Before building, the script applies [`sony-sidecar-status-fix.patch`](../scripts/sony-sidecar-status-fix.patch) to the checkout (skipped if already applied; it stops with a message if the upstream code has changed and the patch no longer applies). The patch makes `GET /api/server/status` answer from the last camera scan instead of starting a new one. Unpatched, that health check blocks behind Sony's SDK scan and races with connect requests, so CamControl reports the service as Absent or the sidecar crashes. The patch and script were tested against `crsdk/alpha-sdk-api` revision `225ab52` with Sony SDK `v2.02.00` on macOS (arm64).
+
+The script then invokes the checkout's `./crsdk install --zip <zip>` (which asks you to accept Sony's license itself) and `./crsdk build`, writes only to that checkout's normal SDK/build outputs, then prints the verified executable path. It does not install a service or leave one running.
 
 ## Direct sidecar operation
 
@@ -52,3 +54,10 @@ Device Config lists discovered cameras. A new camera is not trusted or connected
 Approved cameras use automatic reconnect after an app or camera restart. If an approved camera is powered on later, bounded retries plus low-rate discovery can take up to about 75 seconds to reconnect it. Use **Retry Connect** for an immediate operator retry after restoring power or completing camera-side pairing/setup. Use **Forget** to remove approval and stop future automatic reconnect attempts.
 
 Keep the sidecar on loopback. It has no HTTP authentication and must not be exposed to a LAN or the public internet. Local use still requires each developer/operator to accept Sony's license and obtain the SDK directly from Sony; neither CamControl nor the setup helper supplies Sony SDK assets.
+
+## Troubleshooting
+
+- **Camera scans take about 10 seconds** over Wi-Fi/LAN. CamControl allows 30 seconds and only declares the service lost when `/api/server/status` is also unreachable. While a scan runs, the sidecar is slow to answer other requests.
+- **The sidecar labels cameras `"connectionType": "USB"`** unless the ID contains `TCP:` or `192.`; a camera found over the network by MAC address is mislabeled. The label is cosmetic.
+- **Camera settings must be sent as the camera's hex value string** (for example `"0xfa"`). The sidecar rejects raw JSON numbers. The dashboard does this; use the `hex_value` field from `available_values` when scripting.
+- **A camera that is not in PC Remote mode** (or whose PC Remote connection method does not match how it is connected) is discovered but the connect times out after about 15 seconds.

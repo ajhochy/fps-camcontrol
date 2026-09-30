@@ -6,7 +6,7 @@ usage() {
   cat <<'EOF'
 Usage: scripts/setup-sony-sidecar.sh --checkout /path/to/alpha-sdk-api --zip /path/to/sony-sdk.zip [--accept-sony-license]
 
-Both paths must already exist locally. This helper never downloads, clones, or redistributes Sony assets.
+Both paths must already exist locally. This helper never downloads, clones, or redistributes Sony assets. It applies scripts/sony-sidecar-status-fix.patch to the checkout before building.
 Set SONY_LICENSE_ACCEPTED=1 or pass --accept-sony-license only after you have accepted Sony's SDK license.
 EOF
 }
@@ -56,6 +56,21 @@ if [ "$license_accepted" != "1" ]; then
     y|Y|yes|YES) ;;
     *) printf 'Sony license acceptance is required; no changes were made.\n' >&2; exit 1 ;;
   esac
+fi
+
+# Sidecar fix: make /api/server/status answer from the last scan instead of running
+# discovery (which blocks behind Sony's SDK and races with connect). Idempotent.
+patch_file="$(cd "$(dirname "$0")" && pwd)/sony-sidecar-status-fix.patch"
+[ -f "$patch_file" ] || { printf 'Missing patch file: %s\n' "$patch_file" >&2; exit 1; }
+if git -C "$checkout" apply --check --reverse "$patch_file" >/dev/null 2>&1; then
+  printf 'Sidecar status-fix patch already applied.\n'
+elif git -C "$checkout" apply --check "$patch_file" >/dev/null 2>&1; then
+  git -C "$checkout" apply "$patch_file"
+  printf 'Applied sidecar status-fix patch.\n'
+else
+  printf 'The status-fix patch does not apply to this checkout (upstream changed?): %s\n' "$checkout" >&2
+  printf 'Check out the tested revision or refresh scripts/sony-sidecar-status-fix.patch; no build was run.\n' >&2
+  exit 1
 fi
 
 (
