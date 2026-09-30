@@ -7,6 +7,8 @@ import { SonyStateStore, ApprovedSonyCamera } from './sonyStateStore';
 const HEALTH_TIMEOUT_MS = 1500;
 const CONNECT_TIMEOUT_MS = 30000;
 const READ_TIMEOUT_MS = 5000;
+// A network scan (Wi-Fi/LAN cameras) routinely takes ~10s inside Sony's SDK.
+const DISCOVERY_TIMEOUT_MS = 30000;
 const FRAME_TIMEOUT_MS = 3000;
 const SHUTDOWN_REQUEST_TIMEOUT_MS = 2000;
 const SHUTDOWN_EXIT_WAIT_MS = 3000;
@@ -357,10 +359,12 @@ export class SonyManager {
     if (this.stopped || this.state !== 'healthy') return this.getStatus().cameras;
     let found: any[];
     try {
-      const body = await this.request('/api/cameras', undefined, READ_TIMEOUT_MS) as any;
+      const body = await this.request('/api/cameras', undefined, DISCOVERY_TIMEOUT_MS) as any;
       found = Array.isArray(body?.cameras) ? body.cameras : [];
     } catch (_) {
-      this.handleSidecarLoss();
+      // A failed or slow scan is not proof the sidecar is gone: only declare
+      // loss when the health endpoint is also unreachable.
+      if (!(await this.probe())) this.handleSidecarLoss();
       return this.getStatus().cameras;
     }
     const seen = new Set<string>();

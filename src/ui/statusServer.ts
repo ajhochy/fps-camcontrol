@@ -1550,7 +1550,7 @@ async function loadSonyProperties(id) {
       if (!select) return;
       if (!property || !Array.isArray(property.available_values)) { select.innerHTML = '<option>Unavailable</option>'; select.disabled = true; return; }
       state.confirmed[name] = property.current_value;
-      select.innerHTML = property.available_values.map(function(item) { return '<option value="' + esc(JSON.stringify(item.value)) + '">' + esc(item.formatted != null ? item.formatted : item.value) + '</option>'; }).join('');
+      select.innerHTML = property.available_values.map(function(item) { return '<option value="' + esc(JSON.stringify(item.value)) + '"' + (typeof item.hex_value === 'string' ? ' data-hex="' + esc(item.hex_value) + '"' : '') + '>' + esc(item.formatted != null ? item.formatted : item.value) + '</option>'; }).join('');
       select.value = JSON.stringify(property.current_value);
       select.disabled = property.writable !== true || property.available_values.length === 0;
     });
@@ -1564,7 +1564,10 @@ async function saveSonyProperty(select) {
   if (!state || select.disabled) return;
   select.disabled = true;
   try {
-    var response = await fetch('/api/sony/cameras/' + id + '/properties/' + name, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ value:JSON.parse(select.value) }) });
+    // The Sony API takes the camera's hex value as a string; raw numbers are rejected.
+    var chosen = select.options[select.selectedIndex];
+    var sendValue = chosen && chosen.dataset.hex ? chosen.dataset.hex : JSON.parse(select.value);
+    var response = await fetch('/api/sony/cameras/' + id + '/properties/' + name, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ value:sendValue }) });
     if (!response.ok) throw new Error('Save failed');
     await loadSonyProperties(id);
     sonyStatus(id, name.replace(/-/g, ' ') + ' saved.');
