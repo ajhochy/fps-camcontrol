@@ -351,6 +351,10 @@ async function runTests(): Promise<void> {
   assert('Sony UI includes sequential hidden-aware bounded preview polling', home.text.includes('document.hidden') && home.text.includes('setTimeout') && home.text.includes('sony-preview-stale'));
   assert('Sony UI includes contained-image touch mapping and keyboard fallback', home.text.includes('naturalWidth') && home.text.includes('Apply touch point') && home.text.includes('aria-live'));
   assert('Sony UI explains camera Touch Function behavior', home.text.includes('Touch Function determines focus vs tracking'));
+  assert('the Sony settings load retries after a failed read instead of staying on Unavailable',
+    home.text.includes('function retrySonyProperties') && home.text.includes('Could not read camera settings yet'));
+  assert('a settings read that keeps failing is retried slowly for as long as the camera stays connected',
+    home.text.includes('state.propertyRetries <= 6 ? 2000 * state.propertyRetries : 15000'));
   assert('Device Config has explicit Sony discovery/connect controls', home.text.includes('sony-device-config') && home.text.includes('Connect'));
   // UI review repair: catches five-second wholesale DOM replacement that loses focus,
   // select values, previews, and can start overlapping property requests/pollers.

@@ -53,6 +53,8 @@ const CameraSchema = z.object({
   // above 1 for slower cameras (V-BOT) so they keep up with faster BirdDogs.
   speedScale: z.number().min(0.1).max(5).default(1.0),
   bridge: BridgeSchema.optional(),
+  // Key of the Sony camera device (protocol: sony) mounted on this rig, if any.
+  camera: z.string().optional(),
 }).superRefine((cam, ctx) => {
   if (cam.protocol === 'visca' && !cam.viscaIp) {
     ctx.addIssue({ code: 'custom', message: `camera ${cam.id}: viscaIp required when protocol=visca`, path: ['viscaIp'] });
@@ -90,13 +92,16 @@ const SonySchema = z.object({
 // has no `id` or `inputId` — those belong to the slot a profile puts it in.
 const InventoryDeviceSchema = z.object({
   label: z.string(),
-  protocol: z.enum(['visca', 'dji-bridge']).default('visca'),
+  // `sony` is a camera (not a controller): it is referenced from a rig's `camera:` and can never be a rig's `device:`.
+  protocol: z.enum(['visca', 'dji-bridge', 'sony']).default('visca'),
   cameraType: z.enum(['vbot', 'birddog', 'generic']).default('generic'),
   viscaIp: HostString.optional(),
   viscaPort: z.number().default(52381),
   cameraAddress: z.number().min(0).max(7).default(1),
   speedScale: z.number().min(0.1).max(5).default(1.0),
   bridge: BridgeSchema.optional(),
+  // The camera id the Sony sidecar reports (a MAC address). Optional so a rig can be set up before its camera is first seen.
+  sonyCameraId: z.string().regex(/^[A-Za-z0-9:-]{1,128}$/, 'sonyCameraId must be a camera id such as 9C:50:D1:AC:7B:72').optional(),
 }).superRefine((dev, ctx) => {
   if (dev.protocol === 'visca' && !dev.viscaIp) {
     ctx.addIssue({ code: 'custom', message: `device ${dev.label}: viscaIp required when protocol=visca`, path: ['viscaIp'] });
@@ -114,12 +119,67 @@ const SlotSchema = z.object({
   // Optional: a slot whose camera is not wired to the switcher is control-only
   // (motion works, switching does not). See CameraSchema.inputId.
   inputId: OptionalInputId,
+  // Key of the Sony camera device mounted on this rig (optional; BirdDog rigs have a built-in camera and take none).
+  camera: z.string().optional(),
 });
 
 const ProfileSchema = z.object({
   label: z.string().optional(),
   slots: z.array(SlotSchema).min(1).max(8),
 });
+
+/**
+ * Cross-checks between the device inventory and the rigs (profile slots) that use it.
+ * Shared by config load and by profile saves so the rules cannot drift:
+ *  - a rig's `device` must be a controller, never a Sony camera;
+ *  - a rig's `camera` must be a Sony camera device, and BirdDog rigs (built-in camera) take none;
+ *  - a Sony camera can be on only one rig per profile;
+ *  - two Sony devices cannot claim the same physical camera id.
+ */
+export function collectRigIssues(
+  devices: Record<string, InventoryDevice>,
+  profiles: Record<string, Profile>,
+): { message: string; path: (string | number)[] }[] {
+  const issues: { message: string; path: (string | number)[] }[] = [];
+  const claimed = new Map<string, string>();
+  for (const [key, device] of Object.entries(devices)) {
+    if (device.protocol !== 'sony' || !device.sonyCameraId) continue;
+    const id = device.sonyCameraId.toUpperCase();
+    const other = claimed.get(id);
+    if (other) {
+      issues.push({ message: `Sony devices "${other}" and "${key}" both use camera id ${device.sonyCameraId}`, path: ['devices', key, 'sonyCameraId'] });
+    } else {
+      claimed.set(id, key);
+    }
+  }
+  for (const [name, profile] of Object.entries(profiles)) {
+    const used = new Map<string, number>();
+    profile.slots.forEach((slot, i) => {
+      const where = ['profiles', name, 'slots', i] as (string | number)[];
+      const controller = devices[slot.device];
+      if (controller?.protocol === 'sony') {
+        issues.push({ message: `profile "${name}" rig ${i + 1}: "${slot.device}" is a Sony camera, not a controller`, path: [...where, 'device'] });
+      }
+      if (slot.camera === undefined) return;
+      const camera = devices[slot.camera];
+      if (!camera) {
+        issues.push({ message: `profile "${name}" rig ${i + 1}: camera "${slot.camera}" is not in the device inventory`, path: [...where, 'camera'] });
+      } else if (camera.protocol !== 'sony') {
+        issues.push({ message: `profile "${name}" rig ${i + 1}: camera "${slot.camera}" is not a Sony camera device`, path: [...where, 'camera'] });
+      }
+      if (controller?.cameraType === 'birddog') {
+        issues.push({ message: `profile "${name}" rig ${i + 1}: "${slot.device}" is a BirdDog with a built-in camera and takes no Sony camera`, path: [...where, 'camera'] });
+      }
+      const previous = used.get(slot.camera);
+      if (previous !== undefined) {
+        issues.push({ message: `profile "${name}": camera "${slot.camera}" is on both rig ${previous + 1} and rig ${i + 1}`, path: [...where, 'camera'] });
+      } else {
+        used.set(slot.camera, i);
+      }
+    });
+  }
+  return issues;
+}
 
 const DevicesSchema = z.object({
   atem: AtemSchema,
@@ -133,6 +193,9 @@ const DevicesSchema = z.object({
   lowerThirds: z.object({ type: z.string(), dskIndex: z.number() }).optional(),
   sony: SonySchema.optional(),
 }).superRefine((cfg, ctx) => {
+  if (cfg.profiles && cfg.devices) {
+    for (const issue of collectRigIssues(cfg.devices, cfg.profiles)) ctx.addIssue({ code: 'custom', ...issue });
+  }
   const hasProfiles = !!cfg.profiles && !!cfg.activeProfile;
   if (!hasProfiles && !cfg.cameras) {
     ctx.addIssue({
@@ -258,6 +321,7 @@ export function resolveProfile(
   return profile.slots.map((slot, i) => {
     const dev = devices[slot.device];
     if (!dev) throw new Error(`unknown device "${slot.device}" in profile slot ${i + 1}`);
+    if (dev.protocol === 'sony') throw new Error(`device "${slot.device}" in profile slot ${i + 1} is a Sony camera, not a controller`);
     return CameraSchema.parse({
       id: `cam${i + 1}`,
       label: dev.label,
@@ -269,6 +333,7 @@ export function resolveProfile(
       cameraAddress: dev.cameraAddress,
       speedScale: dev.speedScale,
       bridge: dev.bridge,
+      camera: slot.camera,
     });
   });
 }
@@ -572,6 +637,8 @@ export function saveProfiles(profiles: Record<string, Profile>, expectedVersion?
       }
     });
   }
+  const rigIssues = collectRigIssues(inventory as Record<string, InventoryDevice>, profiles);
+  if (rigIssues.length) throw new Error(rigIssues[0].message);
   existing.profiles = profiles;
   // If the active profile was deleted, fall back to one that still exists so the
   // next load doesn't fail validation.

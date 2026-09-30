@@ -51,26 +51,28 @@ export function createStatusServer(
     if (!/^[A-Za-z0-9:-]{1,128}$/.test(id)) { res.status(400).json({ error: 'Invalid Sony camera ID' }); return null; }
     return id;
   };
-  // Gimbals a Sony camera can be mounted on: the DJI-bridge devices in the device inventory.
-  const sonyGimbals = () => Object.entries(config.devices ?? {})
-    .filter(([, device]) => (device as { protocol?: string }).protocol === 'dji-bridge')
-    .map(([device, definition]) => ({ device, label: (definition as { label?: string }).label ?? device }));
-  const cameraList = (manager: SonyManager) => manager.getStatus().cameras.map(camera => ({ ...camera, connected: camera.state === 'connected', status: camera.state }));
-  app.get('/api/sony/status', (_req, res) => { const manager = sony(res); if (manager) res.json({ ...manager.getStatus(), gimbals: sonyGimbals() }); });
+  // A Sony device in devices.yaml (protocol: sony) names the physical camera it is bound to; the dashboard shows that name.
+  const sonyNames = (): Map<string, { key: string; label: string }> => {
+    const names = new Map<string, { key: string; label: string }>();
+    for (const [key, device] of Object.entries(config.devices ?? {})) {
+      if (device.protocol === 'sony' && device.sonyCameraId) names.set(device.sonyCameraId.toUpperCase(), { key, label: device.label });
+    }
+    return names;
+  };
+  const named = <T extends { id: string }>(cameras: T[]): (T & { name?: string; deviceKey?: string })[] => {
+    const names = sonyNames();
+    return cameras.map(camera => {
+      const match = names.get(camera.id.toUpperCase());
+      return match ? { ...camera, name: match.label, deviceKey: match.key } : camera;
+    });
+  };
+  const cameraList = (manager: SonyManager) => named(manager.getStatus().cameras).map(camera => ({ ...camera, connected: camera.state === 'connected', status: camera.state }));
+  app.get('/api/sony/status', (_req, res) => { const manager = sony(res); if (manager) { const status = manager.getStatus(); res.json({ ...status, cameras: named(status.cameras) }); } });
   app.get('/api/sony/cameras', (_req, res) => { const manager = sony(res); if (manager) res.json({ cameras: cameraList(manager) }); });
   app.post('/api/sony/cameras/discover', async (_req, res) => { const manager = sony(res); if (!manager) return; try { await manager.discover(); res.json({ cameras: cameraList(manager) }); } catch (error) { sonyError(res, error); } });
   app.post('/api/sony/service/retry', (_req, res) => { const manager = sony(res); if (!manager) return; manager.retryService(); res.json({ ok: true }); });
   app.post('/api/sony/cameras/:id/connect', async (req, res) => { const manager = sony(res); const id = sonyId(req, res); if (!manager || !id) return; try { await manager.connect(id, false); res.json(cameraList(manager).find(camera => camera.id === id) ?? { id, connected: true }); } catch (error) { sonyError(res, error); } });
   app.post('/api/sony/cameras/:id/retry', async (req, res) => { const manager = sony(res); const id = sonyId(req, res); if (!manager || !id) return; try { await manager.retryCamera(id); res.json({ ok: true }); } catch (error) { sonyError(res, error); } });
-  // Link an approved camera to the gimbal it is mounted on (device: null clears the link).
-  app.put('/api/sony/cameras/:id/gimbal', async (req, res) => {
-    const manager = sony(res); const id = sonyId(req, res); if (!manager || !id) return;
-    const device = req.body?.device;
-    if (device !== null && typeof device !== 'string') { res.status(400).json({ error: 'device must be a gimbal key or null' }); return; }
-    if (device !== null && !sonyGimbals().some(gimbal => gimbal.device === device)) { res.status(400).json({ error: 'Unknown gimbal device' }); return; }
-    if (!manager.getStatus().cameras.find(camera => camera.id === id)?.approved) { res.status(409).json({ error: 'Connect the camera before linking a gimbal' }); return; }
-    try { await manager.setGimbalLink(id, device); res.json({ cameras: cameraList(manager), gimbals: sonyGimbals() }); } catch (error) { sonyError(res, error); }
-  });
   app.delete('/api/sony/cameras/:id/approval', async (req, res) => { const manager = sony(res); const id = sonyId(req, res); if (!manager || !id) return; try { await manager.forget(id); res.json({ ok: true }); } catch (error) { sonyError(res, error); } });
   app.get('/api/sony/cameras/:id/properties', (req, res) => {
     const manager = sony(res); const id = sonyId(req, res); if (!manager || !id) return;
@@ -132,7 +134,8 @@ export function createStatusServer(
   // GET /api/rigs — the rig view of the running config for the Device Config screen:
   // one entry per camera position plus the ATEM, profile list and Sony camera status.
   app.get('/api/rigs', (_req, res) => {
-    res.json({ ...buildRigs(config, state, devicesFileVersion()), sony: sonyManager ? sonyManager.getStatus() : null });
+    const sony = sonyManager ? sonyManager.getStatus() : null;
+    res.json({ ...buildRigs(config, state, devicesFileVersion(), sony ? sony.cameras : []), sony });
   });
 
   app.get('/api/presets', (_req, res) => {
@@ -1492,7 +1495,6 @@ function renderStatus(s, c) {
 var SONY_PROPERTIES = ['aperture','shutter-speed','iso','white-balance','focus-mode','focus-area'];
 var sonyWidgets = {};
 var sonyDiscovered = [];
-var sonyGimbals = [];
 var sonySidecar = null;
 var sonyDeviceRows = new Map();
 var sonyPendingActions = new Set();
@@ -1507,7 +1509,6 @@ async function refreshSony() {
     var data = await fetch('/api/sony/status').then(function(r) { if (!r.ok) throw new Error(); return r.json(); });
     sonySidecar = data.sidecar || null;
     sonyDiscovered = data.cameras || [];
-    sonyGimbals = data.gimbals || [];
     sonyDashboardStatus('');
     renderSonyCameras(sonyDiscovered.filter(function(camera) { return camera.state === 'connected' || camera.connected; }));
     renderSonyDeviceConfig();
@@ -1541,7 +1542,6 @@ function renderSonyCameras(cameras) {
       var holder = document.createElement('div'); holder.innerHTML = sonyWidgetHtml(camera); var article = holder.firstChild; root.appendChild(article); sonyWidgets[camera.id].article = article;
       loadSonyProperties(camera.id);
     } else updateSonyWidget(camera);
-    if (created) updateSonyWidget(camera);
     startSonyPreview(camera.id);
   });
 }
@@ -1553,11 +1553,10 @@ function sonyDashboardStatus(message, error) {
 
 function updateSonyWidget(camera) {
   var article = sonyWidgets[camera.id] && sonyWidgets[camera.id].article; if (!article) return;
-  article.querySelector('.sony-widget__title').textContent = camera.model || camera.name || 'Sony camera';
+  article.querySelector('.sony-widget__title').textContent = camera.name || camera.model || 'Sony camera';
   article.querySelector('.sony-widget__transport').textContent = camera.connectionType || 'Unknown transport';
-  article.querySelector('.sony-widget__gimbal').textContent = camera.gimbalDevice ? 'On gimbal: ' + sonyGimbalLabel(camera.gimbalDevice) : '';
   article.querySelector('.sony-widget__connection').textContent = camera.status || 'Connected';
-  article.querySelector('.sony-preview img').alt = 'Live preview from ' + (camera.model || camera.id);
+  article.querySelector('.sony-preview img').alt = 'Live preview from ' + (camera.name || camera.model || camera.id);
 }
 
 function sonyWidgetHtml(camera) {
@@ -1566,11 +1565,19 @@ function sonyWidgetHtml(camera) {
     return '<label>' + esc(name.replace(/-/g, ' ')) + '<select class="cfg-input" id="sony-' + esc(key) + '-' + name + '" data-id="' + esc(camera.id) + '" data-property="' + name + '" disabled onchange="saveSonyProperty(this)"><option>Unavailable</option></select></label>';
   }).join('');
   return '<article class="sony-widget" data-camera-id="' + esc(camera.id) + '" aria-labelledby="sony-heading-' + esc(key) + '">' +
-    '<div class="sony-widget__head"><div><h3 class="sony-widget__title" id="sony-heading-' + esc(key) + '">' + esc(camera.model || camera.name || 'Sony camera') + '</h3><small class="sony-widget__id">' + esc(camera.id) + '</small><small class="sony-widget__gimbal" style="display:block"></small></div><div><span class="sony-widget__transport">' + esc(camera.connectionType || 'Unknown transport') + '</span><br><span class="sony-widget__connection" style="color:var(--ok-text)">' + esc(camera.status || 'Connected') + '</span></div></div>' +
+    '<div class="sony-widget__head"><div><h3 class="sony-widget__title" id="sony-heading-' + esc(key) + '">' + esc(camera.name || camera.model || 'Sony camera') + '</h3><small class="sony-widget__id">' + esc(camera.id) + '</small></div><div><span class="sony-widget__transport">' + esc(camera.connectionType || 'Unknown transport') + '</span><br><span class="sony-widget__connection" style="color:var(--ok-text)">' + esc(camera.status || 'Connected') + '</span></div></div>' +
     '<div class="sony-preview sony-preview-loading" id="sony-preview-' + esc(key) + '" role="region" aria-labelledby="sony-heading-' + esc(key) + '"><img alt="Live preview from ' + esc(camera.model || camera.id) + '" data-id="' + esc(camera.id) + '"><span class="sony-crosshair" aria-hidden="true"></span></div>' +
     '<div class="sony-controls">' + controls + '</div>' +
     '<div class="sony-touch-controls"><label>X (0–1)<input class="cfg-input" id="sony-x-' + esc(key) + '" type="number" min="0" max="1" step="0.01" value="0.5"></label><label>Y (0–1)<input class="cfg-input" id="sony-y-' + esc(key) + '" type="number" min="0" max="1" step="0.01" value="0.5"></label><button class="btn-sm" data-id="' + esc(camera.id) + '" onclick="applySonyTouchInputs(this.dataset.id)">Apply touch point</button></div>' +
     '<p>Camera Touch Function determines focus vs tracking.</p><div id="sony-status-' + esc(key) + '" aria-live="polite">Live preview loading. Loading camera controls…</div></article>';
+}
+
+// Quick retries while a camera settles, then a slow poll for as long as the widget exists (camera connected).
+function retrySonyProperties(id, state, message) {
+  state.propertyRetries = (state.propertyRetries || 0) + 1;
+  var delay = state.propertyRetries <= 6 ? 2000 * state.propertyRetries : 15000;
+  setTimeout(function() { if (sonyWidgets[id] === state && state.active) loadSonyProperties(id); }, delay);
+  sonyStatus(id, message);
 }
 
 async function loadSonyProperties(id) {
@@ -1600,16 +1607,14 @@ async function loadSonyProperties(id) {
       select.value = JSON.stringify(property.current_value);
       select.disabled = property.writable !== true || property.available_values.length === 0;
     });
-    // A camera that just (re)connected may not report every setting yet; ask again a few times.
-    if (incomplete && (state.propertyRetries || 0) < 6) {
-      state.propertyRetries = (state.propertyRetries || 0) + 1;
-      setTimeout(function() { if (sonyWidgets[id] === state && state.active) loadSonyProperties(id); }, 2000 * state.propertyRetries);
-      sonyStatus(id, 'Waiting for camera settings\u2026');
-    } else {
-      if (!incomplete) state.propertyRetries = 0;
-      sonyStatus(id, incomplete ? 'Some camera settings are unavailable.' : 'Controls confirmed.');
-    }
-  } catch (error) { sonyStatus(id, String(error), true); }
+    // A camera that just (re)connected may not report every setting yet; keep asking while it stays connected.
+    if (incomplete) retrySonyProperties(id, state, 'Waiting for camera settings\u2026');
+    else { state.propertyRetries = 0; sonyStatus(id, 'Controls confirmed.'); }
+  } catch (error) {
+    // A request that failed or timed out (the service is busy connecting other cameras) must not leave the
+    // dropdowns on "Unavailable" until the page is reloaded.
+    retrySonyProperties(id, state, 'Could not read camera settings yet; retrying\u2026');
+  }
   finally { if (sonyWidgets[id] === state) state.loadingProperties = false; }
 }
 
@@ -1980,46 +1985,23 @@ function createSonyDeviceRow(id) {
   var connected=document.createElement('span'), primary=document.createElement('button'), forget=document.createElement('button');
   connected.className='badge conn-usb'; connected.textContent='Connected'; primary.className='btn-sm'; forget.className='btn-sm'; forget.textContent='Forget';
   primary.dataset.id=id; forget.dataset.id=id; forget.onclick=function(){forgetSonyCamera(forget);};
-  var gimbal=document.createElement('select'); gimbal.className='cfg-input sony-gimbal-select'; gimbal.dataset.id=id; gimbal.setAttribute('aria-label','Gimbal this camera is mounted on'); gimbal.title='Gimbal this camera is mounted on'; gimbal.onchange=function(){setSonyGimbal(gimbal);};
-  actions.appendChild(gimbal); actions.appendChild(connected); actions.appendChild(primary); actions.appendChild(forget);
+  actions.appendChild(connected); actions.appendChild(primary); actions.appendChild(forget);
   element.appendChild(title); element.appendChild(document.createTextNode(' — ')); element.appendChild(cameraId); element.appendChild(document.createTextNode(' — ')); element.appendChild(transport); element.appendChild(document.createTextNode(' — ')); element.appendChild(state); element.appendChild(detail); element.appendChild(actions);
-  return {element:element,title:title,cameraId:cameraId,transport:transport,state:state,detail:detail,actions:actions,connected:connected,primary:primary,forget:forget,gimbal:gimbal};
+  return {element:element,title:title,cameraId:cameraId,transport:transport,state:state,detail:detail,actions:actions,connected:connected,primary:primary,forget:forget};
 }
 function updateSonyDeviceRow(row,camera) {
   var state=camera.state||(camera.connected?'connected':'disconnected'), pending=sonyPendingActions.has(camera.id);
-  row.title.textContent=camera.model||camera.name||camera.id; row.cameraId.textContent=camera.id; row.transport.textContent=camera.connectionType||'Unknown'; row.state.textContent=sonyStateLabel(state);
+  row.title.textContent=camera.name||camera.model||camera.id; row.cameraId.textContent=camera.id; row.transport.textContent=camera.connectionType||'Unknown'; row.state.textContent=sonyStateLabel(state);
   row.detail.textContent=(camera.nextRetryAt?' — next retry '+camera.nextRetryAt:'')+(state==='needs_pairing'?' — Camera-side pairing/setup required before retry.':'');
   row.connected.hidden=state!=='connected'; row.primary.hidden=true; row.primary.onclick=null;
   if(state==='discovered_unapproved') { row.primary.hidden=false; row.primary.textContent='Connect'; row.primary.onclick=function(){connectSonyCamera(row.primary);}; }
   else if(state==='connecting') { row.primary.hidden=false; row.primary.textContent='Connecting'; }
   else if(state==='disconnected'||state==='needs_pairing'||state==='error') { row.primary.hidden=false; row.primary.textContent='Retry Connect'; row.primary.onclick=function(){retrySonyCamera(row.primary);}; }
   row.primary.disabled=pending||state==='connecting'; row.forget.hidden=!camera.approved; row.forget.disabled=pending;
-  // Gimbal link: only for approved cameras. Rebuild options only when the gimbal list changes so an open dropdown is not closed by polling.
-  var gimbalSig=sonyGimbals.map(function(g){return g.device;}).join(',');
-  if(row.gimbal.dataset.sig!==gimbalSig) {
-    row.gimbal.innerHTML='<option value="">No gimbal</option>'+sonyGimbals.map(function(g){return '<option value="'+esc(g.device)+'">On '+esc(g.label)+'</option>';}).join('');
-    row.gimbal.dataset.sig=gimbalSig;
-  }
-  if(document.activeElement!==row.gimbal) row.gimbal.value=camera.gimbalDevice||'';
-  row.gimbal.hidden=!camera.approved||sonyGimbals.length===0; row.gimbal.disabled=pending;
 }
 function sonyStateLabel(state) {
   var labels={discovered_unapproved:'New camera — approval required',connecting:'Connecting',connected:'Connected',disconnected:'Disconnected',needs_pairing:'Needs pairing / camera setup',error:'Connection error',managed:'Managed',external:'External',disabled:'Disabled',absent:'Absent',starting:'Starting',healthy:'Healthy',crashed:'Crashed'};
   return labels[state]||String(state||'Unknown').replace(/_/g,' ');
-}
-function sonyGimbalLabel(device) {
-  var match=sonyGimbals.filter(function(g){return g.device===device;})[0];
-  return match ? match.label : device;
-}
-async function setSonyGimbal(select) {
-  var id=select.dataset.id; if(sonyPendingActions.has(id)) return;
-  var device=select.value||null; // read before re-rendering, which resets an unfocused dropdown
-  sonyPendingActions.add(id); renderSonyDeviceConfig(); sonyDeviceStatus('Saving gimbal link…');
-  var failed=false;
-  try { var response=await fetch('/api/sony/cameras/'+encodeURIComponent(id)+'/gimbal',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({device:device})}); if(!response.ok) throw new Error(); }
-  catch (_) { failed=true; }
-  await refreshSony();
-  sonyPendingActions.delete(id); renderSonyDeviceConfig(); sonyDeviceStatus(failed?'Could not save gimbal link.':'Gimbal link saved.',failed);
 }
 async function discoverSonyCameras() {
   sonyDeviceStatus('Discovering Sony cameras…');

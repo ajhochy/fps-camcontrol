@@ -3,7 +3,6 @@ import fs from 'fs';
 import path from 'path';
 
 const SAFE_ID = /^[A-Za-z0-9:-]{1,128}$/;
-const SAFE_DEVICE = /^[A-Za-z0-9_-]{1,64}$/;
 const ALLOWED_FIELDS = new Set(['id', 'model', 'connectionType']);
 
 export interface ApprovedSonyCamera {
@@ -11,8 +10,6 @@ export interface ApprovedSonyCamera {
   model?: string;
   connectionType?: string;
   approvedAt: string;
-  /** Key of the gimbal device (config/devices.yaml) this camera is mounted on. */
-  gimbalDevice?: string;
 }
 
 export interface SonyCameraApproval {
@@ -64,7 +61,6 @@ export class SonyStateStore {
         model: approval.model ?? previous?.model,
         connectionType: approval.connectionType ?? previous?.connectionType,
         approvedAt: previous?.approvedAt ?? this.now().toISOString(),
-        ...(previous?.gimbalDevice ? { gimbalDevice: previous.gimbalDevice } : {}),
       });
       await this.write(next);
     });
@@ -74,23 +70,6 @@ export class SonyStateStore {
     return this.enqueue(async () => {
       if (!SAFE_ID.test(id)) throw new Error('Sony camera ID must be a safe identifier');
       await this.write((await this.load()).filter((camera) => camera.id !== id));
-    });
-  }
-
-  /** Links an approved camera to a gimbal (or clears it with null). A gimbal carries one camera, so it moves off any other. */
-  setGimbalLink(id: string, device: string | null): Promise<void> {
-    return this.enqueue(async () => {
-      if (!SAFE_ID.test(id)) throw new Error('Sony camera ID must be a safe identifier');
-      if (device !== null && (typeof device !== 'string' || !SAFE_DEVICE.test(device))) {
-        throw new Error('Gimbal device key must be a safe identifier');
-      }
-      const approvals = await this.load();
-      if (!approvals.some((camera) => camera.id === id)) throw new Error('Sony camera must be approved before linking a gimbal');
-      await this.write(approvals.map((camera) => {
-        const { gimbalDevice: _previous, ...rest } = camera;
-        if (camera.id === id) return device === null ? rest : { ...rest, gimbalDevice: device };
-        return device !== null && camera.gimbalDevice === device ? rest : camera;
-      }));
     });
   }
 
@@ -107,6 +86,9 @@ export class SonyStateStore {
     if (state.version !== 1 || !Array.isArray(state.approvedCameras)) throw new Error('invalid Sony state schema');
     const ids = new Set<string>();
     for (const camera of state.approvedCameras) {
+      // `gimbalDevice` was a short-lived field (a camera's gimbal is now the rig that names the camera). Drop it
+      // quietly rather than treating the whole approval file as corrupt.
+      if (camera && typeof camera === 'object') delete (camera as unknown as Record<string, unknown>).gimbalDevice;
       this.validateCamera(camera);
       if (ids.has(camera.id)) throw new Error('duplicate Sony camera ID');
       ids.add(camera.id);
@@ -119,11 +101,8 @@ export class SonyStateStore {
     if (typeof camera.approvedAt !== 'string' || new Date(camera.approvedAt).toISOString() !== camera.approvedAt) {
       throw new Error('Sony approval timestamp must be ISO-8601');
     }
-    if (Object.keys(camera).some((key) => !ALLOWED_FIELDS.has(key) && key !== 'approvedAt' && key !== 'gimbalDevice')) {
+    if (Object.keys(camera).some((key) => !ALLOWED_FIELDS.has(key) && key !== 'approvedAt')) {
       throw new Error('Sony approval contains unsupported fields');
-    }
-    if (camera.gimbalDevice !== undefined && (typeof camera.gimbalDevice !== 'string' || !SAFE_DEVICE.test(camera.gimbalDevice))) {
-      throw new Error('Sony gimbal link must be a safe identifier');
     }
   }
 

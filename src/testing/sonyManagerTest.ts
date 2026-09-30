@@ -20,7 +20,7 @@ const criteria = new Set<string>();
 
 function record(name: string): void {
   const criterion = name.split(':')[0];
-  assert.ok(/^c(?:[1-9]|1[0-4])$/.test(criterion), `check name must start with a criterion id: ${name}`);
+  assert.ok(/^c(?:[1-9]|1[0-5])$/.test(criterion), `check name must start with a criterion id: ${name}`);
   assert.ok(!checks.includes(name), `duplicate check name: ${name}`);
   checks.push(name);
   criteria.add(criterion);
@@ -448,7 +448,7 @@ async function main(): Promise<void> {
   check('c8: coalesced readers observe the same response', firstBody === secondBody);
   await lanes.manager.properties('AA:BB');
   checkEqual('c8: a settled lane accepts the next read', propertyReads, 2);
-  checkEqual('c8: reads use the 5 s upstream budget', lanes.timeouts[lanes.timeouts.length - 1], 5000);
+  checkEqual('c8: a full settings read gets the 15 s budget (it can queue behind other cameras connecting)', lanes.timeouts[lanes.timeouts.length - 1], 15000);
   await lanes.manager.stop();
 
   // -- c9: stop shuts down only owned children, on the approved deadlines ------
@@ -595,35 +595,39 @@ async function main(): Promise<void> {
   await link.clock.advance(20000);
   checkEqual('c13: no link checks run after stop', link.calls.length, afterReconnect);
 
-  // -- c14: cameras are linked to the gimbal they are mounted on ---------------
-  const gimbal = build({ stateFile: file('gimbal.json') }, linkUpstream);
-  linked.clear(); powered.add(camA); powered.add(camB);
-  gimbal.manager.start();
-  await gimbal.manager.whenIdle();
-  await gimbal.manager.connect(camA, false);
-  await gimbal.manager.connect(camB, false);
-  await gimbal.manager.whenIdle();
-  const gimbalOf = (id: string): string | null | undefined => gimbal.manager.getStatus().cameras.find((camera) => camera.id === id)?.gimbalDevice;
-  checkEqual('c14: a new camera has no gimbal link', gimbalOf(camA), null);
-  await gimbal.manager.setGimbalLink(camA, 'rs3');
-  checkEqual('c14: an approved camera can be linked to a gimbal', gimbalOf(camA), 'rs3');
-  check('c14: the link is saved to the approval file', (await new SonyStateStore(file('gimbal.json')).load()).find((camera) => camera.id === camA)?.gimbalDevice === 'rs3');
-  await gimbal.manager.setGimbalLink(camB, 'rs3');
-  checkEqual('c14: a gimbal carries one camera, so linking it again moves it', [gimbalOf(camA), gimbalOf(camB)], [null, 'rs3']);
-  await gimbal.manager.setGimbalLink(camB, null);
-  checkEqual('c14: a link can be cleared', gimbalOf(camB), null);
-  await gimbal.manager.setGimbalLink(camA, 'rs3pro-a');
-  await gimbal.manager.connect(camA, false);
-  checkEqual('c14: reconnecting a camera keeps its gimbal link', gimbalOf(camA), 'rs3pro-a');
-  await checkRejects('c14: an unsafe gimbal key is refused', gimbal.manager.setGimbalLink(camA, '../etc'), /safe identifier/);
-  await checkRejects('c14: an unapproved camera cannot be linked', gimbal.manager.setGimbalLink('AA:BB:CC:DD:EE:99', 'rs3'), /approved/);
-  checkEqual('c14: a refused link leaves the existing link alone', gimbalOf(camA), 'rs3pro-a');
-  await gimbal.manager.forget(camA);
-  checkEqual('c14: forgetting a camera clears its gimbal link', (await new SonyStateStore(file('gimbal.json')).load()).find((camera) => camera.id === camA)?.gimbalDevice, undefined);
-  await gimbal.manager.stop();
+  // -- c14: an approval file written by the retired gimbal-link build still loads ---
+  const legacyFile = file('legacy-gimbal.json');
+  fs.writeFileSync(legacyFile, `${JSON.stringify({ version: 1, approvedCameras: [{ id: camA, model: 'ILCE-7SM3', connectionType: 'Network', approvedAt: '2026-09-30T21:20:07.215Z', gimbalDevice: 'rs3' }] })}\n`);
+  const legacyLoaded = await new SonyStateStore(legacyFile).load();
+  checkEqual('c14: an approval file with the retired gimbalDevice key still loads', legacyLoaded.map((camera) => camera.id), [camA]);
+  check('c14: the retired gimbalDevice key is dropped, not kept', !('gimbalDevice' in (legacyLoaded[0] as unknown as Record<string, unknown>)));
+  check('c14: the file is not set aside as corrupt', fs.readdirSync(root).every((name) => !name.startsWith('legacy-gimbal.json.corrupt')));
+  await new SonyStateStore(legacyFile).approve({ id: camB, model: 'ILME-FX3A' });
+  const rewritten = JSON.parse(fs.readFileSync(legacyFile, 'utf8'));
+  check('c14: the next save writes the file without the retired key', rewritten.approvedCameras.length === 2 && rewritten.approvedCameras.every((camera: Record<string, unknown>) => !('gimbalDevice' in camera)));
+
+  // -- c15: saved cameras survive an app restart, even when they are off at start ---
+  const restartFile = file('restart.json');
+  const seedStore = new SonyStateStore(restartFile);
+  await seedStore.approve({ id: camA, model: 'ILCE-7SM3', connectionType: 'Network' });
+  await seedStore.approve({ id: camB, model: 'ILME-FX3A', connectionType: 'Network' });
+  powered.clear(); linked.clear();
+  const restarted = build({ stateFile: restartFile }, linkUpstream);
+  restarted.manager.start();
+  await restarted.manager.whenIdle();
+  const restartedCamera = (id: string) => restarted.manager.getStatus().cameras.find((camera) => camera.id === id);
+  check('c15: saved cameras are listed after a restart even while powered off', restartedCamera(camA)?.approved === true && restartedCamera(camB)?.approved === true);
+  checkEqual('c15: a saved camera that is off shows as disconnected', [restartedCamera(camA)?.state, restartedCamera(camB)?.state], ['disconnected', 'disconnected']);
+  checkEqual('c15: the saved model is kept for a camera that is off', [restartedCamera(camA)?.model, restartedCamera(camB)?.model], ['ILCE-7SM3', 'ILME-FX3A']);
+  powered.add(camB);
+  await restarted.clock.run(restarted.manager, 70000);
+  checkEqual('c15: a saved camera powered on after the restart connects by itself', restartedCamera(camB)?.state, 'connected');
+  checkEqual('c15: a saved camera still off stays listed as disconnected', restartedCamera(camA)?.state, 'disconnected');
+  await restarted.manager.stop();
+  checkEqual('c15: stop cancels every timer', restarted.clock.pending(), 0);
 
   const covered = [...criteria].sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
-  assert.strictEqual(covered.length, 14, `every criterion needs a check; covered: ${covered.join(',')}`);
+  assert.strictEqual(covered.length, 15, `every criterion needs a check; covered: ${covered.join(',')}`);
   assert.strictEqual(new Set(checks).size, checks.length, 'check names must be unique');
   console.log(`sony manager: ${checks.length} checks passed across ${covered.length} criteria (${covered.join(' ')})`);
 }

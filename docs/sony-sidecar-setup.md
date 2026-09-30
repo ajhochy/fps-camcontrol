@@ -64,13 +64,29 @@ Keep the sidecar on loopback. It has no HTTP authentication and must not be expo
 - **Camera settings must be sent as the camera's hex value string** (for example `"0xfa"`). The sidecar rejects raw JSON numbers. The dashboard does this; use the `hex_value` field from `available_values` when scripting.
 - **A camera that is not in PC Remote mode** (or whose PC Remote connection method does not match how it is connected) is discovered but the connect times out after about 15 seconds.
 
-## Linking a camera to its gimbal
+## Naming Sony cameras and putting them on rigs
 
-In **Device Config → Sony Cameras**, each approved camera has a dropdown listing the DJI gimbals from `config/devices.yaml` (devices with `protocol: dji-bridge`). Choose the gimbal a camera is mounted on, or **No gimbal**. The Status page then shows "On gimbal: …" under that camera's name.
+A Sony camera is described once in the `devices:` inventory of `config/devices.yaml`, like a gimbal or a V-BOT, and a rig names the camera that sits on it. (A *rig* is one camera position: an entry under a profile's `slots:`.)
 
-- A gimbal carries one camera: linking a gimbal that is already linked moves it to the new camera.
-- The link is stored with the camera's approval in the state file (`SONY_STATE_FILE`), as the gimbal's device key only. **Forget** removes it.
-- Only approved (connected-at-least-once) cameras can be linked. The link is informational for now; it does not change how motion control or the ATEM inputs behave.
+```yaml
+devices:
+  fx3:
+    label: "FX3A — stage right"      # the name you see everywhere a camera is shown
+    protocol: sony
+    sonyCameraId: "78:F5:05:43:AD:50" # the id the Sony service reports; omit until the camera has been seen
+profiles:
+  production:
+    slots:
+      - { device: rs3, inputId: 2, camera: fx3 }   # the gimbal, its ATEM input, and the camera on it
+```
+
+- `label` is the camera's name. The Status page, Device Config and `GET /api/rigs` show it instead of the model and MAC address.
+- `sonyCameraId` ties the entry to one physical camera. Two entries cannot claim the same id. An entry without an id is valid (a camera you have not connected yet); `GET /api/rigs` lists discovered cameras that no entry is bound to under `unboundCameras`.
+- `camera:` on a rig must name a `protocol: sony` device. V-BOT and gimbal rigs take one; **BirdDog rigs have a built-in camera and are refused one**. A Sony camera can be on only one rig per profile, but the same camera can appear in different profiles.
+- A Sony device can never be a rig's `device:` (controller). Every rule is checked when the config loads and when profiles are saved, and is enforced for profiles that are not active too.
+- **Approval is separate and stays on this machine.** Adding a Sony device does not approve the camera: connecting is still an explicit click, and the approved list is in `sony-cameras.json` (not committed). Saved cameras are listed after an app restart even while they are powered off, and reconnect on their own when they come back.
+
+Until the rigs screen lands (see `docs/ai/plans/2026-09-30-device-config-rigs-ui.md`), these entries are edited in the YAML file; the dashboard only reads them.
 
 ## Camera-specific notes
 

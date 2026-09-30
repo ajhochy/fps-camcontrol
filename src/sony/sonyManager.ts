@@ -7,6 +7,8 @@ import { SonyStateStore, ApprovedSonyCamera } from './sonyStateStore';
 const HEALTH_TIMEOUT_MS = 1500;
 const CONNECT_TIMEOUT_MS = 30000;
 const READ_TIMEOUT_MS = 5000;
+// Reading all of a camera's settings can queue behind other cameras connecting on the same service.
+const PROPERTIES_TIMEOUT_MS = 15000;
 // A network scan (Wi-Fi/LAN cameras) routinely takes ~10s inside Sony's SDK.
 const DISCOVERY_TIMEOUT_MS = 30000;
 const FRAME_TIMEOUT_MS = 3000;
@@ -43,8 +45,6 @@ export interface SonyCameraStatus {
   lastSeenAt: string | null;
   nextRetryAt: string | null;
   message: string | null;
-  /** Key of the gimbal this camera is mounted on, if an operator linked one. */
-  gimbalDevice?: string | null;
 }
 
 export interface SonyStatus {
@@ -203,7 +203,7 @@ export class SonyManager {
         mode: this.mode, state: this.state, owned: this.owned, apiUrl: this.config.apiUrl,
         version: this.version, sdkVersion: this.sdkVersion, message: this.sidecarMessage,
       },
-      cameras: [...this.cameras.values()].map(({ missing: _missing, ...camera }) => ({ ...camera, gimbalDevice: this.approved.get(camera.id)?.gimbalDevice ?? null })),
+      cameras: [...this.cameras.values()].map(({ missing: _missing, ...camera }) => ({ ...camera })),
     };
   }
 
@@ -224,6 +224,7 @@ export class SonyManager {
   private async boot(): Promise<void> {
     const epoch = this.epoch;
     this.approved = new Map((await this.store.load()).map((camera) => [camera.id, camera]));
+    this.seedApprovedCameras();
     if (this.isStale(epoch)) return;
     if (await this.probe()) {
       if (this.isStale(epoch)) return;
@@ -241,6 +242,22 @@ export class SonyManager {
       return;
     }
     await this.launch(epoch);
+  }
+
+  /**
+   * List every saved (approved) camera from the start, even while it is off. Without this a camera
+   * that is powered down when the app starts has no record at all: it is not shown, and nothing
+   * retries it when it powers on, so a restart would look like the app forgot it.
+   */
+  private seedApprovedCameras(): void {
+    for (const approved of this.approved.values()) {
+      if (this.cameras.has(approved.id)) continue;
+      this.cameras.set(approved.id, {
+        id: approved.id, approved: true, state: 'disconnected',
+        model: approved.model, connectionType: approved.connectionType,
+        lastSeenAt: null, nextRetryAt: null, message: 'Camera not found', missing: true,
+      });
+    }
   }
 
   private async launch(epoch: number): Promise<void> {
@@ -539,21 +556,13 @@ export class SonyManager {
     await this.store.forget(id);
   }
 
-  /** Records which gimbal a camera is mounted on (null clears). The store enforces one camera per gimbal. */
-  async setGimbalLink(id: string, device: string | null): Promise<void> {
-    this.assertId(id);
-    if (!this.approved.has(id)) throw new Error('Sony camera must be approved before linking a gimbal');
-    await this.store.setGimbalLink(id, device);
-    this.approved = new Map((await this.store.load()).map((camera) => [camera.id, camera]));
-  }
-
   async retryCamera(id: string): Promise<void> {
     this.assertId(id);
     await this.connect(id, this.approved.has(id));
   }
 
   properties(id: string): Promise<unknown> {
-    return this.readOnce(id, 'properties', () => this.request(`${this.cameraPath(id)}/properties/all`, undefined, READ_TIMEOUT_MS));
+    return this.readOnce(id, 'properties', () => this.request(`${this.cameraPath(id)}/properties/all`, undefined, PROPERTIES_TIMEOUT_MS));
   }
 
   property(id: string, name: string, init?: RequestInit): Promise<unknown> {

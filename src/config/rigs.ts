@@ -40,12 +40,32 @@ export interface RigView {
   hotkey: string | null;
   /** BirdDog cameras have a camera built in, so they never take a separate Sony camera. */
   builtInCamera: boolean;
-  /** Key of the Sony camera device mounted on this rig. Always null until Sony cameras become inventory devices. */
+  /** Key of the Sony camera device (protocol: sony) mounted on this rig; null when none is assigned. */
   camera: string | null;
+  /** The mounted camera's display name (the Sony device's label); null when none. */
+  cameraLabel: string | null;
   /** Names of the profiles whose rigs include this device (edits to a device apply to all of them). */
   usedInProfiles: string[];
   /** Live link state; keys are present only when the app tracks them for this kind of camera. */
   live: { connected: boolean | null; bridgeReachable?: boolean; gimbalAttached?: boolean };
+}
+
+/** What the Sony service reports about one camera (a subset of SonyCameraStatus). */
+export interface SonyCameraInfo { id: string; model?: string; state?: string; connectionType?: string }
+
+export interface SonyDeviceView {
+  /** Inventory key in devices.yaml. */
+  key: string;
+  /** The operator's name for this camera; shown wherever a camera is picked. */
+  label: string;
+  /** The physical camera it is bound to; null until the camera has been seen and bound. */
+  sonyCameraId: string | null;
+  /** What the Sony service says about the bound camera right now; null when unbound or not reported. */
+  state: string | null;
+  model: string | null;
+  /** Rigs in the active profile that use this camera. */
+  usedByRigs: { position: number; id: string; label: string }[];
+  usedInProfiles: string[];
 }
 
 export interface RigsView {
@@ -57,6 +77,10 @@ export interface RigsView {
   atem: AppConfig['atem'];
   graphics: AppConfig['graphics'];
   profiles: { name: string; label: string | null; active: boolean; rigCount: number }[];
+  /** Sony cameras described in the inventory, with the name the operator gave each. */
+  sonyDevices: SonyDeviceView[];
+  /** Cameras the Sony service has found that no Sony device is bound to yet (candidates to add or bind). */
+  unboundCameras: SonyCameraInfo[];
 }
 
 function controllerOf(cam: CameraConfig): RigController {
@@ -66,9 +90,15 @@ function controllerOf(cam: CameraConfig): RigController {
   return 'generic';
 }
 
-export function buildRigs(config: AppConfig, state: AppState, version: string): RigsView {
+export function buildRigs(
+  config: AppConfig,
+  state: AppState,
+  version: string,
+  sonyCameras: SonyCameraInfo[] = [],
+): RigsView {
   const active = config.activeProfile && config.profiles?.[config.activeProfile] ? config.activeProfile : null;
   const slots = active ? config.profiles![active].slots : [];
+  const inventory = config.devices ?? {};
 
   const rigs = config.cameras.map((cam, i): RigView => {
     const deviceKey = slots[i]?.device ?? null;
@@ -104,11 +134,32 @@ export function buildRigs(config: AppConfig, state: AppState, version: string): 
       wired: cam.inputId !== undefined,
       hotkey: i < 4 ? ((config.mappings as Record<string, unknown>)[`selectCam${i + 1}`] as string | undefined) ?? null : null,
       builtInCamera: controller === 'birddog',
-      camera: null,
+      camera: slots[i]?.camera ?? null,
+      cameraLabel: slots[i]?.camera ? inventory[slots[i].camera!]?.label ?? null : null,
       usedInProfiles,
       live,
     };
   });
+
+  const byId = new Map(sonyCameras.map((camera) => [camera.id.toUpperCase(), camera]));
+  const boundIds = new Set<string>();
+  const sonyDevices = Object.entries(inventory)
+    .filter(([, device]) => device.protocol === 'sony')
+    .map(([key, device]): SonyDeviceView => {
+      const seen = device.sonyCameraId ? byId.get(device.sonyCameraId.toUpperCase()) : undefined;
+      if (device.sonyCameraId) boundIds.add(device.sonyCameraId.toUpperCase());
+      return {
+        key,
+        label: device.label,
+        sonyCameraId: device.sonyCameraId ?? null,
+        state: seen?.state ?? null,
+        model: seen?.model ?? null,
+        usedByRigs: rigs.filter((rig) => rig.camera === key).map((rig) => ({ position: rig.position, id: rig.id, label: rig.label })),
+        usedInProfiles: Object.entries(config.profiles ?? {})
+          .filter(([, profile]) => profile.slots.some((slot) => slot.camera === key))
+          .map(([name]) => name),
+      };
+    });
 
   return {
     version,
@@ -120,5 +171,7 @@ export function buildRigs(config: AppConfig, state: AppState, version: string): 
     profiles: Object.entries(config.profiles ?? {}).map(([name, profile]) => ({
       name, label: profile.label ?? null, active: name === active, rigCount: profile.slots.length,
     })),
+    sonyDevices,
+    unboundCameras: sonyCameras.filter((camera) => !boundIds.has(camera.id.toUpperCase())),
   };
 }

@@ -79,6 +79,36 @@ check('legacy rigs have no device key and still list', legacy.rigs.length === 3 
 check('legacy rigs have no profile membership', legacy.rigs.every((rig) => rig.usedInProfiles.length === 0) && legacy.profiles.length === 0);
 
 const payload = JSON.stringify(view);
+// ---- Sony devices in the view
+const withSony: AppConfig = baseConfig('production');
+withSony.devices = {
+  ...devices,
+  'sony-a': { label: 'a7S III — stage left', protocol: 'sony', sonyCameraId: '9c:50:d1:ac:7b:72' } as InventoryDevice,
+  'sony-b': { label: 'FX3A — stage right', protocol: 'sony', sonyCameraId: '78:F5:05:43:AD:50' } as InventoryDevice,
+  'sony-c': { label: 'Not yet bound', protocol: 'sony' } as InventoryDevice,
+};
+withSony.profiles = {
+  production: { label: 'Production', slots: [{ device: 'vbot', inputId: 6, camera: 'sony-a' }, { device: 'birddog1', inputId: 7 }, { device: 'rs3', inputId: 2, camera: 'sony-b' }] },
+  test: { label: 'Test', slots: [{ device: 'vbot', inputId: 6, camera: 'sony-a' }, { device: 'rs3' }] },
+};
+withSony.cameras = resolveProfile(withSony.devices as Record<string, InventoryDevice>, withSony.profiles.production);
+const seen = [
+  { id: '9C:50:D1:AC:7B:72', model: 'ILCE-7SM3', state: 'connected' },
+  { id: '78:F5:05:43:AD:50', model: 'ILME-FX3A', state: 'error' },
+  { id: 'AA:00:00:00:00:09', model: 'ILCE-7M4', state: 'discovered_unapproved' },
+];
+const sonyView = buildRigs(withSony, state, 'v6', seen);
+check('a rig reports its Sony camera key and the camera\'s name', sonyView.rigs[0].camera === 'sony-a' && sonyView.rigs[0].cameraLabel === 'a7S III — stage left');
+check('a rig with no camera reports none', sonyView.rigs[1].camera === null && sonyView.rigs[1].cameraLabel === null);
+check('Sony devices are not listed as rigs or controllers', sonyView.rigs.length === 3 && sonyView.rigs.every((rig) => rig.deviceKey !== null && !rig.deviceKey!.startsWith('sony-')));
+check('all Sony devices are listed with their names', sonyView.sonyDevices.map((d) => d.label).join('|') === 'a7S III — stage left|FX3A — stage right|Not yet bound');
+check('a Sony device picks up the camera state by id, ignoring case', sonyView.sonyDevices[0].state === 'connected' && sonyView.sonyDevices[0].model === 'ILCE-7SM3');
+check('a Sony device shows the rigs that use it', sonyView.sonyDevices[0].usedByRigs.map((r) => r.id).join() === 'cam1' && sonyView.sonyDevices[1].usedByRigs.map((r) => r.id).join() === 'cam3');
+check('a Sony device lists every profile that uses it', sonyView.sonyDevices[0].usedInProfiles.join() === 'production,test' && sonyView.sonyDevices[1].usedInProfiles.join() === 'production');
+check('an unused, unbound Sony device is listed with no camera id', sonyView.sonyDevices[2].sonyCameraId === null && sonyView.sonyDevices[2].state === null && sonyView.sonyDevices[2].usedByRigs.length === 0);
+check('only discovered cameras no device is bound to appear as unbound', sonyView.unboundCameras.map((c) => c.id).join() === 'AA:00:00:00:00:09');
+check('with no Sony service the lists are empty but devices still show', buildRigs(withSony, state, 'v7').unboundCameras.length === 0 && buildRigs(withSony, state, 'v7').sonyDevices.length === 3);
+
 check('the payload carries no secrets or credentials', !/password|token|secret|fingerprint/i.test(payload));
 check('the payload is JSON round-trippable', JSON.stringify(JSON.parse(payload)) === payload);
 
