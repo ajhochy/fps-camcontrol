@@ -2,298 +2,252 @@
 type: project
 ---
 
-# Current Plan — Automated Sony Camera Operations
+# Current Plan — Click-to-Track Auto-Tracking
+
+> Previous plan (Sony auto-connect, design-only at the time) is archived verbatim at
+> `docs/ai/plans/2026-08-13-sony-auto-connect.md`. Its implementation is on `main`
+> (`src/sony/`); this plan builds on it.
 
 ## Status
-Design only; implementation is blocked on AJ's approval. Integration target: PR #2 branch `fix/controller-visca-ptz-and-multi-cam`, represented by verified combined commit `e9e4472`.
+Plan only. No product code yet. Issues are drafted under `docs/ai/generated-issues/`
+(local files; no remote GitHub issues created).
 
-## Goal
-Optionally launch a preconfigured Sony `alpha-sdk-api` sidecar, remember operator-approved camera IDs, and reconnect only those cameras across app/camera restarts without delaying or preventing normal CamControl startup.
+## Intent and constraints pass
 
-## Constraints
-- Ponytail full: no installer, updater, SDK downloader, or embedded build pipeline; a configured executable plus a developer/first-run setup script is sufficient.
-- Unknown camera IDs are discovery results only and always require an explicit **Connect** action before they become remembered/auto-connect eligible.
-- Sony is optional: absent executable, failed sidecar launch, unhealthy sidecar, or no Sony camera must not block existing startup or non-Sony operation.
-- The Sony SDK ZIP must not be redistributed unless its license is separately reviewed and confirmed to permit redistribution.
-- Developer setup (license acceptance, SDK download, sidecar build) is distinct from runtime process launch.
-- Keep the sidecar on loopback by default; do not expose credentials, pairing secrets, or full sensitive upstream bodies in UI or logs.
-- No new Node dependency unless the standard library proves insufficient.
-- Per-camera work is serialized; retries are bounded, jittered, cancelable, and limited to remembered IDs.
-- Existing dashboard behavior and explicit Device Config discovery/connect flow remain backward compatible.
+**Goal (one sentence).** The operator clicks a person in a camera's live preview in the
+web UI, and the app drives that camera's gimbal so the person stays centered, until the
+operator cancels, grabs the stick, or hits emergency stop.
 
-## Current evidence and unknowns
-- Current proxy contract and Sony UI live in `src/ui/statusServer.ts`; tests use an in-process fake upstream in `src/testing/smokeTest.ts`.
-- Current sidecar base URL is `SONY_API_URL`, defaulting to `http://127.0.0.1:8181`.
-- Upstream primary sources confirm launch as `CameraWebApp --port <port>`, health at `GET /api/server/status`, graceful shutdown at `POST /api/server/shutdown`, and the discovery/connection/property/live-view/touch shapes.
-- The upstream contract explicitly has no stable machine-readable error code in every error body; exact pairing/authentication responses from AJ's built binary and cameras remain **UNVERIFIED** and require the live contract probe before implementation locks the classifier.
+**In scope (v1)**
+- Person tracking (click selects a detected person) on a **Sony camera whose video already
+  reaches the app** (Sony live-view JPEG via the sidecar) mounted on a **DJI gimbal** that the
+  app already drives (`DjiBridgeDevice.setPanTilt`).
+- Pan + tilt only. Velocity control through the existing `MotionDevice` interface.
+- Safety: operator override, emergency stop, stale-data and lost-target stops, conservative
+  speed cap, human-gated live verification.
+- Web UI: track mode on the Sony preview, status overlay, cancel.
 
-## Design
+**Out of scope (v1), file as follow-ups**
+- VISCA cameras (BirdDog / V-BOT). Their video goes to the ATEM, **not into the app**
+  (`inputId` only); tracking them needs a new video ingest (RTSP/NDI) — a separate milestone.
+- Zoom / auto-framing, roll, generic (non-person) object tracking, face re-identification,
+  multi-subject tracking, using Sony's in-camera touch-tracking.
+- Saving/recalling tracked targets, recording footage, any cloud inference.
 
-### Approaches
+**Hard constraints**
+- Do not regress manual control. `ControlStateMachine` stays the owner of operator input;
+  tracking is an additional input source with strictly lower priority than the stick.
+- A dropped *stop* is a camera that keeps moving (comment in `controlStateMachine.ts`): every
+  exit path must send `stop()`, and stops must never go through the rate limiter.
+- BLE budget: gimbal writes are capped (`GIMBAL_MIN_SEND_MS = 50`, heartbeat 150 ms vs the
+  bridge's 250 ms watchdog). Tracking must reuse `shouldSendMotion`, not invent its own pacing.
+- **Live gimbal motion at gain 200 is still unverified** (see `project-state.md` risk). Tracking
+  ships with a low default speed cap and a human-watched first run.
+- Data safety: footage of people. No frames, crops, or embeddings are written to disk or logs;
+  test fixtures must be synthetic.
+- The smoke suite boots the real app as an import side effect — run with a free `STATUS_PORT`.
+- `ai-workflow checks` does not work here. Checks are `pnpm build`, `STATUS_PORT=<free> pnpm test:smoke`,
+  `python3 -m unittest discover -s <dir>/tests`, `node scripts/check-page-js.cjs`, `git diff --check`.
 
-| Approach | Shape | Advantages | Costs / risks |
-|---|---|---|---|
-| **A. Optional in-process supervisor (recommended)** | CamControl probes the configured API URL, optionally spawns a configured `CameraWebApp`, and owns approval/reconnect state. | Meets automatic launch and reconnect requirements; no installer; Sony failure stays isolated; one place owns concurrency and state. | Adds a small lifecycle component and requires careful owned-vs-external shutdown behavior. |
-| **B. External service only** | A first-run script or operator starts the sidecar through `launchd`; CamControl only probes it and reconnects approved IDs. | Smallest app change and strongest process isolation. | Does not provide app-owned start/crash recovery; setup is less portable and troubleshooting spans two service managers. |
-| **C. Bundle/build/update Sony inside CamControl** | Vendor SDK artifacts or clone/build/update the sidecar automatically. | Lowest apparent operator effort after packaging. | Rejected: conflicts with Sony download/EULA constraints, increases release risk, and violates the requested no-installer/updater boundary. |
+**Design tensions**
+1. *Smooth vs. safe*: higher gain tracks better but, with ~8 fps video and 150–500 ms of delay,
+   becomes an oscillator. Stability wins over responsiveness in v1.
+2. *Vision in Python vs. one-language repo*: good detectors/trackers live in Python; the repo already
+   has a Python sidecar pattern (`pi-bridge/`) and a WebSocket client pattern (`djiBridgeDevice.ts`).
+3. *Detector quality vs. licensing*: the most convenient YOLO package is AGPL-3.0.
+4. *Stale target vs. fresh frame*: the controller runs at 20 Hz but frames arrive at ≤ ~8 Hz.
 
-**Recommendation:** Approach A, with external-service adoption built in. If `sony.executable` is absent, CamControl behaves exactly like Approach B: it probes the URL, reports setup guidance, and never treats Sony as a startup prerequisite.
+**Cheapest version that proves the idea.** A sidecar with a **mock** source emitting a scripted target,
+the TS control law + manager driving `virtualDjiBridge`, and a closed-loop simulator proving no
+oscillation at 150/300/500 ms delay. That is Phase 1 and needs no vision at all; real detection is
+layered on afterward.
 
-### Legal and packaging boundary
+## Existing code this plan builds on (verified)
 
-- `crsdk/alpha-sdk-api` is MIT, but its own primary documentation states that Sony Camera Remote SDK headers, libraries, Sony sample-derived `shared/core` sources, and SDK ZIP are not redistributed. Each developer/operator downloads the SDK from Sony after accepting Sony's license.
-- **Developer setup:** an optional `scripts/setup-sony-sidecar.sh` accepts an already-downloaded SDK ZIP and an existing/local `alpha-sdk-api` checkout, invokes that checkout's `./crsdk install --zip …` and `./crsdk build`, verifies `/api/server/status`, and prints the resulting executable path. It neither downloads the Sony ZIP nor runs during CamControl startup.
-- **Runtime launch:** CamControl only runs the already-built configured executable. It does not clone, install, build, update, sign, or redistribute the sidecar or Sony files.
-- Shipping any built sidecar/runtime bundle to other users remains blocked on a separate Sony-license review; this plan assumes local builds only.
-
-Primary sources checked: [alpha-sdk-api README](https://github.com/crsdk/alpha-sdk-api), [SDK setup](https://github.com/crsdk/alpha-sdk-api/blob/main/docs/SDK_SETUP.md), [building binaries](https://github.com/crsdk/alpha-sdk-api/blob/main/docs/BUILDING_BINARIES.md), and its [OpenAPI contract](https://github.com/crsdk/alpha-sdk-api/blob/main/api/openapi.yaml).
-
-### Minimal architecture
-
-#### Configuration
-
-Add one optional top-level block to `config/devices.yaml`, validated in `src/config/configLoader.ts`:
-
-```yaml
-sony:
-  enabled: true
-  apiUrl: http://127.0.0.1:8181
-  executable: /absolute/path/to/CameraWebApp # optional; absent = external sidecar
-  stateFile: config/sony-cameras.json
-```
-
-Environment overrides, in precedence order over YAML: `SONY_ENABLED`, existing `SONY_API_URL`, `SONY_SERVER_EXECUTABLE`, and `SONY_STATE_FILE`. Defaults are `enabled: true`, loopback `http://127.0.0.1:8181`, no executable, and `sony-cameras.json` beside `DEVICES_CONFIG`. Do not add configurable command arguments: the verified sidecar contract only needs `--port <apiUrl.port>`.
-
-#### Components and ownership
-
-- `SonyManager` is constructed once in `src/index.ts`, injected into `createStatusServer`, and owns sidecar health, approved-camera state, discovery, connect/retry scheduling, and per-camera operation lanes.
-- `SonySidecar` is a small internal helper owned by the manager. It probes, spawns, drains logs, reports status, and stops only a child it spawned. It never kills or shuts down an already-running external server it merely adopted.
-- Existing `/api/sony/*` proxy routes delegate through the manager, so UI actions and background reconnects share validation, classification, and the one-operation-per-camera rule.
-- `statusServer.ts` remains the UI/API adapter; it does not own durable Sony state or background timers.
-
-#### Sidecar process behavior
-
-1. `SonyManager.start()` returns immediately; `src/index.ts` does not await Sony readiness. Existing ATEM, motion devices, controller loop, watchdog, and status server continue to start even when Sony is absent.
-2. In the background, probe `GET /api/server/status` at the configured URL with a 1.5 s timeout. A valid `200` object containing `success`, `server.version`, `server.sdkVersion`, and camera counts is healthy.
-3. If healthy, adopt it as `external`; never stop it. If unhealthy and no executable is configured, enter `absent` and keep low-rate health probes.
-4. If an executable is configured, require a loopback API URL, verify an absolute executable file, and spawn `[executable, "--port", apiUrl.port]` with `cwd = dirname(executable)`, `stdio = [ignore, pipe, pipe]`, and no shell. Drain both streams continuously; retain/log only bounded, redacted lines.
-5. Poll health every 250 ms for at most 15 s. Readiness failure kills only the owned child and marks Sony degraded; it never fails `main()`.
-6. An unexpected owned-child exit triggers jittered restarts after 1, 2, 4, 8, then 15 s (±20%), capped at five attempts per five-minute outage. After the cap, remain `crashed` until a UI **Retry Sony service** action or app restart. A healthy run of five minutes resets the budget.
-7. Shutdown handles both `SIGINT` and `SIGTERM`: stop timers/queues, request owned-sidecar `POST /api/server/shutdown` (2 s), wait up to 3 s, send `SIGTERM`, wait 2 s, then `SIGKILL` only the still-running owned child. Repeated stop calls are safe. External/adopted servers are untouched.
-
-#### Persisted approvals
-
-Default location: `config/sony-cameras.json`, or the directory containing `DEVICES_CONFIG` when that override is used. `sony.stateFile` / `SONY_STATE_FILE` can override it.
-
-```json
-{
-  "version": 1,
-  "approvedCameras": [
-    {
-      "id": "D10F60149B0C",
-      "model": "ILCE-9M3",
-      "connectionType": "USB",
-      "approvedAt": "2026-08-13T20:00:00.000Z"
-    }
-  ]
-}
-```
-
-- `id` and `approvedAt` are authoritative; model/connection type are display hints only. Runtime connection status, retry counters, and errors are not persisted.
-- An explicit **Connect** adds/updates an ID only after the sidecar confirms a successful connection. Discovery alone never approves. **Forget** removes approval atomically and prevents future auto-connect; it may best-effort disconnect but succeeds even if the camera/sidecar is absent.
-- Validate schema/version and reject duplicate or unsafe IDs. Do not retain the current MAC-only assumption: upstream examples use stable alphanumeric hardware IDs. URL path segments use `encodeURIComponent` rather than interpolation after a MAC regex.
-- Serialize writes. Write JSON plus newline to a same-directory uniquely named temp file with mode `0600`, `fsync` and close it, then atomic `rename` over the destination; clean up stale temp files on failure. A malformed existing file is quarantined to `.corrupt-<timestamp>`, logged without contents, and starts with no approvals rather than approving anything implicitly.
-- No username, password, fingerprint, token, or other credential is stored in this file or logged.
-
-#### Discovery, reconnect, and concurrency
-
-1. Once sidecar health is confirmed, call `GET /api/cameras` and refresh the visible discovery set.
-2. Unknown IDs appear as `discovered_unapproved` with an explicit **Connect** action; no background operation targets them.
-3. For each approved ID: if already connected, mark connected; if discovered but disconnected, enqueue connect in `remote` mode; if absent, mark disconnected and schedule rediscovery.
-4. A powered-off approved camera is retried in bounded bursts at 2, 5, 10, 20, and 30 s (±20% jitter). After a burst, a low-rate 60 s discovery probe continues so a camera powered on later is recovered. Its reappearance starts a fresh burst. Delays are capped, timers are cancelable, and one sidecar outage creates one shared health probe rather than N camera probes.
-5. Each camera has one operation lane. Connect, connection status, property writes, live-view start, and touch actions are serialized. Polling reads (status/frame/property refresh) coalesce and are skipped with `503` plus `Retry-After` when a lane is occupied; they never form an unbounded queue. Explicit user actions wait behind at most the current operation and retain existing endpoint timeouts.
-6. Sidecar loss cancels camera work and marks approved cameras disconnected. Sidecar recovery performs the startup sequence again. Forget cancels that camera's timer and queued lifecycle work before persisting removal.
-
-#### Pairing-required classification
-
-The upstream OpenAPI explicitly says its error body has no stable machine-readable code, while current source sometimes adds `data.error_code` for SDK connect failures. Therefore classification must be conservative:
-
-- `needs_pairing` only when a real-sidecar contract probe has pinned an exact allowlist for authentication/fingerprint refusal codes or a documented remote-shooting/pairing-required response. Known examples to probe are fingerprint mismatch (`CrError_Connect_SSH_ServerAuthenticationFailed`), username/password rejection (`CrError_Connect_SSH_UserAuthenticationFailed`), and connection timeout guidance when remote shooting is disabled.
-- Camera absent from discovery, unplugged/powered off, connection lost, timeout, `ECONNREFUSED`, or sidecar unavailable is `disconnected`/sidecar degraded, never pairing-required.
-- Any unrecognized `400` or SDK failure is `error`, with no automatic pairing claim. It may be retried only if the probe classifies it as transient.
-- This scope does not persist Sony access-auth credentials. A camera requiring credentials shows **Needs pairing / camera setup** and an explicit **Retry Connect** after the operator completes camera-side setup. Adding secure credential storage is a separate, approval-gated feature.
-
-Before implementation, run the actual locally built sidecar against the target Sony body and capture sanitized HTTP status/body samples for: successful connect, camera off, remote shooting disabled, fingerprint mismatch, bad credentials (if applicable), disconnect, and reconnect. Pin those fixtures in smoke tests. Until then the numeric code allowlist is **UNVERIFIED**.
-
-#### Health/status API and UI
-
-Add `GET /api/sony/status`:
-
-```json
-{
-  "sidecar": {
-    "mode": "managed",
-    "state": "healthy",
-    "owned": true,
-    "apiUrl": "http://127.0.0.1:8181",
-    "version": "3.0.0",
-    "sdkVersion": "V2.02.00",
-    "message": null
-  },
-  "cameras": [
-    {
-      "id": "D10F60149B0C",
-      "approved": true,
-      "state": "connected",
-      "model": "ILCE-9M3",
-      "connectionType": "USB",
-      "lastSeenAt": "2026-08-13T20:01:00.000Z",
-      "nextRetryAt": null,
-      "message": null
-    }
-  ]
-}
-```
-
-Sidecar states: `disabled`, `absent`, `starting`, `healthy`, `crashed`. Camera states: `discovered_unapproved`, `connecting`, `connected`, `disconnected`, `needs_pairing`, `error`. The API omits executable paths, process environment, raw sidecar logs, and credentials.
-
-UI behavior:
-
-| User job | Entry point | Visible result | Action |
-|---|---|---|---|
-| Approve a new camera | Device Config → Discover | `New camera — approval required`; it does not appear as an active dashboard widget | **Connect** |
-| Resume a known camera | App startup / camera power-on | `Connecting`, then dashboard controls appear without another approval | automatic; **Retry Connect** on demand |
-| Fix camera setup/auth | Device Config | Amber `Needs pairing / camera setup`, concise camera-side guidance | **Retry Connect** only after setup |
-| Distinguish ordinary outage | Dashboard + Device Config | Red/neutral `Disconnected — camera not found` with next retry time | automatic retry; **Retry Connect** |
-| Recover sidecar | Sony status banner | `Sony service absent/crashed`; all non-Sony UI remains usable | **Retry Sony service**; setup instructions if no executable |
-| Revoke trust | Device Config | Camera remains discoverable but will not auto-connect again | **Forget** with confirmation |
-
-Dashboard widgets remain connected-camera-only. Device Config is the authoritative place for discovery, approval, pairing guidance, and forget/retry actions. Existing Sony property/live-view/touch controls remain unchanged when connected.
-
-#### Security and logging
-
-- Managed launch is permitted only for loopback `apiUrl`; remote URLs are external-only. The sidecar has no HTTP authentication, so documentation must warn against binding/exposing it beyond trusted localhost.
-- Spawn with an argument array and `shell: false`; do not accept arbitrary argument strings from YAML or the browser.
-- Logs may contain state, camera ID/model, attempt count, delay, HTTP status, sidecar version, and sanitized error class. Never log request bodies for connect, environment dumps, credentials, fingerprints, or complete raw error bodies. Throttle recurring sidecar/camera warnings through the existing log-throttle pattern.
-- Browser endpoints continue validating camera IDs and property names; IDs are encoded before upstream use. UI receives curated messages, not raw sidecar output.
-
-### Doubt review
-
-This design is wrong if the deployed sidecar differs materially from current `alpha-sdk-api` main (notably camera-ID format, port default, connect body, health shape, or authentication errors). The cheapest proof is the contract probe above against AJ's exact binary and cameras, followed by recording its commit/version and fixtures. Do not infer pairing from message substrings until that probe passes.
-
-## File structure map
-
-| File | Responsibility |
+| Fact | Where |
 |---|---|
-| `src/config/configLoader.ts` | Validate/load optional Sony runtime configuration and environment overrides. |
-| `src/sony/sonyStateStore.ts` (new) | Versioned approval schema and serialized atomic persistence. |
-| `src/sony/sonyManager.ts` (new) | Sidecar process/health lifecycle, discovery, state machine, retries, and per-camera lanes. |
-| `src/index.ts` | Construct/start the optional manager without awaiting it; stop it on SIGINT/SIGTERM. |
-| `src/ui/statusServer.ts` | Delegate Sony routes to the manager; expose status/retry/forget actions and render states. |
-| `src/testing/smokeTest.ts` | Fake sidecar/process/store coverage and startup-nonblocking regression checks. |
-| `scripts/setup-sony-sidecar.sh` (new) | Developer-only helper around an existing sidecar checkout and user-supplied Sony ZIP. |
-| `docs/sony-sidecar-setup.md` (new) | License boundary, setup, configuration, camera preparation, and live checks. |
+| Only in-app video is Sony live-view JPEG, polled by the browser (`delay = 125 ms`), via `GET /api/sony/cameras/:id/live-view/frame`; 3 s frame timeout | `src/sony/sonyManager.ts` (`liveViewFrame`, `FRAME_TIMEOUT_MS`), `src/ui/statusServer.ts` `pollSonyFrame` |
+| Frame reads coalesce onto one in-flight upstream request, and return `503` when a camera lane is busy. A second consumer (sidecar) shares the cost; it also sees busy-lane 503s | `SonyManager.readOnce` / `operation` |
+| Frames carry **no capture timestamp** | `SonyFrame { contentType, body }` |
+| Preview click → normalized (0–1) image coords already computed, letterbox-aware; currently sends Sony touch (AF) | `sonyContainedPoint`, `sendSonyTouch`, `POST /api/sony/cameras/:id/touch` |
+| `MotionDevice.setPanTilt(pan, tilt)` takes normalized −1..1 velocity; `stop()`; `capabilities`; `connected`; `gimbalAttached` | `src/devices/motionDevice.ts` |
+| Manual control sign convention: `pan = rightX`, `tilt = −rightY` | `controlStateMachine.ts` tick |
+| `shouldSendMotion(protocol, changed, lastSentAt, now)` is exported | `controlStateMachine.ts` |
+| Machine only sends on stick movement/transitions; early-returns when no input/stale input | `controlStateMachine.ts` tick |
+| `emergencyStopAll` stops every device | `src/safety/emergencyStop.ts` |
+| Camera slots are `config.cameras`; `resolveProfile` **drops the inventory device key**, so a slot can't currently be mapped back to e.g. `rs3` | `src/config/configLoader.ts` |
+| Config style: zod schema + env overrides + `resolveXConfig` (Sony is the template) | `configLoader.ts` |
+| WS client w/ reconnect/heartbeat/capabilities handshake exists for the Pi bridge | `src/devices/djiBridgeDevice.ts`, `pi-bridge/dji_bridge.py` |
+| Link state published through `AppState` + `/api/status` | `src/app/state.ts` |
+| Virtual hardware test doubles | `src/testing/virtualDjiBridge.ts`, `smokeTest.ts` |
+| `sonyManagerTest.ts` / `sonyConfigStoreTest.ts` exist but are **not referenced** by `package.json` or `smokeTest.ts` — how they run is **To verify** | `src/testing/` |
 
-## Approval-level implementation slices
+## Assumptions to confirm (plan proceeds on these defaults)
+1. **Target rig**: a Sony camera (live view through the sidecar) is physically mounted on a DJI RS-series
+   gimbal. If the tracked video comes from somewhere else (NDI/RTSP/ATEM), add a video-ingest issue and
+   the frame-source interface below absorbs it.
+2. The app and the tracker sidecar run on the same Apple-Silicon Mac; the sidecar is loopback-only.
+3. v1 tracks **people** only.
+4. Default tracking speed cap **0.35** of full gimbal velocity, configurable.
+5. Issues stay local (`docs/ai/generated-issues/`); no `gh issue create` until asked.
 
-| Slice | Likely files | Falsifiable acceptance criteria | Dependencies | Required validation |
-|---|---|---|---|---|
-| **1. Contract probe + setup boundary** *(disjoint)* | `scripts/setup-sony-sidecar.sh`, `docs/sony-sidecar-setup.md`, sanitized fixtures under `src/testing/fixtures/` if established by repo convention | Script requires an existing checkout + local ZIP, never downloads Sony assets, builds/prints the executable, and the target binary's health/connect/failure shapes are recorded with version/commit. | AJ-provided SDK ZIP/license acceptance and physical camera; blocks final pairing classifier. | Shell syntax check; run setup against local checkout; curl `/api/server/status`; execute the live failure matrix above. |
-| **2. Config + approval store** *(parallel/disjoint production files)* | `src/config/configLoader.ts`, `src/sony/sonyStateStore.ts`, `config/devices.yaml` comments | Env precedence matches the named contract; approval survives restart; unknown discovery cannot write state; concurrent saves yield valid schema; interrupted write leaves old or new complete JSON, never truncation. | Design approval only. | `pnpm build`; focused smoke assertions using a temp state/config directory; `git diff --check`. |
-| **3. Sony manager lifecycle** *(parallel after interfaces are fixed)* | `src/sony/sonyManager.ts`, `src/index.ts` | Existing app reaches status-server ready state with no executable/sidecar; healthy external server is adopted and not killed; owned process receives graceful shutdown/fallback; crash budget and late camera power-on recover exactly as specified; one in-flight call per ID. | Slice 2 interfaces; Slice 1 fixtures for final pairing codes. | `STATUS_PORT=<free> pnpm test:smoke`; fake child + fake HTTP lifecycle tests; process-leak check after SIGINT/SIGTERM. |
-| **4. Routes + operator UX** *(mostly disjoint; integrate last)* | `src/ui/statusServer.ts`, `src/testing/smokeTest.ts` | Status JSON matches the documented shape; only successful explicit Connect approves unknown IDs; Forget prevents restart auto-connect; all named UI states/actions render; connected widgets retain current controls; sidecar absence does not degrade other tabs/routes. | Slices 2–3. | `pnpm build`; `STATUS_PORT=<free> pnpm test:smoke`; `node scripts/check-page-js.cjs`; browser fixture for every journey row; live two-camera/power-cycle check. |
+## Prior art (swarm summary — Haiku-sourced, unverified; treat as leads)
+- **Consensus pattern**: detector + multi-frame association (ByteTrack-style) beats single-object OpenCV
+  trackers (CSRT/KCF drift and lose identity on occlusion). Velocity control, never bang-bang; low-pass the
+  target; PD/PID with deadzone; feed-forward/prediction for smoothness. AutoPTZ (ONNX person detect + PD +
+  one-euro smoothing) and TrackingPanTiltCam (YOLOv8 + Kalman) are the closest open-source references.
+- **Latency is the dominant failure**: lag beyond the motor's response time produces overshoot and hunting.
+  Gimbal literature for ~100 ms delayed feedback uses low-pass filtering plus a damping term.
+  Our budget (8 fps polling + sidecar + BLE) is worse, so the plan includes a delay-aware simulator and a
+  measured-latency calibration step before any live use.
+- **Product behavior to copy**: commercial trackers work as a *secondary* angle for a single subject, offer an
+  exclusive single-target lock, return to a safe state on loss, and always keep a manual override.
+- **Not adopting**: ClickTrack / SAM2-style promptable trackers (research-grade, heavier, no production
+  evidence here). Revisit if person-only ByteTrack proves too brittle.
+- **License flag**: `ultralytics` (YOLOv8/11) is AGPL-3.0. The sidecar's detector sits behind an interface and v1
+  uses ONNX Runtime with a permissively licensed model (e.g. YOLOX, Apache-2.0); confirm model + tracker
+  licenses in issue T7/T8 before adding dependencies.
 
-Parallel coding order after approval: run Slice 1 (hardware/contract) alongside Slice 2; freeze the manager/store interfaces; run Slice 3; then integrate Slice 4 because `statusServer.ts` and `smokeTest.ts` are shared hot files. A fresh implementation dispatch is recommended rather than carrying planning research context into coding agents.
+## Architecture
 
-## Acceptance criteria
-
-1. With no `sony` block, no sidecar, or an invalid/missing executable, CamControl's existing status UI and non-Sony operations start normally; Sony reports a nonfatal actionable state.
-2. CamControl never downloads/builds/updates Sony components at runtime and the repository/package contains no Sony SDK ZIP, headers, libraries, or sample-derived sources.
-3. A discovered unknown ID receives no automatic connect request before explicit Connect succeeds; after success it is atomically persisted and reconnects after app restart.
-4. A remembered camera that is off at startup reconnects without operator approval after later discovery, within 75 seconds under the dormant 60-second probe schedule.
-5. Pairing-required is emitted only for pinned sidecar evidence; camera absence/sidecar outage is displayed as disconnected/degraded instead.
-6. At most one upstream operation per camera is in flight, polling cannot build an unbounded queue, and retries stay within the specified caps/jitter.
-7. Owned sidecars shut down gracefully on SIGINT/SIGTERM and are force-killed only after deadlines; adopted/external sidecars remain running.
-8. Approval writes are atomic and schema-valid after simulated write interruption; no credentials or fingerprints appear in state, UI JSON, or logs.
-9. Existing Sony properties, previews, touch focus, and non-Sony smoke behavior remain passing.
-
-## Automated and live checks
-
-```bash
-pnpm build
-STATUS_PORT=8175 pnpm test:smoke
-node scripts/check-page-js.cjs
-git diff --check
+```
+Browser UI ──click(x,y normalized)──▶ /api/tracking/select ─┐
+                                                            ▼
+Sony sidecar ─JPEG─▶ /api/sony/.../live-view/frame ──▶ tracker-sidecar (Python, Mac, loopback)
+   (frames + capturedAt header)                         detect persons → lock on click → ByteTrack
+                                                            │  WS/JSON: track{state,cx,cy,w,h,conf,frameTs}
+                                                            ▼
+                      TrackingClient (src/tracking)  ──▶ TrackingManager (per-gimbal session, 20 Hz)
+                                                            │ control law: offset → pan/tilt velocity
+                                                            ▼
+        shouldSendMotion ──▶ MotionDevice.setPanTilt ──▶ DjiBridgeDevice ─WS─▶ Pi ─BLE─▶ RS3
+   arbitration: ControlStateMachine (stick/e-stop) can suspend/cancel any session
 ```
 
-Use a genuinely free `STATUS_PORT`; the smoke import boots the app and can contend for HID. Automated checks use temporary state files and fake HTTP/child-process adapters—never the developer's approval file or real sidecar.
+**Component ownership**
+- `tracker-sidecar/` (new, Python): frame pull, detection, click-to-lock, association, target messages.
+  Knows nothing about gimbals.
+- `src/tracking/trackingController.ts` (new, pure): control law. No I/O; fully simulatable.
+- `src/tracking/trackingManager.ts` (new): sessions, 20 Hz tick, arbitration, all safety stops.
+- `src/tracking/trackingClient.ts` (new): WS client to the sidecar, reconnect/backoff/heartbeat.
+- `statusServer.ts`: routes + overlay UI only; owns no tracking state.
 
-Live gate on macOS:
-1. Start with sidecar executable unset and then set to a missing path; confirm CamControl startup and all non-Sony tabs continue.
-2. Run the developer setup with the user-supplied SDK ZIP; verify health version/SDK version and managed start/stop without orphan processes.
-3. Discover two cameras; approve one only; restart and prove only that ID auto-connects.
-4. Power the approved camera off before app start, then power it on after the retry burst; prove dormant discovery reconnects it.
-5. Exercise real pairing/setup/auth failure and ordinary camera-off failure; confirm distinct UI classification using captured response evidence.
-6. Kill the owned sidecar and verify bounded restart; exhaust the budget and recover with **Retry Sony service**.
-7. Re-run the remaining physical Sony gates: simultaneous two-camera operation, FX3 touch focus, and HDMI coexistence.
+### Sidecar ↔ app contract (v1 — freeze before parallel work)
+App → sidecar: `hello`, `select {sourceId, x, y}` (normalized coords in frame space), `cancel {sourceId}`,
+`ping`.
+Sidecar → app: `hello {version, capabilities:["person"], detector}`, `track {sourceId, state, cx, cy, w, h,
+conf, frameTs, processedAt}` where `state ∈ locking | tracking | lost | idle`, all geometry normalized
+0–1 in **frame space**, `frameTs` = capture time in epoch ms, `pong`, `error {code, message}`.
+Frame source per `sourceId` is `http://127.0.0.1:<STATUS_PORT>/api/sony/cameras/<id>/live-view/frame` (configured
+in the app; the app pushes the URL in `hello`/`configure`, so the sidecar holds no Sony knowledge).
 
-## Open approval questions
+### Control law (v1 spec)
+Inputs: target center error `e = (cx−0.5, cy−0.5)` (+ `w,h` for future framing), `age = now − frameTs`,
+`conf`. Outputs `pan, tilt ∈ [−maxSpeed, +maxSpeed]`.
+- Deadzone (default ±0.04) and hysteresis so a still subject produces zero motion.
+- One-euro / EMA low-pass on `e`; PD with a damping term from filtered `de/dt`.
+- **Latency-aware gain**: effective `Kp` scaled down as `age` (+ configured pipeline delay) grows.
+- **Stale decay**: velocity scaled to 0 linearly as `age` goes 400→700 ms; `> 700 ms` ⇒ stop.
+- Sign mapping: image right ⇒ `pan +`, image up ⇒ `tilt +` (matches the manual convention), with per-source
+  `invertPan` / `invertTilt` because mount orientation varies.
+- Lost policy: `lost` ⇒ immediate `stop()`, hold `holdMs` (default 3 s) for reacquire, then `idle`
+  and UI shows "Target lost". Never "search" by moving in v1.
 
-1. Approve **Approach A** and the separate `config/sony-cameras.json` approval store (rather than mutating `devices.yaml` on every Connect/Forget)?
-2. Approve the conservative pairing scope: remember camera approval only, store no Sony access-auth credentials, and require camera-side setup plus explicit Retry when auth is needed?
-3. Is the 60-second dormant probe (worst-case 75 seconds including connect) acceptable for a camera powered on long after startup, or should recovery target 30 seconds at the cost of more SDK discovery calls?
+### Arbitration and safety (ordered, all tested)
+1. Operator stick on the **controlled and tracked** camera ⇒ suspend that session (`operator_override`).
+   Resume only by an explicit operator action, never automatically.
+2. `emergencyStopAll` ⇒ cancel every session + `stop()` (back button path is unchanged).
+3. No fresh `track` for 500 ms, or sidecar WS down ⇒ `stop()`, state `stale`.
+4. Device `connected`/`gimbalAttached` false ⇒ `stop()`, session ends.
+5. App shutdown (SIGINT/SIGTERM in `index.ts`) ⇒ `stop()` all sessions before exit.
+6. Bridge's 250 ms watchdog is the last line, not the first.
+7. Output hard-capped by `maxSpeed`; first live run at the default cap with the operator watching video.
 
-No product code should be implemented until AJ approves this design and the three choices above.
+### Config (`config/devices.yaml`, new optional block — disabled by default)
+```yaml
+tracking:
+  enabled: false
+  sidecarUrl: ws://127.0.0.1:7900
+  maxSpeed: 0.35
+  deadzone: 0.04
+  lostHoldMs: 3000
+  sources:
+    - sonyCameraId: "<sony id>"     # from /api/sony/cameras
+      device: rs3                   # inventory key (NOT slot id)
+      invertPan: false
+      invertTilt: false
+```
+Env overrides follow the Sony pattern: `TRACKING_ENABLED`, `TRACKING_SIDECAR_URL`. Because
+`resolveProfile` discards the inventory key, **T1 adds `deviceKey` to the resolved `CameraConfig`** so the
+manager can find the active slot (or none) for `device: rs3`.
+`config/devices.yaml` currently has uncommitted local edits — the implementer must not sweep them into
+a tracking commit.
 
----
+## Issue table
 
-## Other workstreams folded in on the consolidation branch (2026-09-29)
-The sections below are the pre-consolidation plan from the PR #2 / Sony dashboard / RS3 lines of work, kept verbatim (headings demoted).
+Sizes: S ≤ ½ day, M ≈ 1 day, L ≈ 2 days. Track A = TypeScript control, B = Python vision, C = plumbing.
 
+| Order | ID | Title | Goal | Likely files | Tests / evaluation | Dependencies |
+|---|---|---|---|---|---|---|
+| 1 | T1 | Tracking config block + device-key resolution | Optional zod `tracking` block, env overrides, `CameraConfig.deviceKey`, source→slot resolver | `src/config/configLoader.ts`, `config/devices.yaml` (comments only), `docs/ai/decisions/…` | Smoke: schema valid/invalid, env precedence, profile switch resolves/unresolves source; `pnpm build` | — (S) |
+| 2 | T2 | Sony frame capture timestamp | `capturedAt` on `SonyFrame`, exposed as `X-Frame-Captured-At` on the frame route; no browser behavior change | `src/sony/sonyManager.ts`, `src/ui/statusServer.ts`, `src/testing/sonyManagerTest.ts` | Header present + monotonic; two concurrent consumers share one upstream read; 503 path unchanged | — (S) |
+| 3 | T3 | `TrackingController` control law + closed-loop simulator | Pure control law per spec; `trackingSim.ts` models delay, 8 fps frames, 20 Hz BLE cap, velocity→angle | `src/tracking/trackingController.ts`, `src/testing/trackingSim.ts`, `src/testing/smokeTest.ts` | Sim: settles with no sustained oscillation at 150/300/500 ms delay; deadzone = zero output; stale decay; sign mapping; caps | T1 types (M) |
+| 4 | T4 | `TrackingManager`: sessions, 20 Hz tick, arbitration, safety stops | Drive `device.setPanTilt` through `shouldSendMotion`; all stop paths; status state | `src/tracking/trackingManager.ts`, `src/model/controlStateMachine.ts`, `src/safety/emergencyStop.ts`, `src/index.ts`, `src/app/state.ts` | Smoke w/ `virtualDjiBridge`: override, e-stop, stale, device drop, shutdown each produce `stop`; no motion sent when suspended; rate cap respected | T1, T3 (L) |
+| 5 | T5 | `TrackingClient` + sidecar protocol + virtual sidecar | WS client (reconnect/heartbeat) and a scripted fake sidecar for tests | `src/tracking/trackingClient.ts`, `src/testing/virtualTrackingSidecar.ts`, protocol doc in plan | Smoke: handshake, reconnect, malformed-message rejection, `track` → manager wiring | T1 (M) |
+| 6 | T6 | Tracking API routes + AppState status | `GET /api/tracking/status`, `POST /api/tracking/select`, `POST /api/tracking/cancel`; validated coords; status in `state` | `src/ui/statusServer.ts`, `src/app/state.ts`, `src/testing/smokeTest.ts` | Smoke: coord validation (mirrors touch route), unknown source 404, disabled ⇒ 409, status shape | T4, T5 (M) |
+| 7 | T7 | Tracker sidecar skeleton (Python) | `tracker-sidecar/`: WS server, hello/capabilities, mock source driver, config, README, tests dir | `tracker-sidecar/**`, `docs/ai/testing-guide.md` | `python3 -m unittest discover -s tracker-sidecar/tests`; contract round-trip with T5 fake/real client | T5 contract (M) |
+| 8 | T8 | Sidecar frame ingest + person detection | Pull frames from app endpoint, decode, ONNX person detection, latency/fps metrics, `frameTs` propagation | `tracker-sidecar/frames.py`, `detector.py`, `requirements.txt` | Unit: synthetic-image detector stub; backoff on 503/timeouts; measured detect ms on the target Mac recorded in the PR; license check | T2, T7 (L) |
+| 9 | T9 | Sidecar click-to-lock, association, lost/reacquire | Select detection containing click; ByteTrack-style association; `locking/tracking/lost`; short appearance-based reacquire | `tracker-sidecar/tracker.py`, `tests/` | Synthetic multi-person scenes: lock correct person, survive brief occlusion, don't swap to neighbor, `lost` after timeout | T8 (L) |
+| 10 | T10 | Operator UI: Track mode, overlay, cancel | Toggle Focus-touch vs Track on the Sony preview; click ⇒ select; status/box overlay; Stop Tracking; visible override/lost states | `src/ui/statusServer.ts`, `scripts/check-page-js.cjs` | `node scripts/check-page-js.cjs`; browser fixture for each state (locking/tracking/holding/lost/stale/disabled); AF touch still works in Focus mode; a11y live region | T6 (M) |
+| 11 | T11 | Controller binding: cancel/toggle tracking | Stick already overrides (T4); add an unused button chord to toggle tracking on the controlled camera | `config/mappings.yaml`, `controller-profiles/*.yaml`, `controlStateMachine.ts`, `configLoader.ts` `MappingSchema` | Smoke: toggle, no conflict with existing chords (LB+A/B/X/Y, LB+RB); profile coverage | T4 (S) |
+| 12 | T12 | Latency calibration + gain tuning tool | Measure end-to-end command→visible-motion delay (frame differencing) and recommend `pipelineDelayMs`/gains | `scripts/tracking-calibrate.*`, `src/tracking/`, docs | Dry-run against mock; results table committed to the run note; human-run on the real rig | T4, T9 (M) |
+| 13 | T13 | Live verification runbook + docs + state update | `docs/tracking.md`, manual-smoke checklist, e-stop / BLE-drop / sidecar-kill drills, testing-guide + repo-map + architecture updates | `docs/**`, `docs/ai/*` | Human gate: first run at cap 0.35 with operator on video; drills pass; results recorded in `docs/ai/runs/` | all (S) |
 
-### Active plan
-Open a draft PR for the verified Sony multi-camera dashboard, then complete the remaining physical-camera smoke checks. Automated verification and browser-fixture evaluation passed; the feature remains incomplete and unmerged pending manual validation.
+### Dependency graph / parallelism
+```
+T1 ─┬─ T3 ─┐
+    ├─ T5 ─┼─ T4 ─ T6 ─ T10
+T2 ─┘      │          └ T11
+T7 ─ T8 ─ T9 ─ T12 ─ T13
+```
+- Independent tracks that can run in parallel with disjoint write ownership: **A** (T1→T3→T4),
+  **B** (T7→T8→T9, needs only the frozen contract + T2), **C** (T2, T5).
+- **Shared hot files — serialize**: `statusServer.ts` (T2, T6, T10), `controlStateMachine.ts` (T4, T11),
+  `smokeTest.ts` (T3–T6, T11), `configLoader.ts` (T1, T11).
+- Branch strategy: currently on `main` with unrelated uncommitted edits ⇒ per-issue branches off `main`
+  in **isolated worktrees**, removed when each PR opens (AGENTS.md worktree hygiene).
 
-### Next steps
+## Validation plan
+- Per issue: `pnpm build`; `STATUS_PORT=<free> pnpm test:smoke`; Python tests where touched;
+  `node scripts/check-page-js.cjs` for UI; `git diff --check`.
+- Stability evidence before any live use: T3 simulator results at 150/300/500 ms delay in the PR.
+- Live gates (human, gimbal powered, watching video): small-deflection check of gimbal gain first; tracking
+  at `maxSpeed 0.35`; stick override; e-stop; kill sidecar mid-track; drop BLE (walk gimbal out of range);
+  Sony preview stale; 30-minute soak with tracking idle and with tracking active.
 
-1. Open a draft PR from `feat/sony-dashboard`.
-2. Verify two physical cameras simultaneously.
-3. Verify FX3 touch focus.
-4. Verify HDMI coexistence.
+## Risks
+1. **Latency/oscillation** — mitigated by simulator-first design, latency-aware gain, calibration tool (T12).
+2. **Gimbal gain unverified live** (200 vs 80) — the speed mapping `velocity → joystick` may be hotter than assumed;
+   cap + human-gated first run.
+3. **Shared frame lane** — sidecar polling adds load on the Sony sidecar and can make the browser's frame
+   reads see 503 busy; T2/T8 must bound sidecar polling (≤ 1 in-flight, backoff on 503).
+4. **Wrong-person lock / lost subject** in multi-person scenes — exclusive lock + reacquire limits; document
+   that this is a single-subject secondary-angle feature.
+5. **Licensing** of detector/tracker dependencies — checked in T8/T9.
+6. **Privacy** — no frame/crop persistence; synthetic fixtures only.
+7. **Slot ↔ device mapping** changes with profile switches — T1 resolver must tolerate a source whose gimbal is
+   not in the active profile (session unavailable, not error).
 
-The final-gate live physical sidecar timed out. Automated verification still passed: `pnpm build`, smoke 89/89, and `git diff --check`; browser artifacts are under `docs/ai/runs/artifacts/sony-dashboard/`.
+## Out-of-scope follow-ups (not issues yet)
+VISCA-camera video ingest (RTSP/NDI) and BirdDog tracking · zoom/auto-framing · generic-object tracker ·
+face/appearance re-ID · Sony AF assist on lock · multi-subject / subject switching · UI editor for `tracking`
+block · launchd/systemd unit for the sidecar.
 
-### Remaining DJI live-use checks
-
-1. Run a controller-driven live pan/tilt test through FPS CamControl.
-2. Verify preset `moveTo` and `recenter` against the physical RS3.
-3. Verify safe stop on bridge SIGTERM and Ethernet yank.
-4. Verify app/bridge recovery after reconnect and Pi reboot.
-5. Complete 30-minute idle and representative-show soaks.
-
-The deployed target is `dji-bridge.local` (`192.168.10.150`), user `worship`.
-The active and enabled `dji-bridge` service uses `/home/worship/dji-bridge`, a
-symlink to `/home/worship/fps-camcontrol/pi-bridge`; RS3 address
-`34:D2:62:15:A5:47` is set in `/etc/default/dji-bridge`. FPS CamControl `cam4`
-is enabled as DJI RS3.
-
-After redeployment, the Pi service remained active and the app, RS3, and Switch
-Pro controller were all live-connected.
-
-The `websockets.server` type-import deprecation warning is non-blocking cleanup,
-not a live-use gate.
-
-### Post-hardware polish (not blockers)
-- Web UI editor for DJI devices — `statusHtml()` only exposes VISCA fields today; DJI cameras are YAML-only. ~30 min to add `protocol`, `bridge.host`, `bridge.port`, `rollEnabled`.
-- Activity-log rendering for `DJI-BRIDGE` protocol entries (enum accepted, default styling). Cosmetic.
-- Sony PZ lens stub — Phase 3 step 14, skipped; would validate a third protocol. ~1 hr.
-- Roll velocity from sticks — capability + protocol support exist, but no controller input maps to roll yet. Needs a chord + state-machine route.
-
-### First-service config (before any live use of the VISCA/ATEM path)
-- Set ATEM IP + confirm input IDs + DSK index via the web UI.
-- Confirm V-BOT tilt direction on the actual unit (`cameraType: vbot`).
-- Save shot-zone presets (LB + hold A/B/X/Y) per camera.
-
-### Out of scope / parked
-- CAN/PiCAN3 gimbal transport — retained as a fallback, superseded by the tested RS3 BLE path.
-- USB-C gimbal control (unsupported on RS-series; use BLE primary or CAN fallback).
+## Completion checklist
+- [x] Plan written to `docs/ai/current-plan.md`
+- [x] Issues atomic, with likely files
+- [x] Dependencies clear
+- [x] Tests/evaluation specified
+- [x] Data-safety risks documented
+- [ ] Issues generated (`issue-writer`)
+- [ ] User confirms assumptions 1–5
