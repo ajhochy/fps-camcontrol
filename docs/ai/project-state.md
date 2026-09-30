@@ -147,3 +147,11 @@ interruption/recovery, reconnect/reboot, and 30-minute soak checks before live u
 
 ---
 **Run history:** one file per run under `docs/ai/runs/` (surfaced as `ai-runs/`). This snapshot is overwritten in place.
+
+## Consolidation 2026-09-29
+- Branch `mega/2026-09-29-consolidation` (from `origin/main` dd3db16) folds all unmerged work. PR: https://github.com/ajhochy/fps-camcontrol/pull/20 (draft). Tracking issues: https://github.com/ajhochy/fps-camcontrol/issues/21 (verify and land), https://github.com/ajhochy/fps-camcontrol/issues/22 (Sony auto-connect and dashboard).
+- Folded refs (tip SHA): `fix/controller-visca-ptz-and-multi-cam` local 2fbd51f / remote 332ef15 (PR #2); `feat/sony-dashboard` remote b3715b0 / local 62f75f4 (PR #8); `feat/settings-dark-mode` remote e8b68bb / local 8cae6a1; `feat/rs3-ble-bridge` 196ebad (local only; base 2833026 merged `-s ours` since 5a99565 on PR #2 supersedes it; joystick-gain and config-save changes superseded by the PR #2 versions, Switch Pro support kept).
+- Dropped refs (fully merged into `origin/main`; preserved in `~/Documents/.consolidation-backups/fps-camcontrol-2026-09-29.bundle`): `origin/claude/peaceful-wilson-7df1fc` a721d71, `origin/claude/practical-jepsen-8235f2` c13dff2, `origin/claude/stupefied-gauss-f1b1dc` 703c350, `origin/claude/tender-swirles-a91629` aedca7c, `origin/claude/vibrant-yalow-c5d9cf` a6620d2.
+- Open decision: default DJI joystick gain is 80 in code (per-instance env files set 200); `docs/ai/runs/2026-08-04-rs3-joystick-calibration.md` describes 200 as the accepted default.
+- In-flight worktrees: none. Linked worktree `~/Documents/fps-camcontrol-sony-worktree` (`feat/sony-dashboard`) is folded and scheduled for removal by the cleanup script.
+- Cleanup script (not executed): `~/Documents/.consolidation-backups/cleanup/fps-camcontrol-2026-09-29-cleanup.sh`.
