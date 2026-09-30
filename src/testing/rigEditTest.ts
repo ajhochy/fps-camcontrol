@@ -4,7 +4,7 @@ import os from 'os';
 import path from 'path';
 import * as YAML from 'yaml';
 import { readDevicesFile, writeDevicesFile, ConfigConflictError, devicesFileVersion } from '../config/configLoader';
-import { applyRigPatch, applyAtemPatch, createRig, removeRig, rigPositionOf, createSonyDevice, patchSonyDevice, deleteSonyDevice, RigEditError } from '../config/rigEdit';
+import { applyRigPatch, applyAtemPatch, applySaveProfile, applySaveProfileAs, renameProfile, deleteProfile, createRig, removeRig, rigPositionOf, createSonyDevice, patchSonyDevice, deleteSonyDevice, RigEditError } from '../config/rigEdit';
 import { shiftPresetsAfterRemoval, presetSlotsSet } from '../model/presetShift';
 
 /**
@@ -252,6 +252,37 @@ refused('an unknown graphics field is refused', () => applyAtemPatch(current(), 
 reset();
 writeDevicesFile(applyAtemPatch(current(), { ip: '10.0.0.77', graphics: { fadeFrames: 20 } }));
 check('an ATEM edit through the writer keeps every comment and the devices', comments(fs.readFileSync(file, 'utf8')) >= comments(fixture) && onDisk().devices.rs3.protocol === 'dji-bridge' && onDisk().atem.ip === '10.0.0.77' && onDisk().graphics.fadeFrames === 20);
+reset();
+
+// ---- profiles: save, save as, rename, delete
+reset();
+const workSlots = [{ device: 'vbot', inputId: 9, camera: 'a7s3' }, { device: 'rs3', inputId: 2, camera: 'fx3' }];
+let saved = applySaveProfile(current(), workSlots);
+check('Save writes the working rigs into the active profile', JSON.stringify(saved.profiles.production.slots) === JSON.stringify(workSlots));
+check('Save leaves the other profile and the hardware alone', JSON.stringify(saved.profiles.test) === JSON.stringify(current().profiles.test) && JSON.stringify(saved.devices) === JSON.stringify(current().devices));
+refused('Save refuses rigs that break the rules', () => applySaveProfile(current(), [{ device: 'birddog1', inputId: 7, camera: 'fx3' }]), /built-in camera/);
+check('Save does not mutate its input', current().profiles.production.slots.length === 3);
+const asNew = applySaveProfileAs(current(), '  Sunday — two cams  ', workSlots);
+check('Save as adds a new profile with the working rigs and makes it active', asNew.key === 'sunday-two-cams' && asNew.raw.activeProfile === 'sunday-two-cams' && asNew.raw.profiles['sunday-two-cams'].label === 'Sunday — two cams' && asNew.raw.profiles['sunday-two-cams'].slots.length === 2);
+check('Save as leaves the original profile exactly as it was saved', JSON.stringify(asNew.raw.profiles.production) === JSON.stringify(current().profiles.production));
+check('a second Save as with another name gets another key', applySaveProfileAs(asNew.raw, 'Sunday two cams!', workSlots).key === 'sunday-two-cams-2');
+refused('Save as refuses a name that is already used (ignoring case)', () => applySaveProfileAs(asNew.raw, 'SUNDAY — TWO CAMS', workSlots), /already exists/);
+refused('Save as needs a name', () => applySaveProfileAs(current(), '  ', workSlots), /profile name must be 1 to 64/);
+refused('Save as refuses rigs that break the rules', () => applySaveProfileAs(current(), 'Bad', [{ device: 'fx3' }]), /not a controller/);
+check('the key for a new profile is unique even when the names slug the same', (() => { const a = applySaveProfileAs(current(), 'Same name', workSlots).raw; const b = applySaveProfileAs(a, 'Same-name', workSlots); return b.key === 'same-name-2'; })());
+const renamed = renameProfile(asNew.raw, 'test', 'Test rig set');
+check('a profile can be renamed', renamed.profiles.test.label === 'Test rig set' && renamed.profiles.test.slots.length === 2);
+refused('renaming to a name another profile has is refused', () => renameProfile(asNew.raw, 'test', 'Sunday — two cams'), /already exists/);
+check('a profile can keep its own name when renamed', renameProfile(asNew.raw, 'test', 'test').profiles.test.label === 'test');
+refused('renaming an unknown profile is a 404', () => renameProfile(current(), 'ghost', 'x'), /unknown profile/, 404);
+check('an inactive profile can be deleted', deleteProfile(asNew.raw, 'test').profiles.test === undefined && deleteProfile(asNew.raw, 'test').activeProfile === 'sunday-two-cams');
+refused('the active profile cannot be deleted (409)', () => deleteProfile(current(), 'production'), /Switch to another profile/, 409);
+const lone = current(); delete lone.profiles.test;
+refused('the last profile cannot be deleted (409)', () => deleteProfile(lone, 'production'), /Switch to another profile|last profile/, 409);
+refused('deleting an unknown profile is a 404', () => deleteProfile(current(), 'ghost'), /unknown profile/, 404);
+reset();
+writeDevicesFile(applySaveProfileAs(current(), 'Sunday', workSlots).raw);
+check('Save as through the writer keeps every comment and the original profile', comments(fs.readFileSync(file, 'utf8')) >= comments(fixture) - 0 && onDisk().profiles.production.slots.length === 3 && onDisk().activeProfile === 'sunday');
 reset();
 
 if (previous === undefined) delete process.env.DEVICES_CONFIG; else process.env.DEVICES_CONFIG = previous;

@@ -101,14 +101,19 @@ export function buildRigs(
   sonyCameras: SonyCameraInfo[] = [],
 ): RigsView {
   const active = config.activeProfile && config.profiles?.[config.activeProfile] ? config.activeProfile : null;
-  const slots = active ? config.profiles![active].slots : [];
+  // The rigs as they are running: the working copy (unsaved edits) replaces the saved rigs of the active profile.
+  const effective = Object.fromEntries(Object.entries(config.profiles ?? {}).map(([name, profile]) => [
+    name,
+    { label: profile.label, slots: name === active && config.working && config.working.base === active ? (config.working.slots as typeof profile.slots) : profile.slots },
+  ]));
+  const slots = active ? effective[active].slots : [];
   const inventory = config.devices ?? {};
 
   const rigs = config.cameras.map((cam, i): RigView => {
     const deviceKey = slots[i]?.device ?? null;
     const controller = controllerOf(cam);
     const usedInProfiles = deviceKey
-      ? Object.entries(config.profiles ?? {})
+      ? Object.entries(effective)
         .filter(([, profile]) => profile.slots.some((slot) => slot.device === deviceKey))
         .map(([name]) => name)
       : [];
@@ -159,7 +164,7 @@ export function buildRigs(
         state: seen?.state ?? null,
         model: seen?.model ?? null,
         usedByRigs: rigs.filter((rig) => rig.camera === key).map((rig) => ({ position: rig.position, id: rig.id, label: rig.label })),
-        usedInProfiles: Object.entries(config.profiles ?? {})
+        usedInProfiles: Object.entries(effective)
           .filter(([, profile]) => profile.slots.some((slot) => slot.camera === key))
           .map(([name]) => name),
       };
@@ -172,7 +177,7 @@ export function buildRigs(
     rigs,
     atem: config.atem,
     graphics: config.graphics,
-    profiles: Object.entries(config.profiles ?? {}).map(([name, profile]) => ({
+    profiles: Object.entries(effective).map(([name, profile]) => ({
       name, label: profile.label ?? null, active: name === active, rigCount: profile.slots.length,
     })),
     sonyDevices,

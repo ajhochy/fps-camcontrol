@@ -9,12 +9,13 @@ import { AppState, CameraId, trackDeviceLinkState, clearCameraLinkState } from '
 import {
   AppConfig, MappingConfig, saveMappings, validateDevicesConfig, saveDevicesConfig,
   resolveProfile, saveActiveProfile, saveProfiles, CameraConfig,
-  devicesFileVersion, ConfigConflictError, loadConfig, readDevicesFile, writeDevicesFile,
+  devicesFileVersion, ConfigConflictError, loadConfig, readDevicesFile, writeDevicesFile, devicesConfigFile,
   type Profile as CameraProfile,
 } from '../config/configLoader';
 import { buildRigs, describeRigDelete } from '../config/rigs';
-import { applyRigPatch, applyAtemPatch, createRig, removeRig, rigPositionOf, createSonyDevice, patchSonyDevice, deleteSonyDevice, RigEditError } from '../config/rigEdit';
+import { applyRigPatch, applyAtemPatch, applySaveProfile, applySaveProfileAs, renameProfile, deleteProfile, validateWhole, createRig, removeRig, rigPositionOf, createSonyDevice, patchSonyDevice, deleteSonyDevice, RigEditError } from '../config/rigEdit';
 import { presetSlotsSet } from '../model/presetShift';
+import { clearWorkingProfile, describeChanges, saveWorkingProfile, slotsEqual, workingProfilePath, WorkingProfile, WorkingSlot } from '../config/workingProfile';
 import { PresetManager } from '../model/presetManager';
 import { ActivityLog } from '../app/activityLog';
 import { ViscaDevice } from '../devices/viscaDevice';
@@ -138,22 +139,98 @@ export function createStatusServer(
 
   // The rig view of the running config: one entry per camera position plus the ATEM, profile list,
   // Sony devices and Sony camera status. Also returned by every rig edit so the page can redraw from it.
+  const savedSlots = (): WorkingSlot[] => (config.activeProfile ? config.profiles?.[config.activeProfile]?.slots ?? [] : []) as WorkingSlot[];
+  // The profile being edited: whether it has unsaved rig changes, and exactly what they are.
+  const profileBody = () => {
+    const modified = !!config.working && !slotsEqual(config.working.slots, savedSlots());
+    return {
+      active: config.activeProfile ?? null,
+      modified,
+      changes: modified ? describeChanges(savedSlots(), config.working!.slots, (config.devices ?? {}) as Record<string, { label?: string }>) : [],
+      notice: config.workingNotice ?? null,
+    };
+  };
   const rigsBody = () => {
     const sony = sonyManager ? sonyManager.getStatus() : null;
-    return { ...buildRigs(config, state, devicesFileVersion(), sony ? sony.cameras : []), atemConnected: atem ? atem.connected : null, sony };
+    return { ...buildRigs(config, state, devicesFileVersion(), sony ? sony.cameras : []), profile: profileBody(), atemConnected: atem ? atem.connected : null, sony };
   };
   app.get('/api/rigs', (_req, res) => { res.json(rigsBody()); });
 
   // ---- rig edits. Hardware records (name, addresses, bound Sony camera) are shared by every profile and
   // are saved immediately. Each edit is validated as a whole file first, written through the
   // comment-preserving writer, re-read from disk, and applied to the running cameras.
-  const commitConfigEdit = (expectedVersion: string | undefined, edit: (raw: Record<string, any>) => Record<string, any>): void => {
-    const next = edit(readDevicesFile());
+  const workingFile = (): string => workingProfilePath(devicesConfigFile());
+  const cloneJson = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
+  // devices.yaml as parsed, but with the active profile's rigs replaced by the working copy (what is running now).
+  const effectiveRaw = (): Record<string, any> => {
+    const raw = readDevicesFile() as Record<string, any>;
+    if (config.working && raw.activeProfile && raw.profiles?.[raw.activeProfile]) raw.profiles[raw.activeProfile].slots = cloneJson(config.working.slots);
+    return raw;
+  };
+  // After rigs move or go, the rig under control may no longer exist (or its position changed): point control at one that does.
+  const keepControlValid = (): void => {
+    const still = config.cameras.findIndex((camera) => camera.id === state.controlledCamera);
+    if (still >= 0) { state.cameraIndex = still; return; }
+    const target = config.cameras.find((camera) => camera.inputId !== undefined) ?? config.cameras[0];
+    if (target) { state.controlledCamera = target.id as CameraId; state.cameraIndex = config.cameras.indexOf(target); state.previewCamera = target.id as CameraId; }
+  };
+  const restoreWorkingPresets = (): void => {
+    const snapshot = config.working?.presetsAtStart;
+    if (snapshot) presetManager.replaceAll(snapshot as never);
+  };
+  const dropWorking = (): void => { clearWorkingProfile(workingFile()); config.working = undefined; config.workingNotice = undefined; };
+  /**
+   * Apply an edit. Hardware changes (names, addresses, Sony devices, the ATEM) are written to devices.yaml at once.
+   * With `wiring: true` the edit may also change rigs (ATEM input, Sony camera, adding and removing): those
+   * changes go into the working copy, applied to the running app and saved for restarts, while the profile in
+   * devices.yaml stays exactly as saved until the operator saves. `ends` says the edit is a Save, Save as or
+   * Revert, which finishes the working copy.
+   */
+  const commitConfigEdit = (
+    expectedVersion: string | undefined,
+    edit: (raw: Record<string, any>) => Record<string, any>,
+    options: { wiring?: boolean; endsWorking?: boolean } = {},
+  ): void => {
+    const current = readDevicesFile() as Record<string, any>;
+    const active: string | undefined = current.activeProfile;
+    const diskSlots: WorkingSlot[] | undefined = active ? cloneJson(current.profiles?.[active]?.slots) : undefined;
+    let next: Record<string, any>;
+    let nextSlots: WorkingSlot[] | undefined;
+    if (options.wiring && active && diskSlots) {
+      const withWorking = cloneJson(current);
+      withWorking.profiles[active].slots = config.working ? cloneJson(config.working.slots) : cloneJson(diskSlots);
+      const edited = edit(withWorking);
+      nextSlots = cloneJson(edited.profiles[active].slots as WorkingSlot[]);
+      next = cloneJson(edited);
+      next.profiles[active].slots = cloneJson(diskSlots);
+      validateWhole(next); // the saved profile must still be valid with this hardware change
+    } else {
+      next = edit(current);
+    }
     writeDevicesFile(next, expectedVersion);
+    if (options.endsWorking) {
+      clearWorkingProfile(workingFile());
+      config.working = undefined;
+    } else if (nextSlots && active && diskSlots) {
+      if (slotsEqual(nextSlots, diskSlots)) { clearWorkingProfile(workingFile()); config.working = undefined; }
+      else {
+        const now = new Date().toISOString();
+        const started = config.working && config.working.base === active ? config.working : undefined;
+        const working: WorkingProfile = {
+          version: 1, base: active, baseSlots: started ? started.baseSlots : diskSlots, slots: nextSlots,
+          presetsAtStart: started ? started.presetsAtStart : cloneJson(presetManager.getData() as Record<string, unknown>),
+          startedAt: started ? started.startedAt : now, updatedAt: now,
+        };
+        saveWorkingProfile(workingFile(), working);
+        config.working = working;
+      }
+    }
     const fresh = loadConfig();
     config.devices = fresh.devices;
     config.profiles = fresh.profiles;
     config.activeProfile = fresh.activeProfile;
+    config.working = fresh.working;
+    config.workingNotice = fresh.workingNotice;
     reconcileCameras(fresh.cameras);
   };
   const splitVersion = (body: unknown): { expectedVersion: string | undefined; change: unknown } => {
@@ -176,7 +253,7 @@ export function createStatusServer(
   app.patch('/api/rigs/:key', (req, res) => {
     const key = deviceKeyOf(req, res); if (!key) return;
     const { expectedVersion, change } = splitVersion(req.body);
-    try { commitConfigEdit(expectedVersion, (raw) => applyRigPatch(raw, key, change)); res.json({ ok: true, ...rigsBody() }); } catch (err) { editFailed(res, err); }
+    try { commitConfigEdit(expectedVersion, (raw) => applyRigPatch(raw, key, change), { wiring: true }); res.json({ ok: true, ...rigsBody() }); } catch (err) { editFailed(res, err); }
   });
   // The ATEM connection and graphics keyer. A changed address reconnects the switcher, as the classic Device Config does.
   app.patch('/api/atem', (req, res) => {
@@ -195,13 +272,65 @@ export function createStatusServer(
     } catch (err) { editFailed(res, err); }
   });
 
+  // ---- profiles and the working copy. Save writes the working copy into the active profile; Save as writes it as
+  // a NEW profile (made active) and leaves the original exactly as it was saved; Revert drops it (and restores the
+  // presets, which are keyed by rig position). Nothing here is needed while there are no unsaved changes.
+  const needsWorking = (res: express.Response): boolean => {
+    if (config.working) return true;
+    res.status(409).json({ ok: false, error: 'There are no unsaved changes.' });
+    return false;
+  };
+  app.post('/api/profiles/save', (req, res) => {
+    if (!needsWorking(res)) return;
+    const slots = config.working!.slots as unknown as Record<string, any>[];
+    const { expectedVersion } = splitVersion(req.body);
+    try { commitConfigEdit(expectedVersion, (raw) => applySaveProfile(raw, slots), { endsWorking: true }); res.json({ ok: true, ...rigsBody() }); } catch (err) { editFailed(res, err); }
+  });
+  app.post('/api/profiles/save-as', (req, res) => {
+    if (!needsWorking(res)) return;
+    const slots = config.working!.slots as unknown as Record<string, any>[];
+    const { expectedVersion, change } = splitVersion(req.body);
+    try {
+      let key = '';
+      commitConfigEdit(expectedVersion, (raw) => { const made = applySaveProfileAs(raw, (change as { label?: unknown } | undefined)?.label, slots); key = made.key; return made.raw; }, { endsWorking: true });
+      res.status(201).json({ ok: true, key, ...rigsBody() });
+    } catch (err) { editFailed(res, err); }
+  });
+  app.post('/api/profiles/revert', (_req, res) => {
+    if (!needsWorking(res)) return;
+    try {
+      restoreWorkingPresets();
+      dropWorking();
+      const fresh = loadConfig();
+      config.devices = fresh.devices; config.profiles = fresh.profiles; config.activeProfile = fresh.activeProfile;
+      reconcileCameras(fresh.cameras);
+      keepControlValid();
+      res.json({ ok: true, ...rigsBody() });
+    } catch (err) { editFailed(res, err); }
+  });
+  const profileKeyOf = (req: express.Request, res: express.Response): string | null => {
+    const key = req.params.name;
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(key)) { res.status(400).json({ ok: false, error: 'invalid profile name' }); return null; }
+    return key;
+  };
+  app.patch('/api/profiles/:name', (req, res) => {
+    const key = profileKeyOf(req, res); if (!key) return;
+    const { expectedVersion, change } = splitVersion(req.body);
+    try { commitConfigEdit(expectedVersion, (raw) => renameProfile(raw, key, (change as { label?: unknown } | undefined)?.label)); res.json({ ok: true, ...rigsBody() }); } catch (err) { editFailed(res, err); }
+  });
+  app.delete('/api/profiles/:name', (req, res) => {
+    const key = profileKeyOf(req, res); if (!key) return;
+    const { expectedVersion } = splitVersion(req.body);
+    try { commitConfigEdit(expectedVersion, (raw) => deleteProfile(raw, key)); res.json({ ok: true, ...rigsBody() }); } catch (err) { editFailed(res, err); }
+  });
+
   // Add a rig at the end of the active profile: an existing controller ({deviceKey}) or new hardware
   // ({label, controller, visca|gimbal}), with an optional ATEM input and Sony camera.
   app.post('/api/rigs', (req, res) => {
     const { expectedVersion, change } = splitVersion(req.body);
     try {
       let result = { key: '', position: 0 };
-      commitConfigEdit(expectedVersion, (raw) => { const made = createRig(raw, change); result = { key: made.key, position: made.position }; return made.raw; });
+      commitConfigEdit(expectedVersion, (raw) => { const made = createRig(raw, change); result = { key: made.key, position: made.position }; return made.raw; }, { wiring: true });
       res.status(201).json({ ok: true, ...result, ...rigsBody() });
     } catch (err) { editFailed(res, err); }
   });
@@ -213,22 +342,20 @@ export function createStatusServer(
     const body = (typeof req.body === 'object' && req.body !== null ? req.body : {}) as Record<string, unknown>;
     const expectedVersion = typeof body.expectedVersion === 'string' ? body.expectedVersion : undefined;
     try {
-      const position = rigPositionOf(readDevicesFile(), key, body.position);
+      const position = rigPositionOf(effectiveRaw(), key, body.position);
       const totalBefore = config.cameras.length;
       const impact = describeRigDelete(buildRigs(config, state, devicesFileVersion()), presetManager.getData(), config.mappings as unknown as Record<string, unknown>, position, presetSlotsSet);
       if (body.confirm !== true) {
         res.status(409).json({ ok: false, confirmationRequired: true, error: 'Removing this rig moves the rigs after it up one position. Confirm to continue.', impact });
         return;
       }
-      commitConfigEdit(expectedVersion, (raw) => removeRig(raw, key, { position, deleteDevice: body.deleteDevice === true }).raw);
-      presetManager.removeRigSlot(position, totalBefore);
-      // The rig being controlled may have moved or gone: point control at one that exists.
-      const stillThere = config.cameras.findIndex((camera) => camera.id === state.controlledCamera);
-      if (stillThere >= 0) state.cameraIndex = stillThere;
-      else {
-        const target = config.cameras.find((camera) => camera.inputId !== undefined) ?? config.cameras[0];
-        if (target) { state.controlledCamera = target.id as CameraId; state.cameraIndex = config.cameras.indexOf(target); state.previewCamera = target.id as CameraId; }
+      if (body.deleteDevice === true) {
+        res.status(409).json({ ok: false, error: 'The hardware entry can only be deleted after the profile has been saved without this rig.' });
+        return;
       }
+      commitConfigEdit(expectedVersion, (raw) => removeRig(raw, key, { position }).raw, { wiring: true });
+      presetManager.removeRigSlot(position, totalBefore);
+      keepControlValid();
       res.json({ ok: true, removed: impact, ...rigsBody() });
     } catch (err) { editFailed(res, err); }
   });
@@ -249,7 +376,14 @@ export function createStatusServer(
   app.delete('/api/sony-devices/:key', (req, res) => {
     const key = deviceKeyOf(req, res); if (!key) return;
     const { expectedVersion } = splitVersion(req.body);
-    try { commitConfigEdit(expectedVersion, (raw) => deleteSonyDevice(raw, key)); res.json({ ok: true, ...rigsBody() }); } catch (err) { editFailed(res, err); }
+    try {
+      if (config.working && config.working.slots.some((slot) => slot.camera === key)) {
+        res.status(409).json({ ok: false, error: 'This camera is on a rig in your unsaved changes; save or revert them first.' });
+        return;
+      }
+      commitConfigEdit(expectedVersion, (raw) => deleteSonyDevice(raw, key));
+      res.json({ ok: true, ...rigsBody() });
+    } catch (err) { editFailed(res, err); }
   });
 
   app.get('/api/presets', (_req, res) => {
@@ -419,6 +553,15 @@ export function createStatusServer(
         res.status(400).json({ ok: false, error: `unknown profile "${name}"` });
         return;
       }
+      // Unsaved rig changes are never dropped silently: the caller must save them or say `discard: true`.
+      if (config.working) {
+        if ((req.body as { discard?: boolean })?.discard !== true) {
+          res.status(409).json({ ok: false, unsavedChanges: true, changes: profileBody().changes, error: 'This profile has unsaved rig changes.' });
+          return;
+        }
+        restoreWorkingPresets();
+        dropWorking();
+      }
 
       const newCameras = resolveProfile(config.devices ?? {}, profile);
       saveActiveProfile(name);
@@ -452,6 +595,7 @@ export function createStatusServer(
     try {
       const body = req.body as { profiles?: Record<string, CameraProfile> };
       if (!body?.profiles) { res.status(400).json({ ok: false, error: 'missing "profiles"' }); return; }
+      if (config.working) { res.status(409).json({ ok: false, unsavedChanges: true, error: 'There are unsaved rig changes: save or revert them on the Rigs screen first.' }); return; }
       saveProfiles(body.profiles, expectedVersionOf(req.body));
       config.profiles = body.profiles;
 
@@ -475,6 +619,7 @@ export function createStatusServer(
       // Detect ATEM IP change before mutating config
       const atemIpChanged = parsed.atem.ip !== config.atem.ip;
 
+      if (config.working) { res.status(409).json({ ok: false, unsavedChanges: true, error: 'There are unsaved rig changes: save or revert them on the Rigs screen first.' }); return; }
       // Save to disk (refused with 409 if devices.yaml changed since the page loaded it)
       saveDevicesConfig(parsed, expectedVersionOf(req.body));
 

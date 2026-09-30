@@ -96,9 +96,17 @@ async function waitFor<T>(label: string, read: () => Promise<T | undefined | fal
 async function selfTest(): Promise<number> {
   prepareRunDir();
   const fakes = await startFakes(0);
-  const app = startApp();
+  let app = startApp();
   const base = `http://127.0.0.1:${APP_PORT}`;
   const control = `http://127.0.0.1:${SONY_PORT}/__sandbox`;
+  // Stop the app and start it again (the fakes keep running), like restarting it on the show computer.
+  const restartApp = async (): Promise<void> => {
+    app.kill('SIGINT');
+    await Promise.race([new Promise((resolve) => app.once('exit', resolve)), sleep(6000)]);
+    if (app.exitCode === null) app.kill('SIGKILL');
+    app = startApp();
+    await waitFor('the app to answer again', async () => (await api('/api/status')).status === 200, 40000);
+  };
   const results: { name: string; ok: boolean; detail?: string }[] = [];
   const check = (name: string, ok: boolean, detail?: string): void => {
     results.push({ name, ok, detail });
@@ -248,8 +256,9 @@ async function selfTest(): Promise<number> {
     check('adding a rig on an ATEM input another rig uses is refused (400)', (await post('/api/rigs', { label: 'Clash', controller: 'vbot', visca: { host: '127.0.0.1' }, inputId: 12 })).status === 400);
     const askLast = await delWith('/api/rigs/sandbox-gimbal', {});
     check('removing a rig without confirmation answers 409 with what would change, and changes nothing', askLast.status === 409 && askLast.body.confirmationRequired === true && askLast.body.impact?.shifted?.length === 0 && (await api('/api/config')).body.cameras?.length === 5);
-    const removedLast = await delWith('/api/rigs/sandbox-gimbal', { confirm: true, deleteDevice: true });
-    check('removing the last rig with confirmation works and can delete its hardware entry', removedLast.status === 200 && removedLast.body.rigs?.length === 4 && !fs.readFileSync(yamlFile, 'utf8').includes('sandbox-gimbal'));
+    check('deleting the hardware entry with the rig is refused while the profile has unsaved changes (409)', (await delWith('/api/rigs/sandbox-gimbal', { confirm: true, deleteDevice: true })).status === 409);
+    const removedLast = await delWith('/api/rigs/sandbox-gimbal', { confirm: true });
+    check('removing the last rig with confirmation works and keeps its hardware entry', removedLast.status === 200 && removedLast.body.rigs?.length === 4 && fs.readFileSync(yamlFile, 'utf8').includes('sandbox-gimbal'));
 
     const askMiddle = await delWith('/api/rigs/birddog1', {});
     const impact = askMiddle.body.impact;
@@ -273,6 +282,89 @@ async function selfTest(): Promise<number> {
       const last = await delWith('/api/rigs/vbot', { confirm: true });
       return last.status === 400 && /at least one rig/.test(last.body.error ?? '');
     })());
+
+    // --- the working copy: rig edits are live and survive a restart, the saved profile stays as saved until you save
+    const savedProfile = (name: string): any => { const { parse } = require('yaml'); return parse(fs.readFileSync(yamlFile, 'utf8')).profiles[name]; };
+    const workingFile = path.join(runDir, 'working-profile.json');
+    await post('/api/profiles/revert');
+    let view = (await api('/api/rigs')).body;
+    check('after a revert there are no unsaved changes and no working-copy file', view.profile?.modified === false && !fs.existsSync(workingFile));
+    check('reverting puts the rigs back as saved (four, V-BOT first)', view.rigs?.length === 4 && view.rigs[0].deviceKey === 'vbot');
+    const v0 = view.version;
+    const wired = await patch('/api/rigs/vbot', { inputId: 9 });
+    check('a wiring edit answers with the profile marked modified and what changed', wired.status === 200 && wired.body.profile?.modified === true && JSON.stringify(wired.body.profile.changes) === JSON.stringify([{ kind: 'input', label: 'V-BOT', from: 6, to: 9 }]));
+    check('the running app uses the working rigs at once', (await api('/api/config')).body.cameras?.[0]?.inputId === 9);
+    check('the profile in devices.yaml is still exactly as saved', savedProfile('production').slots[0].inputId === 6);
+    check('the working copy is saved to a file for restarts', fs.existsSync(workingFile) && JSON.parse(fs.readFileSync(workingFile, 'utf8')).slots[0].inputId === 9);
+    await patch('/api/rigs/vbot', { label: 'V-BOT (shared)' });
+    check('a hardware edit (the name) is saved at once to devices.yaml while the rigs stay unsaved', fs.readFileSync(yamlFile, 'utf8').includes('V-BOT (shared)') && savedProfile('production').slots[0].inputId === 6 && (await api('/api/rigs')).body.profile.modified === true);
+    check('the classic Device Config save is refused while there are unsaved rig changes', (await post('/api/config', { atem: { ip: '127.0.0.1', defaultTransition: 'cut', meIndex: 0 }, cameras: [] })).status === 409);
+    const switchAsk = await post('/api/profiles/active', { profile: 'test' });
+    check('switching profile with unsaved changes is refused and lists the changes (409)', switchAsk.status === 409 && switchAsk.body.unsavedChanges === true && switchAsk.body.changes?.length === 1);
+    check('a refused switch changes nothing', (await api('/api/rigs')).body.activeProfile === 'production' && (await api('/api/rigs')).body.profile.modified === true);
+
+    await restartApp();
+    view = (await api('/api/rigs')).body;
+    check('after the app restarts the unsaved rig changes are still applied', view.profile?.modified === true && view.rigs?.[0]?.inputId === 9);
+    check('the restored changes are still described', view.profile?.changes?.[0]?.kind === 'input' && view.profile?.changes?.[0]?.to === 9);
+    check('a restart leaves the saved profile untouched', savedProfile('production').slots[0].inputId === 6);
+
+    const reverted = await post('/api/profiles/revert');
+    check('Revert drops the working copy: back to the saved rigs, file gone', reverted.status === 200 && reverted.body.profile?.modified === false && reverted.body.rigs?.[0]?.inputId === 6 && !fs.existsSync(workingFile));
+    check('the hardware name edit is shared and is not undone by Revert', reverted.body.rigs?.[0]?.label === 'V-BOT (shared)');
+    check('Revert with nothing to revert answers 409', (await post('/api/profiles/revert')).status === 409);
+    await patch('/api/rigs/vbot', { label: 'V-BOT' });
+
+    // presets follow their rigs, and Revert puts them back
+    const presetsBefore = (await api('/api/presets')).body;
+    await delWith('/api/rigs/birddog1', { confirm: true });
+    const shifted = (await api('/api/presets')).body;
+    check('removing a rig in the working copy shifts the presets at once', shifted.cam2?.X?.pan === presetsBefore.cam3?.X?.pan && shifted.cam4 === undefined);
+    await post('/api/profiles/revert');
+    const restored = (await api('/api/presets')).body;
+    check('Revert restores the presets exactly as they were before the edits', JSON.stringify(restored) === JSON.stringify(presetsBefore));
+    check('Revert brings the removed rig back', (await api('/api/rigs')).body.rigs?.map((r: any) => r.deviceKey).join() === 'vbot,birddog1,birddog2,rs3');
+
+    // Save writes the working copy into the profile
+    await patch('/api/rigs/vbot', { inputId: 9 });
+    const commentsWithDraft = commentCount();
+    const saved = await post('/api/profiles/save');
+    check('Save writes the working rigs into the profile in devices.yaml and ends the working copy', saved.status === 200 && saved.body.profile?.modified === false && savedProfile('production').slots[0].inputId === 9 && !fs.existsSync(workingFile));
+    check('Save keeps the file documented', commentCount() >= commentsWithDraft - 1);
+    await patch('/api/rigs/vbot', { inputId: 6 });
+    await post('/api/profiles/save');
+    check('the profile can be put back the same way', savedProfile('production').slots[0].inputId === 6);
+
+    // Save as: a new profile; the original stays exactly as it was saved
+    await patch('/api/rigs/vbot', { inputId: 9 });
+    const productionBefore = JSON.stringify(savedProfile('production'));
+    const savedAs = await post('/api/profiles/save-as', { label: 'Sunday test' });
+    check('Save as creates a new active profile with the working rigs (201)', savedAs.status === 201 && savedAs.body.key === 'sunday-test' && savedAs.body.activeProfile === 'sunday-test' && savedAs.body.profile?.modified === false);
+    check('the new profile holds the edited rigs and the original is exactly as it was saved', savedProfile('sunday-test').slots[0].inputId === 9 && JSON.stringify(savedProfile('production')) === productionBefore);
+    check('Save as with a name that exists is refused (400)', (await (async () => { await patch('/api/rigs/vbot', { inputId: 10 }); return post('/api/profiles/save-as', { label: 'sunday TEST' }); })()).status === 400);
+    await post('/api/profiles/revert');
+    const back = await post('/api/profiles/active', { profile: 'production' });
+    check('switching back to the original profile shows its rigs as they were', back.status === 200 && (await api('/api/rigs')).body.rigs?.[0]?.inputId === 6);
+    check('a profile can be renamed', (await patch('/api/profiles/sunday-test', { label: 'Sunday (two inputs)' })).body.profiles?.find((p: any) => p.name === 'sunday-test')?.label === 'Sunday (two inputs)');
+    check('the active profile cannot be deleted (409)', (await del('/api/profiles/production')).status === 409);
+    check('an inactive profile can be deleted', (await del('/api/profiles/sunday-test')).status === 200 && !(await api('/api/rigs')).body.profiles?.some((p: any) => p.name === 'sunday-test'));
+
+    // switching with `discard: true` drops the changes (and restores the presets)
+    await patch('/api/rigs/vbot', { inputId: 9 });
+    const discard = await post('/api/profiles/active', { profile: 'test', discard: true });
+    check('switching with discard drops the working copy and switches', discard.status === 200 && (await api('/api/rigs')).body.profile?.modified === false && (await api('/api/rigs')).body.activeProfile === 'test' && !fs.existsSync(workingFile));
+    await post('/api/profiles/active', { profile: 'production' });
+
+    // a draft that can no longer be restored is set aside, never lost
+    await patch('/api/rigs/vbot', { inputId: 9 });
+    const draft = JSON.parse(fs.readFileSync(workingFile, 'utf8'));
+    await restartApp();
+    fs.writeFileSync(workingFile, JSON.stringify({ ...draft, base: 'a-profile-that-was-deleted' }));
+    await restartApp();
+    view = (await api('/api/rigs')).body;
+    check('a draft whose profile no longer exists is not applied', view.profile?.modified === false && view.rigs?.[0]?.inputId === 6);
+    check('the operator is told, and the draft is kept aside', /no longer exists/.test(view.profile?.notice ?? '') && fs.readdirSync(runDir).some((name) => name.startsWith('working-profile.json.orphaned-')));
+    await post('/api/profiles/revert');
   } catch (error) {
     check('the self-test ran to completion', false, String(error instanceof Error ? error.message : error));
   }

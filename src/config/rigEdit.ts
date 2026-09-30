@@ -350,3 +350,58 @@ export function applyAtemPatch(current: Raw, patch: unknown): Raw {
   }
   return validated(raw);
 }
+
+// ---------------------------------------------------------------- profiles
+
+/** Validate a whole edited config the way the loader would; used by callers that assemble a config themselves. */
+export function validateWhole(next: Raw): Raw {
+  return validated(next);
+}
+
+function profileSlug(label: string): string {
+  return label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'profile';
+}
+
+/** Write `slots` into the active profile (Save). */
+export function applySaveProfile(current: Raw, slots: Raw[]): Raw {
+  const raw = clone(current);
+  const active: string | undefined = raw.activeProfile;
+  if (!active || !isObject(raw.profiles?.[active])) return fail('this config has no active profile to save into');
+  raw.profiles[active].slots = clone(slots);
+  return validated(raw);
+}
+
+/** Save `slots` as a new profile named `label`, and make it the active one. The profile you started from is left as it was. */
+export function applySaveProfileAs(current: Raw, label: unknown, slots: Raw[]): { raw: Raw; key: string } {
+  const raw = clone(current);
+  const name = text(label, 'profile name', 64);
+  if (!isObject(raw.profiles)) return fail('this config has no profiles to add to');
+  const taken = Object.values<Raw>(raw.profiles).some((profile) => typeof profile.label === 'string' && profile.label.toLowerCase() === name.toLowerCase());
+  if (taken) fail(`a profile named "${name}" already exists`);
+  let key = profileSlug(name);
+  for (let n = 2; raw.profiles[key]; n++) key = `${profileSlug(name)}-${n}`;
+  raw.profiles[key] = { label: name, slots: clone(slots) };
+  raw.activeProfile = key;
+  return { raw: validated(raw), key };
+}
+
+/** Change a profile's display name. */
+export function renameProfile(current: Raw, key: string, label: unknown): Raw {
+  const raw = clone(current);
+  if (!isObject(raw.profiles?.[key])) throw new RigEditError(`unknown profile "${key}"`, 404);
+  const name = text(label, 'profile name', 64);
+  const taken = Object.entries<Raw>(raw.profiles).some(([other, profile]) => other !== key && typeof profile.label === 'string' && profile.label.toLowerCase() === name.toLowerCase());
+  if (taken) fail(`a profile named "${name}" already exists`);
+  raw.profiles[key].label = name;
+  return validated(raw);
+}
+
+/** Delete a profile. The active profile and the last profile cannot be deleted. */
+export function deleteProfile(current: Raw, key: string): Raw {
+  const raw = clone(current);
+  if (!isObject(raw.profiles?.[key])) throw new RigEditError(`unknown profile "${key}"`, 404);
+  if (raw.activeProfile === key) throw new RigEditError('Switch to another profile before deleting the active one', 409);
+  if (Object.keys(raw.profiles).length <= 1) throw new RigEditError('The last profile cannot be deleted', 409);
+  delete raw.profiles[key];
+  return validated(raw);
+}

@@ -6,6 +6,8 @@ import path from 'path';
 // documentation alive across a UI save. See writeDevicesYaml().
 import * as YAML from 'yaml';
 import { z } from 'zod';
+import { writeFileAtomic } from './atomicWrite';
+import { loadWorkingProfile, setAside as setAsideWorking, workingProfilePath, WorkingProfile } from './workingProfile';
 
 // The string forms of JavaScript's nullish values. A UI that interpolates an
 // absent field into a text input produces the literal string "undefined", which
@@ -281,6 +283,10 @@ export interface AppConfig {
   profiles?: Record<string, Profile>;
   activeProfile?: string;
   sony?: SonyRuntimeConfig;
+  /** Unsaved rig edits of the active profile, applied on top of it (see workingProfile.ts). */
+  working?: WorkingProfile;
+  /** Something to tell the operator about the working copy (a draft that could not be restored, an outside edit). */
+  workingNotice?: string;
 }
 
 function parseSonyEnabled(value: string): boolean {
@@ -363,9 +369,32 @@ export function loadConfig(): AppConfig {
   }
 
   // Profiles win when present; otherwise fall back to the explicit camera list.
-  const cameras = devices.profiles && devices.activeProfile
+  let cameras = devices.profiles && devices.activeProfile
     ? resolveProfile(devices.devices ?? {}, devices.profiles[devices.activeProfile])
     : devices.cameras ?? [];
+
+  // Unsaved rig edits survive a restart: apply the working copy on top of the saved profile.
+  let working: WorkingProfile | undefined;
+  let workingNotice: string | undefined;
+  if (devices.profiles && devices.activeProfile && devices.devices) {
+    const file = workingProfilePath(devicesPath);
+    const loaded = loadWorkingProfile(file, {
+      profiles: devices.profiles as unknown as Record<string, { slots: { device: string; inputId?: number; camera?: string }[] }>,
+      devices: devices.devices as unknown as Record<string, { protocol?: string; cameraType?: string }>,
+    });
+    workingNotice = loaded.notice ?? undefined;
+    if (loaded.working) {
+      const issues = collectRigIssues(devices.devices, { [loaded.working.base]: { slots: loaded.working.slots } });
+      if (loaded.working.base !== devices.activeProfile) {
+        workingNotice = `Unsaved rig changes belonged to the profile "${loaded.working.base}", but "${devices.activeProfile}" is active; they were kept aside as ${setAsideWorking(file, () => new Date())}.`;
+      } else if (issues.length) {
+        workingNotice = `Unsaved rig changes could not be restored (${issues[0].message}); they were kept aside as ${setAsideWorking(file, () => new Date())}.`;
+      } else {
+        working = loaded.working;
+        cameras = resolveProfile(devices.devices, { slots: loaded.working.slots });
+      }
+    }
+  }
 
   return {
     atem: devices.atem,
@@ -377,6 +406,8 @@ export function loadConfig(): AppConfig {
     profiles: devices.profiles,
     activeProfile: devices.activeProfile,
     sony: resolveSonyConfig(devices.sony, devicesPath),
+    working,
+    workingNotice,
   };
 }
 
@@ -480,36 +511,7 @@ export class ConfigConflictError extends Error {
   }
 }
 
-/**
- * Replace `target` with `content` so a crash or power loss can never leave a
- * half-written file: write a temp file in the same directory, flush it to disk,
- * then rename over the target (an atomic replace on the same filesystem). The
- * original file's permissions are kept. `rename` is injectable so a test can
- * prove the old content survives a failure at the last step.
- */
-export function writeFileAtomic(
-  target: string,
-  content: string,
-  io: { rename?: (from: string, to: string) => void } = {},
-): void {
-  const dir = path.dirname(target);
-  const temp = path.join(dir, `.${path.basename(target)}.${crypto.randomBytes(6).toString('hex')}.tmp`);
-  let mode = 0o644;
-  try { mode = fs.statSync(target).mode & 0o777; } catch { /* new file: default mode */ }
-  let fd: number | undefined;
-  try {
-    fd = fs.openSync(temp, 'wx', mode);
-    fs.writeSync(fd, content, 0, 'utf8');
-    fs.fsyncSync(fd);
-    fs.closeSync(fd);
-    fd = undefined;
-    (io.rename ?? fs.renameSync)(temp, target);
-  } catch (error) {
-    if (fd !== undefined) { try { fs.closeSync(fd); } catch { /* already closed */ } }
-    try { fs.unlinkSync(temp); } catch { /* temp never created or already gone */ }
-    throw error;
-  }
-}
+export { writeFileAtomic };
 
 /**
  * Short fingerprint of devices.yaml as it is on disk right now. Read endpoints
@@ -522,6 +524,11 @@ export function devicesFileVersion(): string {
   } catch {
     return 'missing';
   }
+}
+
+/** Where devices.yaml is (DEVICES_CONFIG, else config/devices.yaml under the working directory). */
+export function devicesConfigFile(): string {
+  return devicesConfigPath();
 }
 
 function devicesConfigPath(): string {

@@ -198,3 +198,25 @@ comment-preserving writer (atomic, version-checked) -> re-read from disk -> appl
 **Interim behaviour:** until issue 9a, wiring edits (`inputId`, `camera`) are written straight into the active
 profile in `devices.yaml`. Issue 9a moves them into the working copy (D11) and makes hardware fields the only
 immediate writes. Removing or adding a rig renumbers nothing before it; removing rig N renumbers every later rig (`camN` ids, hotkeys), which is why delete needs `confirm`. The running cameras of shifted rigs reconnect briefly. Not built yet: any UI.
+
+### Working copy and profiles (issue 9a, as built)
+
+Rig wiring edits (`inputId`, `camera`, add rig, remove rig) are a **working copy** of the active profile:
+applied to the running app at once and saved in `config/working-profile.json` (local, untracked, atomic write) so they
+survive a restart; the profile in `devices.yaml` is untouched until saved. Hardware edits (names, addresses, ATEM,
+Sony devices) are not part of it and still save immediately. `GET /api/rigs` adds
+`profile: { active, modified, changes[], notice }`; `changes[]` are `added | removed | moved | input | camera`
+entries matched by device. On startup `loadConfig` applies the working copy; one that cannot be restored (profile
+deleted, device gone, invalid) is set aside as `working-profile.json.orphaned-<time>` and reported in `profile.notice`.
+
+| Call | Purpose |
+| --- | --- |
+| `POST /api/profiles/save` | Write the working rigs into the active profile; ends the working copy |
+| `POST /api/profiles/save-as` `{label}` | New profile (key from the name, name must be unique) with the working rigs, made active; the original stays exactly as saved. 201 with `key` |
+| `POST /api/profiles/revert` | Drop the working copy, restore the presets snapshot taken when the edits began (presets are keyed by rig position) |
+| `POST /api/profiles/active` `{profile, discard?}` | Switch; **409 `unsavedChanges`** with `changes` when there is a working copy unless `discard: true` (which drops it and restores the presets) |
+| `PATCH /api/profiles/:name` `{label}` / `DELETE /api/profiles/:name` | Rename; delete (the active profile and the last profile are refused with 409) |
+
+Also: the classic Device Config and Profiles tab saves answer 409 while a working copy exists (they would write rigs
+behind it). Deleting a hardware entry together with a rig is refused while the profile is unsaved (the saved profile
+still lists it); the device stays in the inventory. A Sony device that the working copy uses cannot be deleted.

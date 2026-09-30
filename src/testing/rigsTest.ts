@@ -142,6 +142,22 @@ check('a controller already in the profile is not offered again', !extraView.ava
 check('the rig limit is reported', extraView.maxRigs === 8);
 check('a legacy config offers no controllers to add', buildRigs({ ...baseConfig(), cameras: resolveProfile(devices, profiles.production), profiles: undefined, devices: undefined }, state, 'v11').availableControllers.length === 0);
 
+// ---- the working copy (unsaved rig edits) is what the rig view shows
+const workingConfig = baseConfig('production');
+workingConfig.working = { version: 1, base: 'production', baseSlots: profiles.production.slots, slots: [{ device: 'vbot', inputId: 6 }, { device: 'rs3', inputId: 2 }], presetsAtStart: null, startedAt: 'a', updatedAt: 'b' };
+workingConfig.cameras = resolveProfile(devices, { slots: workingConfig.working.slots });
+const workingView = buildRigs(workingConfig, state, 'v12');
+check('with a working copy the rig view lists the working rigs, each with its own device', workingView.rigs.map((r) => r.deviceKey).join() === 'vbot,rs3' && workingView.rigs[1].label === 'DJI RS3');
+check('the profile list counts the working rigs for the active profile and the saved rigs for the others', workingView.profiles.find((p) => p.name === 'production')?.rigCount === 2 && workingView.profiles.find((p) => p.name === 'test')?.rigCount === 2);
+check('a device dropped in the working copy is no longer reported as used by the active profile', !workingView.rigs.some((r) => r.deviceKey === 'birddog1') && !(workingView.rigs[0].usedInProfiles.includes('production') === false));
+const cameraInWorking = baseConfig('production');
+cameraInWorking.devices = withSony.devices; cameraInWorking.profiles = withSony.profiles;
+cameraInWorking.working = { version: 1, base: 'production', baseSlots: withSony.profiles.production.slots, slots: [{ device: 'vbot', inputId: 6 }, { device: 'birddog1', inputId: 7 }, { device: 'rs3', inputId: 2, camera: 'sony-a' }], presetsAtStart: null, startedAt: 'a', updatedAt: 'b' };
+cameraInWorking.cameras = resolveProfile(withSony.devices as Record<string, InventoryDevice>, { slots: cameraInWorking.working.slots });
+const moved = buildRigs(cameraInWorking, state, 'v13', seen);
+check('a camera moved to another rig in the working copy is reported on that rig', moved.rigs[0].camera === null && moved.rigs[2].camera === 'sony-a' && moved.rigs[2].cameraLabel === 'a7S III — stage left');
+check('the Sony device lists the working rig as the one using it', moved.sonyDevices.find((d) => d.key === 'sony-a')?.usedByRigs.map((r) => r.id).join() === 'cam3');
+
 check('the payload carries no secrets or credentials', !/password|token|secret|fingerprint/i.test(payload));
 check('the payload is JSON round-trippable', JSON.stringify(JSON.parse(payload)) === payload);
 

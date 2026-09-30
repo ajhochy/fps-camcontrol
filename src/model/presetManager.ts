@@ -134,6 +134,12 @@ export class PresetManager {
     }
   }
 
+  /** Put a saved copy of the presets back (Revert of unsaved rig edits, which may have moved presets). */
+  replaceAll(data: PresetData): void {
+    this.data = data;
+    this.savePresets();
+  }
+
   /** A rig was removed: presets of every later rig move down one place so they stay with their camera. */
   removeRigSlot(position: number, totalBefore: number): void {
     this.data = shiftPresetsAfterRemoval(this.data, position, totalBefore);

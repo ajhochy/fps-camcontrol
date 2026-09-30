@@ -30,6 +30,8 @@ async function main() {
   logger.info('FPS CamControl starting…');
 
   const config = loadConfig();
+  if (config.working) logger.info({ profile: config.working.base, rigs: config.working.slots.length }, 'restored unsaved rig changes (working copy)');
+  if (config.workingNotice) logger.warn(config.workingNotice);
   const state: AppState = createInitialState();
   const activityLog = new ActivityLog();
   const sonyManager = new SonyManager(config.sony!, new SonyStateStore(config.sony!.stateFile));

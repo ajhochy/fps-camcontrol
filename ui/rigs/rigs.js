@@ -657,18 +657,12 @@
       var list = el('ul', 'rigs-impact');
       model.impactLines(impact).forEach(function (line) { list.appendChild(el('li', null, line)); });
       panel.appendChild(list);
-      var hardware = el('input', 'rigs-check');
-      hardware.type = 'checkbox'; hardware.id = 'rigs-remove-hardware';
-      var hardwareLabel = el('label', 'rigs-hardware-label', ' Also delete this device from the inventory');
-      hardwareLabel.setAttribute('for', 'rigs-remove-hardware');
-      hardwareLabel.insertBefore(hardware, hardwareLabel.firstChild);
-      if (impact.usedInOtherProfiles && impact.usedInOtherProfiles.length) { hardware.disabled = true; hardwareLabel.title = 'Other profiles still use it'; }
-      panel.appendChild(hardwareLabel);
+      panel.appendChild(el('p', 'rigs-info', 'The device stays in your inventory, so you can add it back later. The change applies now and is kept until you save the profile or revert it.'));
       var failure = el('p', 'rigs-inline'); failure.setAttribute('role', 'status');
       var row = el('div', 'rigs-actions');
       var go = button('Remove rig', 'is-danger', async function (b) {
         b.disabled = true; b.textContent = 'Removing…';
-        var result = await call('DELETE', info.removable.endpoint, { confirm: true, deleteDevice: hardware.checked && !hardware.disabled, expectedVersion: app.data && app.data.version });
+        var result = await call('DELETE', info.removable.endpoint, { confirm: true, expectedVersion: app.data && app.data.version });
         if (result.ok) {
           adopt(result.body);
           select(model.resolveSelection(app.data, null), { showDetail: false, focusRow: true });
