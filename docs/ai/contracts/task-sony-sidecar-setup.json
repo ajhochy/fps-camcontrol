@@ -1,0 +1,65 @@
+{
+  "issue": "task-sony-sidecar-setup",
+  "date": "2026-08-13",
+  "test_command": "tmp=$(mktemp -d) && trap 'rm -rf \"$tmp\"' EXIT && mkdir -p \"$tmp/checkout\" && : > \"$tmp/sdk.zip\" && printf '%s\\n' '#!/usr/bin/env bash' 'set -euo pipefail' '[ \"$1\" = install ] && [ \"$2\" = --zip ] && [ \"$3\" = \"$EXPECTED_ZIP\" ] || exit 9' '[ \"$1\" = build ] || exit 9' 'mkdir -p api/server/build' 'touch api/server/build/CameraWebApp' 'chmod +x api/server/build/CameraWebApp' > \"$tmp/checkout/crsdk\" && chmod +x \"$tmp/checkout/crsdk\" && EXPECTED_ZIP=\"$tmp/sdk.zip\" SONY_LICENSE_ACCEPTED=1 scripts/setup-sony-sidecar.sh --checkout \"$tmp/checkout\" --zip \"$tmp/sdk.zip\" > \"$tmp/out\" && grep -F \"$tmp/checkout/api/server/build/CameraWebApp\" \"$tmp/out\" && ! scripts/setup-sony-sidecar.sh --checkout \"$tmp/checkout\" --zip \"$tmp/missing.zip\" >/dev/null 2>&1",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "task-sony-sidecar-setup-c1",
+      "text": "Script requires two explicit args/options: existing local alpha-sdk-api checkout and already-downloaded Sony SDK ZIP; validates both and never downloads/clones Sony assets.",
+      "mode": "integration",
+      "test": "inline test_command",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-sony-sidecar-setup-c2",
+      "text": "Require/confirm Sony license acceptance interactively unless an explicit noninteractive acceptance env/flag is supplied and documented; do not silently accept.",
+      "mode": "manual",
+      "test": null,
+      "status": "UNVERIFIED",
+      "reason": "Interactive terminal behavior is verified manually; the noninteractive path is inspected without accepting on the operator's behalf."
+    },
+    {
+      "criterion_id": "task-sony-sidecar-setup-c3",
+      "text": "Invoke checkout's `./crsdk install --zip <zip>` and `./crsdk build`, then derive/verify CameraWebApp executable path for macOS/Linux/Windows where practical; this host is macOS.",
+      "mode": "integration",
+      "test": "inline test_command",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-sony-sidecar-setup-c4",
+      "text": "Do not start a persistent service. Optionally run a bounded temporary health probe only if safe, ensure cleanup, and print exact executable path plus FPS config/env example. If no probe, verify executable exists/is executable.",
+      "mode": "integration",
+      "test": "inline test_command",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-sony-sidecar-setup-c5",
+      "text": "Shell safety: `set -euo pipefail`, quote all paths, no eval, no credentials, no writing outside supplied checkout except its own documented build outputs.",
+      "mode": "integration",
+      "test": "inline test_command and bash -n",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-sony-sidecar-setup-c6",
+      "text": "Docs clearly separate developer setup from runtime, note Sony SDK/ZIP is not committed/redistributed, link official Sony EULA/download and alpha-sdk-api sources, document CameraWebApp direct launch `--port`, health/shutdown endpoints, `SONY_SERVER_EXECUTABLE`, `SONY_API_URL`, and loopback warning.",
+      "mode": "manual",
+      "test": null,
+      "status": "UNVERIFIED",
+      "reason": "Documentation completeness is reviewed against the specified required topics."
+    },
+    {
+      "criterion_id": "task-sony-sidecar-setup-c7",
+      "text": "Document that app functionality implementation is separate and no credentials are persisted.",
+      "mode": "manual",
+      "test": null,
+      "status": "UNVERIFIED",
+      "reason": "Documentation statement is reviewed directly."
+    }
+  ],
+  "not_tested": [
+    "task-sony-sidecar-setup-c2",
+    "task-sony-sidecar-setup-c6",
+    "task-sony-sidecar-setup-c7"
+  ]
+}
