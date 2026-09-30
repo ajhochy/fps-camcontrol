@@ -560,8 +560,6 @@ async function runTests(): Promise<void> {
   const { normalizeHIDReport } = require('../input/normalizers');
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { loadProfiles, detectConnectionType, detectProfile } = require('../input/profileDetector');
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const path = require('path');
   const switchProfile = loadProfiles(path.join(process.cwd(), 'controller-profiles')).find((p: any) => p.name === 'Nintendo Switch Pro Controller (Bluetooth)');
   const switchDevice = { vendorId: 0x057e, productId: 0x2009, path: 'DevSrvsID:4297576981', serialNumber: '98:B6:E9:24:69:83' };
   assert('Switch Pro MAC serial is detected as Bluetooth', detectConnectionType(switchDevice) === 'bluetooth');
