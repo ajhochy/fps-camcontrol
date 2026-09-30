@@ -319,3 +319,34 @@ export function removeRig(current: Raw, deviceKey: string, options: { position?:
   }
   return { raw: validated(raw), position, deviceRemoved };
 }
+
+// ------------------------------------------------------------------- ATEM
+
+/** Edit the ATEM connection (address, default transition, mix/effect) and the graphics keyer settings. */
+export function applyAtemPatch(current: Raw, patch: unknown): Raw {
+  const raw = clone(current);
+  if (!isObject(patch)) return fail('the change must be an object');
+  expectKeys(patch, ['ip', 'defaultTransition', 'meIndex', 'graphics'], 'ATEM');
+  raw.atem = isObject(raw.atem) ? raw.atem : {};
+  if ('ip' in patch) raw.atem.ip = text(patch.ip, 'ATEM address (IP)', 253);
+  if ('defaultTransition' in patch) {
+    if (patch.defaultTransition !== 'cut' && patch.defaultTransition !== 'auto') fail('default transition must be cut or auto');
+    raw.atem.defaultTransition = patch.defaultTransition;
+  }
+  if ('meIndex' in patch) raw.atem.meIndex = integer(patch.meIndex, 'mix/effect index', 0, 3);
+  if ('graphics' in patch) {
+    const g = patch.graphics;
+    if (!isObject(g)) return fail('graphics must be an object');
+    expectKeys(g, ['type', 'dskIndex', 'uskIndex', 'meIndex', 'fadeFrames'], 'graphics');
+    raw.graphics = isObject(raw.graphics) ? raw.graphics : {};
+    if ('type' in g) {
+      if (!['dsk', 'usk', 'auto'].includes(g.type as string)) fail('graphics keyer must be dsk, usk or auto');
+      raw.graphics.type = g.type;
+    }
+    if ('dskIndex' in g) raw.graphics.dskIndex = integer(g.dskIndex, 'DSK index', 0, 3);
+    if ('uskIndex' in g) raw.graphics.uskIndex = integer(g.uskIndex, 'USK index', 0, 3);
+    if ('meIndex' in g) raw.graphics.meIndex = integer(g.meIndex, 'graphics mix/effect index', 0, 3);
+    if ('fadeFrames' in g) raw.graphics.fadeFrames = integer(g.fadeFrames, 'key fade (frames)', 0, 250);
+  }
+  return validated(raw);
+}

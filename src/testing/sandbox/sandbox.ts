@@ -175,6 +175,16 @@ async function selfTest(): Promise<number> {
     const fresh = (await api('/api/rigs')).body.version;
     check('an edit with the current version goes through', (await patch('/api/rigs/vbot', { label: 'V-BOT', expectedVersion: fresh })).status === 200);
 
+    // --- the ATEM: connection and graphics settings
+    const atemBefore = (await api('/api/rigs')).body.atem;
+    const atemEdit = await patch('/api/atem', { defaultTransition: 'auto', graphics: { fadeFrames: 25 } });
+    check('PATCH /api/atem changes the default transition and graphics and answers with the new view', atemEdit.status === 200 && atemEdit.body.atem?.defaultTransition === 'auto' && atemEdit.body.graphics?.fadeFrames === 25);
+    check('the ATEM edit is applied to the running app and saved with the file still documented', (await api('/api/config')).body.atem?.defaultTransition === 'auto' && /defaultTransition: auto/.test(fs.readFileSync(yamlFile, 'utf8')) && commentCount() === commentsBefore);
+    check('an ATEM mix/effect index outside 0-3 is refused (400)', (await patch('/api/atem', { meIndex: 9 })).status === 400);
+    check('an unknown ATEM field is refused (400)', (await patch('/api/atem', { firmware: '9' })).status === 400);
+    check('an ATEM edit based on an old file version answers 409', (await patch('/api/atem', { meIndex: 1, expectedVersion: version0 })).status === 409);
+    check('the ATEM settings can be put back', (await patch('/api/atem', { defaultTransition: atemBefore.defaultTransition, graphics: { fadeFrames: 15 } })).status === 200);
+
     // --- Sony camera devices: create, name, bind, delete
     const madeSony = await post('/api/sony-devices', { label: 'Backup FX3' });
     check('POST /api/sony-devices creates a named Sony device (201) with a key made from the name', madeSony.status === 201 && madeSony.body.key === 'sony-backup-fx3');

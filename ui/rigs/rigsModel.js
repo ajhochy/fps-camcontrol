@@ -18,6 +18,7 @@
     needs_pairing: 'Needs pairing / camera setup',
     error: 'Connection error',
   };
+  var RETRYABLE = { disconnected: true, error: true, needs_pairing: true };
   var SONY_TONE = { connected: 'ok', connecting: 'warn', discovered_unapproved: 'warn', needs_pairing: 'warn', error: 'bad', disconnected: 'idle' };
 
   function sonyStateText(state) { return state ? (SONY_STATE[state] || String(state).replace(/_/g, ' ')) : 'Not seen yet'; }
@@ -132,6 +133,14 @@
     return items.length ? items[0].key : null;
   }
 
+  // Declarative editable controls. `path` says where the value goes in the PATCH body ('visca.host' -> {visca:{host}}).
+  function ctl(id, label, type, value, path, extra) {
+    var c = { id: id, label: label, type: type, value: value, path: path };
+    for (var k in extra) if (Object.prototype.hasOwnProperty.call(extra, k)) c[k] = extra[k];
+    return c;
+  }
+  function readonly(id, label, value, note) { return ctl(id, label, 'readonly', value, null, note ? { note: note } : {}); }
+
   function field(label, value, note) { var f = { label: label, value: value }; if (note) f.note = note; return f; }
 
   function findRig(data, key) {
@@ -176,7 +185,46 @@
     if (rig.usedInProfiles && rig.usedInProfiles.length > 1) {
       notes.push('Shared hardware: used in ' + rig.usedInProfiles.length + ' profiles (' + rig.usedInProfiles.join(', ') + '). Changes to its name and connection apply to all of them.');
     }
-    return { kind: 'rig', title: rigTitle(rig), fields: fields, advanced: advanced, notes: notes };
+    var editable = !!rig.deviceKey;
+    var controls = [ctl('label', 'Name', 'text', rigTitle(rig), 'label', { maxLength: 64, required: true }),
+      readonly('controller', 'Controller', CONTROLLER[rig.controller] || rig.controller, rig.controller === 'birddog' ? 'Has a built-in camera' : null)];
+    if (rig.visca) {
+      controls.push(ctl('visca.host', 'Camera address (IP)', 'text', rig.visca.host || '', 'visca.host', { required: true, maxLength: 253 }));
+      controls.push(ctl('visca.port', 'Port', 'number', rig.visca.port, 'visca.port', { min: 1, max: 65535, integer: true }));
+      controls.push(ctl('visca.address', 'VISCA address', 'number', rig.visca.address, 'visca.address', { min: 0, max: 7, integer: true }));
+    }
+    if (rig.gimbal) {
+      controls.push(ctl('gimbal.host', 'Bridge host', 'text', rig.gimbal.host, 'gimbal.host', { required: true, maxLength: 253 }));
+      controls.push(ctl('gimbal.port', 'Port', 'number', rig.gimbal.port, 'gimbal.port', { min: 1, max: 65535, integer: true }));
+      controls.push(ctl('gimbal.gimbalModel', 'Gimbal model', 'text', rig.gimbal.gimbalModel || '', 'gimbal.gimbalModel', { nullable: true, maxLength: 32 }));
+    }
+    controls.push(ctl('inputId', 'ATEM input', 'number', rig.wired ? rig.inputId : '', 'inputId', { nullable: true, min: 1, max: 99, integer: true, placeholder: 'None — control only', note: 'Leave empty for control only: motion works, but this rig cannot be taken live' }));
+    if (rig.builtInCamera) controls.push(readonly('camera', 'Sony camera', 'Built-in camera'));
+    else controls.push(ctl('camera', 'Sony camera', 'select', rig.camera || '', 'camera', { nullable: true, options: cameraOptions(data, rig) }));
+    controls.push(readonly('position', 'Position', 'Rig ' + rig.position + ' (' + rig.id + ')' + (rig.hotkey ? ' — selected with ' + rig.hotkey : '')));
+    var advancedControls = [ctl('speedScale', 'Speed multiplier', 'number', rig.speedScale, 'speedScale', { min: 0.1, max: 5, step: 0.1 })];
+    if (rig.gimbal) {
+      advancedControls.push(ctl('gimbal.safetyTimeoutMs', 'Safety stop timeout (ms)', 'number', rig.gimbal.safetyTimeoutMs, 'gimbal.safetyTimeoutMs', { min: 50, max: 2000, integer: true, note: 'The gimbal stops if it hears nothing for this long' }));
+      advancedControls.push(ctl('gimbal.rollEnabled', 'Roll', 'toggle', !!rig.gimbal.rollEnabled, 'gimbal.rollEnabled', {}));
+    }
+    return {
+      kind: 'rig', title: rigTitle(rig), fields: fields, advanced: advanced, notes: notes,
+      endpoint: editable ? '/api/rigs/' + encodeURIComponent(rig.deviceKey) : null,
+      controls: controls, advancedControls: advancedControls,
+    };
+  }
+
+  /** The Sony camera choices for a rig: None, then every named Sony camera (taken ones shown but disabled). */
+  function cameraOptions(data, rig) {
+    var options = [{ value: '', label: 'None' }];
+    ((data && data.sonyDevices) || []).forEach(function (device) {
+      var elsewhere = (device.usedByRigs || []).filter(function (r) { return r.position !== rig.position; });
+      var option = { value: device.key, label: device.label };
+      if (elsewhere.length) { option.disabled = true; option.hint = 'on ' + elsewhere.map(function (r) { return r.label; }).join(', '); option.label = device.label + ' — on ' + elsewhere.map(function (r) { return r.label; }).join(', '); }
+      else if (!device.sonyCameraId) option.hint = 'no camera bound yet';
+      options.push(option);
+    });
+    return options;
   }
 
   function atemInspector(data) {
@@ -198,6 +246,19 @@
         field('Key fade (frames)', String(g.fadeFrames)),
       ],
       notes: [],
+      endpoint: '/api/atem',
+      controls: [
+        ctl('ip', 'IP address', 'text', atem.ip || '', 'ip', { required: true, maxLength: 253, note: 'Changing it reconnects the switcher' }),
+        ctl('defaultTransition', 'Default transition', 'select', atem.defaultTransition === 'auto' ? 'auto' : 'cut', 'defaultTransition', { options: [{ value: 'cut', label: 'Cut' }, { value: 'auto', label: 'Auto' }] }),
+        ctl('meIndex', 'Mix/effect index', 'number', atem.meIndex, 'meIndex', { min: 0, max: 3, integer: true }),
+      ],
+      advancedControls: [
+        ctl('graphics.type', 'Graphics keyer', 'select', g.type || 'dsk', 'graphics.type', { options: [{ value: 'dsk', label: 'DSK' }, { value: 'usk', label: 'USK' }, { value: 'auto', label: 'Auto' }] }),
+        ctl('graphics.dskIndex', 'DSK index', 'number', g.dskIndex, 'graphics.dskIndex', { min: 0, max: 3, integer: true }),
+        ctl('graphics.uskIndex', 'USK index', 'number', g.uskIndex, 'graphics.uskIndex', { min: 0, max: 3, integer: true }),
+        ctl('graphics.meIndex', 'Graphics mix/effect', 'number', g.meIndex, 'graphics.meIndex', { min: 0, max: 3, integer: true }),
+        ctl('graphics.fadeFrames', 'Key fade (frames)', 'number', g.fadeFrames, 'graphics.fadeFrames', { min: 0, max: 250, integer: true }),
+      ],
     };
   }
 
@@ -221,15 +282,30 @@
         message: status && status.message ? status.message : null,
         approved: !!(status && status.approved),
         usedBy: (device.usedByRigs || []).map(function (r) { return r.label + ' (rig ' + r.position + ')'; }),
+        // What the operator can do with this camera right now.
+        canConnect: !!(device.sonyCameraId && device.state === 'discovered_unapproved'),
+        // A first connect that failed leaves the camera unapproved; it must still be retryable.
+        canRetry: !!(device.sonyCameraId && RETRYABLE[device.state]),
+        canForget: !!(status && status.approved),
+        canBind: !device.sonyCameraId,
+        canDelete: !(device.usedByRigs && device.usedByRigs.length),
+        deleteBlockedBy: (device.usedInProfiles || []),
       };
     });
     var found = ((data && data.unboundCameras) || []).map(function (camera) {
-      return { id: camera.id, model: camera.model || 'Sony camera', state: camera.state, stateText: sonyStateText(camera.state), tone: sonyTone(camera.state), message: camera.message || null };
+      return {
+        id: camera.id, model: camera.model || 'Sony camera', state: camera.state, stateText: sonyStateText(camera.state), tone: sonyTone(camera.state),
+        message: camera.message || null,
+        canConnect: camera.state === 'discovered_unapproved',
+        canRetry: !!RETRYABLE[camera.state],
+        suggestedName: camera.model || 'Sony camera',
+      };
     });
     return {
       kind: 'sony-connections',
       title: 'Sony connections',
-      service: { state: service.state, text: service.text, tone: service.tone, message: sidecar && sidecar.message ? sidecar.message : null, mode: sidecar ? sidecar.mode : null },
+      service: { state: service.state, text: service.text, tone: service.tone, message: sidecar && sidecar.message ? sidecar.message : null, mode: sidecar ? sidecar.mode : null, canRetry: !!sidecar && (service.state === 'absent' || service.state === 'crashed') },
+      canRefresh: !!sidecar && service.state === 'healthy',
       devices: devices,
       found: found,
       fields: [],

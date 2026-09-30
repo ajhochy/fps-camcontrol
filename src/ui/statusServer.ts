@@ -13,7 +13,7 @@ import {
   type Profile as CameraProfile,
 } from '../config/configLoader';
 import { buildRigs, describeRigDelete } from '../config/rigs';
-import { applyRigPatch, createRig, removeRig, rigPositionOf, createSonyDevice, patchSonyDevice, deleteSonyDevice, RigEditError } from '../config/rigEdit';
+import { applyRigPatch, applyAtemPatch, createRig, removeRig, rigPositionOf, createSonyDevice, patchSonyDevice, deleteSonyDevice, RigEditError } from '../config/rigEdit';
 import { presetSlotsSet } from '../model/presetShift';
 import { PresetManager } from '../model/presetManager';
 import { ActivityLog } from '../app/activityLog';
@@ -178,6 +178,23 @@ export function createStatusServer(
     const { expectedVersion, change } = splitVersion(req.body);
     try { commitConfigEdit(expectedVersion, (raw) => applyRigPatch(raw, key, change)); res.json({ ok: true, ...rigsBody() }); } catch (err) { editFailed(res, err); }
   });
+  // The ATEM connection and graphics keyer. A changed address reconnects the switcher, as the classic Device Config does.
+  app.patch('/api/atem', (req, res) => {
+    const { expectedVersion, change } = splitVersion(req.body);
+    try {
+      const before = config.atem.ip;
+      commitConfigEdit(expectedVersion, (raw) => applyAtemPatch(raw, change));
+      const fresh = loadConfig();
+      config.atem = fresh.atem;
+      config.graphics = fresh.graphics;
+      if (fresh.atem.ip !== before && atem) {
+        atem.disconnect();
+        atem.connect().catch(err => logger.warn({ err }, 'ATEM reconnect after config change failed'));
+      }
+      res.json({ ok: true, ...rigsBody() });
+    } catch (err) { editFailed(res, err); }
+  });
+
   // Add a rig at the end of the active profile: an existing controller ({deviceKey}) or new hardware
   // ({label, controller, visca|gimbal}), with an optional ATEM input and Sony camera.
   app.post('/api/rigs', (req, res) => {

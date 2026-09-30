@@ -48,7 +48,30 @@
 .rigs-camera { border: 1px solid var(--border, #2a343a); background: var(--surface-2, #171d21); padding: 8px 10px; margin: 6px 0; min-width: 0; }
 .rigs-camera-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .rigs-camera-name { color: var(--text, #edf1f2); overflow-wrap: anywhere; }
+.rigs-camera-head .rigs-chip { flex: none; white-space: nowrap; }
+.rigs-camera-head .rigs-name { flex: 1 1 auto; }
 .rigs-camera-line { font-size: .78rem; color: var(--text-2, #93a0a7); overflow-wrap: anywhere; margin-top: 2px; }
+
+.rigs-form { display: grid; gap: 10px; margin: 10px 0; }
+.rigs-row { display: grid; grid-template-columns: minmax(110px, 160px) minmax(0, 1fr); gap: 4px 12px; align-items: start; }
+.rigs-row-label { color: var(--text-2, #93a0a7); font-size: .8rem; padding-top: 10px; }
+.rigs-row-control { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; }
+.rigs-input { min-height: 40px; max-width: 100%; }
+.rigs-row-control .rigs-input { flex: 1 1 180px; }
+.rigs-check { width: 22px; height: 22px; margin: 9px 0; }
+.rigs-readonly-value { padding-top: 10px; overflow-wrap: anywhere; }
+.rigs-inline { font-size: .78rem; min-height: 1em; }
+.rigs-inline.is-ok { color: var(--ok-text, #74d69a); }
+.rigs-inline.is-err { color: var(--err-text, #ff8a91); overflow-wrap: anywhere; }
+.rigs-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.rigs-actions .rigs-name { flex: 1 1 200px; }
+.rigs-name { min-width: 0; }
+.rigs-btn { min-height: 40px; padding: 0 14px; border: 1px solid var(--border-strong, #3b474e); background: var(--surface-2, #171d21); color: var(--text, #edf1f2); cursor: pointer; }
+.rigs-btn:hover:not(:disabled) { background: var(--surface-3, #1d252a); }
+.rigs-btn:disabled { opacity: .5; cursor: not-allowed; }
+.rigs-btn:focus-visible, .rigs-input:focus-visible { outline: 2px solid var(--blue, #55a7ff); outline-offset: 1px; }
+.rigs-btn.is-primary { border-color: var(--amber, #ffb547); color: var(--amber, #ffb547); }
+.rigs-btn.is-danger { color: var(--err-text, #ff8a91); }
 
 /* Two columns: the live status moves under the inspector. */
 @media (max-width: 1100px) {
@@ -65,4 +88,6 @@
   .rigs-shell[data-pane="detail"] .rigs-list { display: none; }
   .rigs-back { display: block; }
   .rigs-chips { max-width: 45%; }
+  .rigs-row { grid-template-columns: minmax(0, 1fr); }
+  .rigs-row-label { padding-top: 0; }
 }

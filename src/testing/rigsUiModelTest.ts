@@ -104,6 +104,45 @@ check('a camera says which rig it is on', conn.devices[0].usedBy.join() === 'V-B
 check('a camera with no bound id says it has no camera yet', conn.devices[2].stateText === 'No camera bound yet' && conn.devices[2].tone === 'idle' && conn.devices[2].sonyCameraId === null);
 check('it lists cameras found that no device is bound to', conn.found.length === 1 && conn.found[0].id === 'AA:00:00:00:00:09' && conn.found[0].model === 'ILCE-7M4' && conn.found[0].stateText === 'New camera — connect to approve');
 check('a camera the app has approved is marked approved; an unbound device is not', conn.devices[0].approved === true && conn.devices[1].approved === true && conn.devices[2].approved === false);
+// ---- editable controls
+const control = (info: any, id: string): any => [...(info.controls ?? []), ...(info.advancedControls ?? [])].find((c: any) => c.id === id);
+check('an editable rig inspector says where its changes go', rig.endpoint === '/api/rigs/vbot' && gimbal.endpoint === '/api/rigs/rs3');
+check('the name is a required text control of at most 64 characters', control(rig, 'label').type === 'text' && control(rig, 'label').path === 'label' && control(rig, 'label').maxLength === 64 && control(rig, 'label').required === true);
+check('the controller type is read-only (it cannot be changed once the rig exists)', control(rig, 'controller').type === 'readonly');
+check('a V-BOT has IP, port and VISCA address controls with their limits', control(rig, 'visca.host').path === 'visca.host' && control(rig, 'visca.port').min === 1 && control(rig, 'visca.port').max === 65535 && control(rig, 'visca.address').max === 7 && control(rig, 'visca.address').integer === true && control(rig, 'gimbal.host') === undefined);
+check('a gimbal has bridge host, port and model controls and no VISCA controls', control(gimbal, 'gimbal.host').value === 'dji-bridge.local' && control(gimbal, 'gimbal.port').value === 7878 && control(gimbal, 'gimbal.gimbalModel').nullable === true && control(gimbal, 'visca.host') === undefined);
+check('the ATEM input control is optional, and empty means control only', control(rig, 'inputId').nullable === true && control(rig, 'inputId').value === 6 && control(gimbal, 'inputId').value === '' && /control only/.test(control(gimbal, 'inputId').note));
+check('gimbal safety timeout and roll are advanced controls with limits', control(gimbal, 'gimbal.safetyTimeoutMs').min === 50 && control(gimbal, 'gimbal.safetyTimeoutMs').max === 2000 && control(gimbal, 'gimbal.rollEnabled').type === 'toggle' && gimbal.advancedControls.includes(control(gimbal, 'gimbal.rollEnabled')));
+check('the speed multiplier is an advanced number from 0.1 to 5', control(rig, 'speedScale').min === 0.1 && control(rig, 'speedScale').max === 5 && rig.advancedControls.includes(control(rig, 'speedScale')));
+const cameraSelect = control(rig, 'camera');
+check('the camera control is a select that can be cleared', cameraSelect.type === 'select' && cameraSelect.nullable === true && cameraSelect.value === 'sony-a' && cameraSelect.options[0].value === '' && cameraSelect.options[0].label === 'None');
+check('the camera choices are the named Sony cameras', cameraSelect.options.slice(1).map((o: any) => o.label).join('|').startsWith('a7S III — stage left|FX3A — stage right — on DJI RS3|Not yet bound'));
+check('a camera on another rig is shown but cannot be chosen', cameraSelect.options.find((o: any) => o.value === 'sony-b').disabled === true && /on DJI RS3/.test(cameraSelect.options.find((o: any) => o.value === 'sony-b').hint));
+check('the rig\'s own camera and free cameras can be chosen', !cameraSelect.options.find((o: any) => o.value === 'sony-a').disabled && !cameraSelect.options.find((o: any) => o.value === 'sony-c').disabled);
+check('a camera with no bound id says so', cameraSelect.options.find((o: any) => o.value === 'sony-c').hint === 'no camera bound yet');
+check('a BirdDog has no camera choice, only a built-in note', control(birddog, 'camera').type === 'readonly' && control(birddog, 'camera').value === 'Built-in camera');
+check('the ATEM inspector edits through its own route', atem.endpoint === '/api/atem' && control(atem, 'ip').path === 'ip' && control(atem, 'ip').note === 'Changing it reconnects the switcher');
+check('the ATEM default transition is a cut/auto select', control(atem, 'defaultTransition').type === 'select' && control(atem, 'defaultTransition').options.map((o: any) => o.value).join() === 'cut,auto' && control(atem, 'defaultTransition').value === 'cut');
+check('the ATEM mix/effect and graphics controls carry their limits', control(atem, 'meIndex').max === 3 && control(atem, 'graphics.fadeFrames').max === 250 && control(atem, 'graphics.type').options.length === 3 && atem.advancedControls.includes(control(atem, 'graphics.dskIndex')));
+
+// ---- Sony connection actions
+const [camA, camB, camC] = conn.devices;
+check('a connected, approved camera can be forgotten but not connected or retried', camA.canForget === true && camA.canConnect === false && camA.canRetry === false);
+check('a camera with an error can be retried', camB.canRetry === true && camB.canForget === true);
+const firstFail = payload(); firstFail.sony.cameras = firstFail.sony.cameras.map((c: any) => c.id === '78:F5:05:43:AD:50' ? { ...c, approved: false } : c);
+check('a first connect that failed (camera not approved yet) can still be retried', model.inspectorFor(firstFail, 'sony').devices[1].canRetry === true && model.inspectorFor(firstFail, 'sony').devices[1].canForget === false);
+const failedFound = payload(); failedFound.unboundCameras = [{ id: 'Q1', model: 'ILCE-7M4', state: 'error', message: 'Camera connection failed' }];
+check('a found camera whose connect failed can be retried but not connected again', model.inspectorFor(failedFound, 'sony').found[0].canRetry === true && model.inspectorFor(failedFound, 'sony').found[0].canConnect === false);
+check('a camera that is connecting can be neither retried nor connected', (() => { const c = payload(); c.sonyDevices[0].state = 'connecting'; const d = model.inspectorFor(c, 'sony').devices[0]; return d.canRetry === false && d.canConnect === false; })());
+check('a camera on a rig cannot be deleted; an unused one can', camA.canDelete === false && camC.canDelete === true);
+check('an unbound device can be bound to a found camera, a bound one cannot', camC.canBind === true && camA.canBind === false && camC.canRetry === false && camC.canForget === false);
+check('a newly found camera can be connected (approved) and comes with a suggested name', conn.found[0].canConnect === true && conn.found[0].suggestedName === 'ILCE-7M4');
+check('a healthy Sony service offers refresh but not retry', conn.service.canRetry === false && conn.canRefresh === true);
+const downConn = model.inspectorFor(downService, 'sony');
+check('a Sony service that is not running offers retry but not refresh', downConn.service.canRetry === true && downConn.canRefresh === false);
+const freshDevice = payload(); freshDevice.sonyDevices = [{ key: 'n', label: 'N', sonyCameraId: 'Z', model: 'M', state: 'discovered_unapproved', usedByRigs: [], usedInProfiles: [] }]; freshDevice.unboundCameras = []; freshDevice.sony.cameras = [{ id: 'Z', model: 'M', state: 'discovered_unapproved', approved: false, message: null }];
+check('a named camera that has been found but not approved offers Connect', model.inspectorFor(freshDevice, 'sony').devices[0].canConnect === true && model.inspectorFor(freshDevice, 'sony').devices[0].canForget === false);
+
 check('an unknown key has no inspector (including the retired per-camera keys)', model.inspectorFor(data, 'rig:nope') === null && model.inspectorFor(data, 'mystery') === null && model.inspectorFor(data, null) === null && model.inspectorFor(data, 'sony:sony-a') === null && model.inspectorFor(data, 'camera:AA:00:00:00:00:09') === null);
 
 // ---- live status
@@ -132,6 +171,7 @@ check('flatItems lists every item in display order', model.flatItems(data).lengt
 // ---- legacy (flat cameras: list)
 const legacy = payload({ ...config(), cameras: resolveProfile(devices, profiles.production), profiles: undefined, devices: undefined });
 check('a legacy config still lists its rigs, keyed by camera id', legacy.legacy === true && model.itemsOf(legacy)[0].items.map((i: any) => i.key).join() === 'rig:cam1,rig:cam2,rig:cam3');
+check('a legacy rig without a device key is not editable', model.inspectorFor(legacy, 'rig:cam1').endpoint === null);
 check('a legacy rig inspector works without a device key', model.inspectorFor(legacy, 'rig:cam1').title === 'V-BOT');
 check('the state text helper names Sony states', model.sonyStateText('needs_pairing') === 'Needs pairing / camera setup' && model.sonyStateText(null) === 'Not seen yet' && model.sonyStateText('weird_state') === 'weird state');
 

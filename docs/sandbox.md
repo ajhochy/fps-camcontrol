@@ -44,6 +44,13 @@ curl -X POST -H 'content-type: application/json' -d '{"ms":10000}'  http://127.0
 curl http://127.0.0.1:8191/__sandbox/state
 ```
 
+## Using the Sony connections screen against the fakes
+
+In the Rigs tab choose **Sony connections**. **Connect** the a7S III; **Connect** the FX3A and watch it refuse (it needs
+pairing), then open its pairing with the `pairing` curl above and choose **Retry connect**; rename a camera; power camera
+`...04` on, choose **Refresh cameras**, then **Add as named camera** (or bind it to a camera you named before it was
+connected); **Forget** and **Delete** (Delete is disabled while a rig uses the camera).
+
 The fake copies behaviours of the real service that mattered in practice: only powered cameras are listed,
 settings must be sent as strings (a hex value such as `"0x190"`, or the text `"F4"`; raw numbers are refused),
 a camera that loses power stops being connected on its own, and a scan can be slow. It is not the real

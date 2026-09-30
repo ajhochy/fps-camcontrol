@@ -4,7 +4,7 @@ import os from 'os';
 import path from 'path';
 import * as YAML from 'yaml';
 import { readDevicesFile, writeDevicesFile, ConfigConflictError, devicesFileVersion } from '../config/configLoader';
-import { applyRigPatch, createRig, removeRig, rigPositionOf, createSonyDevice, patchSonyDevice, deleteSonyDevice, RigEditError } from '../config/rigEdit';
+import { applyRigPatch, applyAtemPatch, createRig, removeRig, rigPositionOf, createSonyDevice, patchSonyDevice, deleteSonyDevice, RigEditError } from '../config/rigEdit';
 import { shiftPresetsAfterRemoval, presetSlotsSet } from '../model/presetShift';
 
 /**
@@ -231,6 +231,28 @@ check('removing the last rig just drops its presets', JSON.stringify(Object.keys
 check('removing the first rig shifts everyone down', JSON.stringify(shiftPresetsAfterRemoval(presets, 1, 4).cam1) === JSON.stringify(presets.cam2));
 check('a camera with no saved presets entry shifts as empty', shiftPresetsAfterRemoval({ cam1: { A: null }, cam3: { A: { pan: 9 } } } as any, 1, 3).cam1 === undefined);
 check('presetSlotsSet lists only slots that hold a position', presetSlotsSet(presets.cam4).join() === 'Y' && presetSlotsSet(undefined).length === 0 && presetSlotsSet({ A: null }).length === 0);
+
+// ---- ATEM
+reset();
+let atemRaw = applyAtemPatch(current(), { ip: '10.0.0.77', defaultTransition: 'auto', meIndex: 1 });
+check('the ATEM address, default transition and mix/effect can be changed', atemRaw.atem.ip === '10.0.0.77' && atemRaw.atem.defaultTransition === 'auto' && atemRaw.atem.meIndex === 1);
+check('an ATEM edit leaves the devices and profiles alone', JSON.stringify(atemRaw.devices) === JSON.stringify(current().devices) && JSON.stringify(atemRaw.profiles) === JSON.stringify(current().profiles));
+atemRaw = applyAtemPatch(current(), { graphics: { type: 'usk', dskIndex: 1, uskIndex: 2, meIndex: 1, fadeFrames: 30 } });
+check('the graphics keyer settings can be changed (and created when the file had none)', atemRaw.graphics.type === 'usk' && atemRaw.graphics.dskIndex === 1 && atemRaw.graphics.uskIndex === 2 && atemRaw.graphics.meIndex === 1 && atemRaw.graphics.fadeFrames === 30);
+check('a partial graphics edit changes only what was sent', applyAtemPatch(atemRaw, { graphics: { fadeFrames: 0 } }).graphics.dskIndex === 1 && applyAtemPatch(atemRaw, { graphics: { fadeFrames: 0 } }).graphics.fadeFrames === 0);
+refused('an empty ATEM address is refused', () => applyAtemPatch(current(), { ip: '  ' }), /ATEM address \(IP\) must be/);
+refused('a placeholder ATEM address is refused by the same rule the loader uses', () => applyAtemPatch(current(), { ip: 'undefined' }), /real hostname or IP/);
+refused('a default transition other than cut or auto is refused', () => applyAtemPatch(current(), { defaultTransition: 'fade' }), /cut or auto/);
+refused('a mix/effect index outside 0-3 is refused', () => applyAtemPatch(current(), { meIndex: 7 }), /mix\/effect index must be/);
+refused('a graphics keyer other than dsk, usk or auto is refused', () => applyAtemPatch(current(), { graphics: { type: 'xyz' } }), /dsk, usk or auto/);
+refused('a key fade over 250 frames is refused', () => applyAtemPatch(current(), { graphics: { fadeFrames: 300 } }), /key fade/);
+refused('a DSK index outside 0-3 is refused', () => applyAtemPatch(current(), { graphics: { dskIndex: 4 } }), /DSK index must be/);
+refused('an unknown ATEM field is refused', () => applyAtemPatch(current(), { firmware: '9' }), /"firmware" cannot be changed here/);
+refused('an unknown graphics field is refused', () => applyAtemPatch(current(), { graphics: { colour: 'red' } }), /"colour" cannot be changed here/);
+reset();
+writeDevicesFile(applyAtemPatch(current(), { ip: '10.0.0.77', graphics: { fadeFrames: 20 } }));
+check('an ATEM edit through the writer keeps every comment and the devices', comments(fs.readFileSync(file, 'utf8')) >= comments(fixture) && onDisk().devices.rs3.protocol === 'dji-bridge' && onDisk().atem.ip === '10.0.0.77' && onDisk().graphics.fadeFrames === 20);
+reset();
 
 if (previous === undefined) delete process.env.DEVICES_CONFIG; else process.env.DEVICES_CONFIG = previous;
 fs.rmSync(dir, { recursive: true, force: true });
