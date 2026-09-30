@@ -81,6 +81,10 @@ export interface RigsView {
   sonyDevices: SonyDeviceView[];
   /** Cameras the Sony service has found that no Sony device is bound to yet (candidates to add or bind). */
   unboundCameras: SonyCameraInfo[];
+  /** Controllers in the inventory that are not a rig in the active profile: offered when adding a rig. */
+  availableControllers: { key: string; label: string; controller: RigController }[];
+  /** A profile holds at most this many rigs. */
+  maxRigs: number;
 }
 
 function controllerOf(cam: CameraConfig): RigController {
@@ -173,6 +177,14 @@ export function buildRigs(
     })),
     sonyDevices,
     unboundCameras: sonyCameras.filter((camera) => !boundIds.has(camera.id.toUpperCase())),
+    availableControllers: Object.entries(inventory)
+      .filter(([key, device]) => device.protocol !== 'sony' && !slots.some((slot) => slot.device === key))
+      .map(([key, device]) => ({
+        key,
+        label: device.label,
+        controller: device.protocol === 'dji-bridge' ? 'gimbal' : device.cameraType === 'vbot' ? 'vbot' : device.cameraType === 'birddog' ? 'birddog' : 'generic' as RigController,
+      })),
+    maxRigs: 8,
   };
 }
 

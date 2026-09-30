@@ -131,6 +131,17 @@ const sixImpact = describeRigDelete(buildRigs(sixConfig, state, 'v9'), {}, { sel
 check('a rig moving from position 5 into position 4 gains the fourth hotkey', sixImpact.shifted[0].fromHotkey === null && sixImpact.shifted[0].toHotkey === 'Y');
 check('a rig moving from position 6 into position 5 has no hotkey before or after', sixImpact.shifted[1].fromHotkey === null && sixImpact.shifted[1].toHotkey === null);
 
+// ---- controllers that could be added as a rig
+const extraConfig = baseConfig('production');
+extraConfig.devices = { ...devices, 'rs3-spare': { label: 'DJI RS3 Spare', protocol: 'dji-bridge', cameraType: 'generic', viscaPort: 52381, cameraAddress: 1, speedScale: 1, bridge: { host: 'x', port: 1, safetyTimeoutMs: 250, reconnectBackoffMs: [1000], rollEnabled: false } } as InventoryDevice, 'sony-z': { label: 'Sony Z', protocol: 'sony' } as InventoryDevice };
+extraConfig.profiles = { production: { label: 'Production', slots: [{ device: 'vbot', inputId: 6 }, { device: 'birddog1', inputId: 7 }, { device: 'rs3', inputId: 2 }] } };
+const extraView = buildRigs(extraConfig, state, 'v10');
+check('controllers not yet a rig are offered for a new rig, with their type', extraView.availableControllers.length === 1 && extraView.availableControllers[0].key === 'rs3-spare' && extraView.availableControllers[0].controller === 'gimbal');
+check('Sony cameras are never offered as controllers', !extraView.availableControllers.some((c) => c.key === 'sony-z'));
+check('a controller already in the profile is not offered again', !extraView.availableControllers.some((c) => c.key === 'vbot' || c.key === 'rs3'));
+check('the rig limit is reported', extraView.maxRigs === 8);
+check('a legacy config offers no controllers to add', buildRigs({ ...baseConfig(), cameras: resolveProfile(devices, profiles.production), profiles: undefined, devices: undefined }, state, 'v11').availableControllers.length === 0);
+
 check('the payload carries no secrets or credentials', !/password|token|secret|fingerprint/i.test(payload));
 check('the payload is JSON round-trippable', JSON.stringify(JSON.parse(payload)) === payload);
 

@@ -70,6 +70,12 @@ Connect it, select the rig). It pauses while the browser tab is hidden, like the
 headless browser pane shows no picture unless it reports itself visible. Power the camera off and the picture gets a
 STALE badge, then disappears once the app marks the camera disconnected.
 
+Adding and removing: the **+** button opens a menu (Rig…, Sony camera…, and disabled ATEM switcher / NDI stream).
+**Rig…** opens a form that adapts to the controller type (or picks a controller that is already set up); the new rig
+is added at the end. **Remove this rig…** (bottom of a rig's inspector) asks the server what would change and shows it
+— the presets that are lost, the later rigs that move up with their new camera id and hotkey — before anything is
+removed; **Keep it** cancels. The sandbox presets are seeded so you can watch them follow their cameras.
+
 ## What the self-test covers (`pnpm sandbox:check`)
 
 The app starts and adopts the fake Sony service; bound cameras show their names; `GET /api/rigs` shape;

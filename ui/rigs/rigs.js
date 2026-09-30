@@ -13,7 +13,7 @@
   var STORE_KEY = 'rigs.selected';
   var app = { data: null, selected: null, error: null, pane: 'list', inspectorSig: '', timer: null, flash: null, messages: {} };
 
-  function remember(key) { try { window.localStorage.setItem(STORE_KEY, key || ''); } catch (e) { /* storage may be blocked */ } }
+  function remember(key) { if (key && key.indexOf('new:') === 0) return; try { window.localStorage.setItem(STORE_KEY, key || ''); } catch (e) { /* storage may be blocked */ } }
   function recall() { try { return window.localStorage.getItem(STORE_KEY) || null; } catch (e) { return null; } }
 
   function el(tag, className, text) {
@@ -39,12 +39,19 @@
   var profileLine = el('div', 'rigs-profile');
   var addButton = el('button', 'rigs-add', '+');
   addButton.type = 'button';
-  addButton.disabled = true;
-  addButton.title = 'Adding rigs and connections arrives in a later step';
-  addButton.setAttribute('aria-label', 'Add (not available yet)');
+  addButton.title = 'Add a rig or a connection';
+  addButton.setAttribute('aria-label', 'Add');
+  addButton.setAttribute('aria-haspopup', 'menu');
+  addButton.setAttribute('aria-expanded', 'false');
+  var addMenu = el('div', 'rigs-menu');
+  addMenu.setAttribute('role', 'menu');
+  addMenu.hidden = true;
   var listHead = el('div', 'rigs-list-head');
   listHead.appendChild(profileLine);
-  listHead.appendChild(addButton);
+  var addWrap = el('div', 'rigs-add-wrap');
+  addWrap.appendChild(addButton);
+  addWrap.appendChild(addMenu);
+  listHead.appendChild(addWrap);
   listCol.appendChild(listHead);
   listCol.appendChild(listBox);
 
@@ -92,7 +99,7 @@
     var activeName = data.profiles.filter(function (p) { return p.active; }).map(function (p) { return p.label || p.name; })[0] || data.activeProfile;
     profileLine.textContent = data.legacy ? 'Legacy config (no profiles)' : 'Profile: ' + activeName;
 
-    model.itemsOf(data).forEach(function (section) {
+    model.itemsOf(data, app.selected).forEach(function (section) {
       var group = el('div', 'rigs-group');
       group.setAttribute('role', 'group');
       var headingId = 'rigs-section-' + section.id;
@@ -309,6 +316,7 @@
     heading.id = 'rigs-inspector-heading';
     inspectBody.appendChild(heading);
     if (info.kind === 'sony-connections') { drawSonyConnections(info); return; }
+    if (info.kind === 'new-rig') { drawAddRig(info); return; }
     if (!info.endpoint) {
       inspectBody.appendChild(el('p', 'rigs-readonly', 'Read-only: this config has no profiles (it uses a flat cameras: list).'));
       inspectBody.appendChild(fieldList(info.fields));
@@ -328,6 +336,7 @@
       inspectBody.appendChild(readOnlyDetails);
     }
     (info.notes || []).forEach(function (note) { inspectBody.appendChild(el('p', 'rigs-info', note)); });
+    if (info.removable) drawRemove(info);
   }
 
   // ---- the Sony connections screen
@@ -478,6 +487,206 @@
     inspectBody.appendChild(addRow);
   }
 
+  // ---- the + menu
+  function closeMenu(returnFocus) {
+    addMenu.hidden = true;
+    addButton.setAttribute('aria-expanded', 'false');
+    if (returnFocus) addButton.focus();
+  }
+  function menuItem(text, hint, disabled, handler) {
+    var item = el('button', 'rigs-menu-item', text);
+    item.type = 'button';
+    item.setAttribute('role', 'menuitem');
+    if (hint) item.title = hint;
+    if (disabled) { item.disabled = true; item.setAttribute('aria-disabled', 'true'); }
+    else item.addEventListener('click', function () { closeMenu(false); handler(); });
+    addMenu.appendChild(item);
+    return item;
+  }
+  function openMenu() {
+    clear(addMenu);
+    menuItem('Rig…', 'Add a camera position', false, function () { select('new:rig', { showDetail: true, focusInspector: true }); });
+    menuItem('Sony camera…', 'Name a Sony camera and connect it', false, function () {
+      select('sony', { showDetail: true, focusInspector: true });
+      var input = inspectBody.querySelector('.rigs-actions:last-of-type input'); if (input) input.focus();
+    });
+    menuItem('ATEM switcher', 'One ATEM switcher is supported', true, function () {});
+    menuItem('NDI stream', 'Coming soon', true, function () {});
+    addMenu.hidden = false;
+    addButton.setAttribute('aria-expanded', 'true');
+    var first = addMenu.querySelector('button:not(:disabled)');
+    if (first) first.focus();
+  }
+  addButton.addEventListener('click', function () { if (addMenu.hidden) openMenu(); else closeMenu(true); });
+  addMenu.addEventListener('keydown', function (event) {
+    var items = [].slice.call(addMenu.querySelectorAll('button:not(:disabled)'));
+    var at = items.indexOf(document.activeElement);
+    if (event.key === 'Escape') { event.preventDefault(); closeMenu(true); }
+    else if (event.key === 'ArrowDown') { event.preventDefault(); if (items.length) items[(at + 1) % items.length].focus(); }
+    else if (event.key === 'ArrowUp') { event.preventDefault(); if (items.length) items[(at - 1 + items.length) % items.length].focus(); }
+  });
+  document.addEventListener('click', function (event) { if (!addMenu.hidden && !addWrap.contains(event.target)) closeMenu(false); });
+
+  // ---- adding a rig
+  function labeledRow(labelText, inputNode, id) {
+    var row = el('div', 'rigs-row');
+    var label = el('label', 'rigs-row-label', labelText);
+    if (id) label.setAttribute('for', id);
+    row.appendChild(label);
+    var box = el('div', 'rigs-row-control');
+    box.appendChild(inputNode);
+    row.appendChild(box);
+    return row;
+  }
+  function plainInput(type, value, id, options) {
+    var input = el('input', 'cfg-input rigs-input');
+    input.type = type; input.value = value === undefined || value === null ? '' : String(value); input.id = id;
+    if (options) for (var k in options) input.setAttribute(k, options[k]);
+    return input;
+  }
+  function selectInput(options, value, id) {
+    var select = el('select', 'cfg-input rigs-input');
+    select.id = id;
+    options.forEach(function (o) { var option = el('option', null, o.label); option.value = o.value; if (o.disabled) option.disabled = true; select.appendChild(option); });
+    select.value = value;
+    return select;
+  }
+
+  function drawAddRig(info) {
+    inspectBody.appendChild(el('p', 'rigs-readonly', 'The rig is added at position ' + info.nextPosition + ', after the existing rigs.'));
+    if (info.full) { inspectBody.appendChild(el('p', 'rigs-info', info.fullReason)); return; }
+    var values = { mode: 'new', controller: 'vbot', port: undefined, address: undefined };
+    var form = el('div', 'rigs-form');
+    var message = el('p', 'rigs-inline');
+    message.setAttribute('role', 'status');
+
+    var modeBox = null;
+    if (info.existing.length) {
+      var mode = selectInput([{ value: 'new', label: 'New hardware' }, { value: 'existing', label: 'A controller that is already set up' }], 'new', 'rigs-add-mode');
+      modeBox = labeledRow('Add', mode, 'rigs-add-mode');
+      mode.addEventListener('change', function () { values.mode = mode.value; drawDynamic(); });
+      form.appendChild(modeBox);
+    }
+    var dynamic = el('div', 'rigs-form');
+    form.appendChild(dynamic);
+    var wiring = el('div', 'rigs-form');
+    form.appendChild(wiring);
+
+    function drawDynamic() {
+      clear(dynamic);
+      if (values.mode === 'existing') {
+        var existing = selectInput([{ value: '', label: 'Choose…' }].concat(info.existing), values.deviceKey || '', 'rigs-add-existing');
+        existing.addEventListener('change', function () { values.deviceKey = existing.value; });
+        dynamic.appendChild(labeledRow('Controller', existing, 'rigs-add-existing'));
+      } else {
+        var name = plainInput('text', values.label || '', 'rigs-add-name', { maxlength: 64 });
+        name.addEventListener('input', function () { values.label = name.value; });
+        dynamic.appendChild(labeledRow('Name', name, 'rigs-add-name'));
+        var type = selectInput(info.controllers, values.controller, 'rigs-add-type');
+        type.addEventListener('change', function () { values.controller = type.value; values.host = ''; values.port = undefined; values.address = undefined; drawDynamic(); });
+        dynamic.appendChild(labeledRow('Controller', type, 'rigs-add-type'));
+        (values.controller === 'gimbal' ? info.connection.gimbal : info.connection.visca).forEach(function (control) {
+          var input = plainInput(control.type === 'number' ? 'number' : 'text', values[control.id] === undefined ? control.value : values[control.id], 'rigs-add-' + control.id, control.type === 'number' ? { min: control.min, max: control.max, step: 1 } : { maxlength: control.maxLength });
+          input.addEventListener('input', function () { values[control.id] = input.value; });
+          dynamic.appendChild(labeledRow(control.label, input, 'rigs-add-' + control.id));
+          if (values[control.id] === undefined && control.type === 'number') values[control.id] = control.value;
+        });
+      }
+      drawWiring();
+    }
+    function drawWiring() {
+      clear(wiring);
+      var input = plainInput('number', values.inputId, 'rigs-add-input', { min: 1, max: 99, step: 1, placeholder: 'None — control only' });
+      input.addEventListener('input', function () { values.inputId = input.value; });
+      wiring.appendChild(labeledRow('ATEM input', input, 'rigs-add-input'));
+      if (!(values.mode !== 'existing' && values.controller === 'birddog')) {
+        var camera = selectInput(info.cameraOptions, values.camera || '', 'rigs-add-camera');
+        camera.addEventListener('change', function () { values.camera = camera.value; });
+        wiring.appendChild(labeledRow('Sony camera', camera, 'rigs-add-camera'));
+      } else {
+        wiring.appendChild(labeledRow('Sony camera', el('span', 'rigs-readonly-value', 'Built-in camera'), null));
+      }
+    }
+    drawDynamic();
+    inspectBody.appendChild(form);
+
+    var actions = el('div', 'rigs-actions');
+    actions.appendChild(button('Add rig', 'is-primary', async function (b) {
+      var built = model.buildNewRigPayload(values);
+      if (!built.ok) { message.textContent = built.error; message.className = 'rigs-inline is-err'; return; }
+      built.payload.expectedVersion = app.data && app.data.version;
+      b.disabled = true; b.textContent = 'Adding…'; message.textContent = ''; message.className = 'rigs-inline';
+      var result = await call('POST', info.endpoint, built.payload);
+      if (result.ok) {
+        adopt(result.body);
+        var key = 'rig:' + result.body.key;
+        select(model.findItem(app.data, key) ? key : model.resolveSelection(app.data, null), { showDetail: true, focusInspector: true });
+      } else {
+        b.disabled = false; b.textContent = 'Add rig';
+        message.textContent = failureText(result); message.className = 'rigs-inline is-err';
+        if (result.status === 409 && result.body && result.body.conflict) { await load(); }
+      }
+    }));
+    actions.appendChild(button('Cancel', '', function () { select(model.resolveSelection(app.data, null), { showDetail: false, focusRow: true }); }));
+    actions.appendChild(message);
+    inspectBody.appendChild(actions);
+  }
+
+  // ---- removing a rig: ask the server what would change, show it, and only then remove
+  function drawRemove(info) {
+    var box = el('div', 'rigs-remove');
+    inspectBody.appendChild(box);
+    if (!info.removable.allowed) { box.appendChild(el('p', 'rigs-info', info.removable.reason)); return; }
+    var message = messageNode('remove');
+    var ask = button('Remove this rig…', 'is-danger', async function (b) {
+      b.disabled = true;
+      var result = await call('DELETE', info.removable.endpoint, {});
+      if (!(result.status === 409 && result.body && result.body.confirmationRequired)) {
+        b.disabled = false; message.textContent = failureText(result); message.className = 'rigs-inline is-err'; return;
+      }
+      showConfirm(result.body.impact);
+    });
+    box.appendChild(ask);
+    box.appendChild(message);
+    function showConfirm(impact) {
+      clear(box);
+      var panel = el('div', 'rigs-confirm');
+      panel.setAttribute('role', 'alertdialog');
+      panel.setAttribute('aria-label', 'Confirm removing ' + impact.label);
+      panel.appendChild(el('h3', 'rigs-subheading', 'Remove this rig?'));
+      var list = el('ul', 'rigs-impact');
+      model.impactLines(impact).forEach(function (line) { list.appendChild(el('li', null, line)); });
+      panel.appendChild(list);
+      var hardware = el('input', 'rigs-check');
+      hardware.type = 'checkbox'; hardware.id = 'rigs-remove-hardware';
+      var hardwareLabel = el('label', 'rigs-hardware-label', ' Also delete this device from the inventory');
+      hardwareLabel.setAttribute('for', 'rigs-remove-hardware');
+      hardwareLabel.insertBefore(hardware, hardwareLabel.firstChild);
+      if (impact.usedInOtherProfiles && impact.usedInOtherProfiles.length) { hardware.disabled = true; hardwareLabel.title = 'Other profiles still use it'; }
+      panel.appendChild(hardwareLabel);
+      var failure = el('p', 'rigs-inline'); failure.setAttribute('role', 'status');
+      var row = el('div', 'rigs-actions');
+      var go = button('Remove rig', 'is-danger', async function (b) {
+        b.disabled = true; b.textContent = 'Removing…';
+        var result = await call('DELETE', info.removable.endpoint, { confirm: true, deleteDevice: hardware.checked && !hardware.disabled, expectedVersion: app.data && app.data.version });
+        if (result.ok) {
+          adopt(result.body);
+          select(model.resolveSelection(app.data, null), { showDetail: false, focusRow: true });
+        } else {
+          b.disabled = false; b.textContent = 'Remove rig';
+          failure.textContent = failureText(result); failure.className = 'rigs-inline is-err';
+          if (result.status === 409 && result.body && result.body.conflict) await load();
+        }
+      });
+      row.appendChild(go);
+      row.appendChild(button('Keep it', '', function () { app.inspectorSig = ''; drawInspector(true); }));
+      panel.appendChild(row);
+      panel.appendChild(failure);
+      box.appendChild(panel);
+      go.focus();
+    }
+  }
+
   // ---- live preview (Sony live view, the same feed the Status page uses)
   var preview = { id: null, timer: null, url: null, fails: 0 };
   function stopPreview() {
@@ -574,7 +783,7 @@
   }
 
   function moveSelection(delta, absolute) {
-    var items = model.flatItems(app.data || {});
+    var items = model.flatItems(app.data || {}, app.selected);
     if (!items.length) return;
     var index = items.map(function (i) { return i.key; }).indexOf(app.selected);
     var next = absolute === 'first' ? 0 : absolute === 'last' ? items.length - 1 : Math.max(0, Math.min(items.length - 1, index + delta));

@@ -180,6 +180,49 @@ check('the ATEM can be reconnected', model.statusFor(data, 'atem').actions[0].ur
 check('a healthy Sony service offers Refresh cameras', model.statusFor(data, 'sony').actions.map((a: any) => a.id).join() === 'refresh');
 check('a Sony service that is not running offers Retry Sony service', model.statusFor(downService, 'sony').actions.map((a: any) => a.id).join() === 'retry-service');
 
+// ---- adding and removing rigs
+const addData = payload(); addData.availableControllers = [{ key: 'rs3-spare', label: 'DJI RS3 Spare', controller: 'gimbal' }]; addData.maxRigs = 8;
+const addInfo = model.inspectorFor(addData, 'new:rig');
+check('the add-rig form is an inspector with its own endpoint', addInfo.kind === 'new-rig' && addInfo.endpoint === '/api/rigs' && addInfo.title === 'Add a rig');
+check('the new rig goes at the end and the form says so', addInfo.nextPosition === 4 && addInfo.notes[0].includes('position 4'));
+check('the controller types are offered, BirdDog noting its built-in camera', addInfo.controllers.map((c: any) => c.value).join() === 'vbot,birddog,gimbal,generic' && /built-in camera/.test(addInfo.controllers[1].label));
+check('an existing controller can be chosen, with its type', addInfo.existing.length === 1 && addInfo.existing[0].value === 'rs3-spare' && /DJI gimbal/.test(addInfo.existing[0].label));
+check('VISCA and gimbal connection fields have their defaults', addInfo.connection.visca.find((c: any) => c.id === 'port').value === 52381 && addInfo.connection.visca.find((c: any) => c.id === 'address').value === 1 && addInfo.connection.gimbal.find((c: any) => c.id === 'port').value === 7878);
+check('cameras already on a rig are shown but not selectable for a new rig', addInfo.cameraOptions[0].value === '' && addInfo.cameraOptions.find((o: any) => o.value === 'sony-a').disabled === true && !addInfo.cameraOptions.find((o: any) => o.value === 'sony-c').disabled);
+check('a full profile cannot take another rig', model.inspectorFor({ ...addData, maxRigs: 3 }, 'new:rig').full === true && addInfo.full === false);
+check('the transient New rig row appears only while it is being added', model.itemsOf(addData)[0].items.length === 3 && model.itemsOf(addData, 'new:rig')[0].items.length === 4 && model.itemsOf(addData, 'new:rig')[0].items[3].key === 'new:rig');
+check('the new-rig selection survives a refresh', model.resolveSelection(addData, 'new:rig') === 'new:rig');
+
+const built = (values: any): any => model.buildNewRigPayload(values);
+check('a new V-BOT builds a VISCA request with its defaults', JSON.stringify(built({ mode: 'new', label: ' Side V-BOT ', controller: 'vbot', host: '192.168.50.40', inputId: '9' }).payload) === JSON.stringify({ label: 'Side V-BOT', controller: 'vbot', visca: { host: '192.168.50.40', port: 52381, address: 1 }, inputId: 9 }));
+check('a new gimbal builds a bridge request and leaves the model out when blank', JSON.stringify(built({ mode: 'new', label: 'G', controller: 'gimbal', host: 'pi.local', port: '7881', gimbalModel: '  ' }).payload) === JSON.stringify({ label: 'G', controller: 'gimbal', gimbal: { host: 'pi.local', port: 7881 } }));
+check('a gimbal model is passed on when given', built({ mode: 'new', label: 'G', controller: 'gimbal', host: 'pi', gimbalModel: 'RS3Pro' }).payload.gimbal.gimbalModel === 'RS3Pro');
+check('a blank ATEM input means control only (no inputId sent)', !('inputId' in built({ mode: 'new', label: 'C', controller: 'vbot', host: 'h', inputId: '' }).payload));
+check('a Sony camera is passed on for a V-BOT', built({ mode: 'new', label: 'C', controller: 'vbot', host: 'h', camera: 'sony-c' }).payload.camera === 'sony-c');
+check('a Sony camera is never sent for a BirdDog', !('camera' in built({ mode: 'new', label: 'C', controller: 'birddog', host: 'h', camera: 'sony-c' }).payload));
+check('an existing controller builds a short request', JSON.stringify(built({ mode: 'existing', deviceKey: 'rs3-spare', inputId: 12, camera: 'sony-c' }).payload) === JSON.stringify({ deviceKey: 'rs3-spare', inputId: 12, camera: 'sony-c' }));
+const bad = (values: any, pattern: RegExp): boolean => { const r = built(values); return r.ok === false && pattern.test(r.error); };
+check('a new rig needs a name', bad({ mode: 'new', label: '  ', controller: 'vbot', host: 'h' }, /Give the rig a name/));
+check('a name over 64 characters is refused', bad({ mode: 'new', label: 'x'.repeat(65), controller: 'vbot', host: 'h' }, /at most 64/));
+check('a new rig needs a controller type', bad({ mode: 'new', label: 'A', controller: '', host: 'h' }, /Choose a controller type/));
+check('a camera rig needs its IP address and a gimbal its bridge host', bad({ mode: 'new', label: 'A', controller: 'vbot', host: ' ' }, /camera address/) && bad({ mode: 'new', label: 'A', controller: 'gimbal', host: '' }, /bridge host/));
+check('a port outside 1-65535 is refused', bad({ mode: 'new', label: 'A', controller: 'vbot', host: 'h', port: 70000 }, /Port must be a whole number/));
+check('a VISCA address outside 0-7 is refused', bad({ mode: 'new', label: 'A', controller: 'vbot', host: 'h', address: 9 }, /VISCA address must be/));
+check('an ATEM input that is not a whole number is refused', bad({ mode: 'new', label: 'A', controller: 'vbot', host: 'h', inputId: '2.5' }, /ATEM input must be/));
+check('choosing an existing controller is required in that mode', bad({ mode: 'existing' }, /Choose a controller/));
+
+const removable = model.inspectorFor(data, 'rig:vbot').removable;
+check('a rig can be removed when the profile has more than one', removable.allowed === true && removable.endpoint === '/api/rigs/vbot' && removable.position === 1);
+const single = payload(); single.rigs = [single.rigs[0]];
+check('the last rig cannot be removed and the screen says why', model.inspectorFor(single, 'rig:vbot').removable.allowed === false && /at least one rig/.test(model.inspectorFor(single, 'rig:vbot').removable.reason));
+
+const lines = model.impactLines({ position: 2, id: 'cam2', label: 'BirdDog 1', deviceKey: 'birddog1', presetsLost: ['A', 'Y'], shifted: [{ deviceKey: 'rs3', label: 'DJI RS3', fromId: 'cam3', toId: 'cam2', fromHotkey: 'B', toHotkey: 'A', presetsMoved: ['X'] }], usedInOtherProfiles: ['test'] });
+check('the removal confirmation names the rig and its position', lines[0] === 'Remove "BirdDog 1" (rig 2, cam2) from the active profile.');
+check('it lists the presets that will be deleted', lines.some((l: string) => l === 'Its saved presets (A, Y) will be deleted.'));
+check('it says which rig moves, its new id and hotkey, and that its presets go with it', lines.some((l: string) => l === '"DJI RS3" moves from cam3 to cam2 (B becomes A); its presets move with it.'));
+check('it says other profiles keep the hardware and that moved rigs reconnect', lines.some((l: string) => /also used in: test/.test(l)) && lines.some((l: string) => l === 'The moved rigs reconnect briefly.'));
+check('removing the last rig has a short confirmation', model.impactLines({ position: 4, id: 'cam4', label: 'DJI RS3', presetsLost: [], shifted: [], usedInOtherProfiles: [] }).length === 1);
+
 // ---- selection
 check('a selection that still exists is kept', model.resolveSelection(data, 'rig:birddog1') === 'rig:birddog1');
 check('a selection that vanished falls back to the first item', model.resolveSelection(data, 'rig:gone') === 'rig:vbot' && model.resolveSelection(data, null) === 'rig:vbot');
@@ -193,6 +236,7 @@ const legacy = payload({ ...config(), cameras: resolveProfile(devices, profiles.
 check('a legacy config still lists its rigs, keyed by camera id', legacy.legacy === true && model.itemsOf(legacy)[0].items.map((i: any) => i.key).join() === 'rig:cam1,rig:cam2,rig:cam3');
 check('a legacy rig without a device key is not editable', model.inspectorFor(legacy, 'rig:cam1').endpoint === null);
 check('a legacy rig inspector works without a device key', model.inspectorFor(legacy, 'rig:cam1').title === 'V-BOT');
+check('a legacy rig cannot be removed', model.inspectorFor(legacy, 'rig:cam1').removable.allowed === false);
 check('the state text helper names Sony states', model.sonyStateText('needs_pairing') === 'Needs pairing / camera setup' && model.sonyStateText(null) === 'Not seen yet' && model.sonyStateText('weird_state') === 'weird state');
 
 console.log(`rigs ui model: ${passed} checks passed`);

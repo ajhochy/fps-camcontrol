@@ -79,6 +79,18 @@
 .rigs-preview-caption { font-size: .75rem; color: var(--text-2, #93a0a7); margin-bottom: 8px; min-height: 0; }
 .rigs-preview-caption:empty { display: none; }
 
+.rigs-add-wrap { position: relative; }
+.rigs-menu { position: absolute; right: 0; top: 100%; z-index: 20; min-width: 190px; margin-top: 4px; border: 1px solid var(--border-strong, #3b474e); background: var(--surface-2, #171d21); box-shadow: 0 6px 18px rgba(0, 0, 0, .5); }
+.rigs-menu-item { display: block; width: 100%; min-height: 44px; padding: 0 14px; text-align: left; border: 0; border-bottom: 1px solid var(--border, #2a343a); background: transparent; color: var(--text, #edf1f2); cursor: pointer; }
+.rigs-menu-item:last-child { border-bottom: 0; }
+.rigs-menu-item:hover:not(:disabled), .rigs-menu-item:focus-visible { background: var(--surface-3, #1d252a); outline: none; }
+.rigs-menu-item:disabled { color: var(--text-2, #93a0a7); opacity: .6; cursor: not-allowed; }
+.rigs-remove { margin-top: 18px; padding-top: 10px; border-top: 1px solid var(--border, #2a343a); }
+.rigs-confirm { border: 1px solid var(--err-text, #ff8a91); background: var(--err-bg, #34171a); padding: 10px 12px; }
+.rigs-impact { margin: 6px 0 10px; padding-left: 18px; font-size: .85rem; }
+.rigs-impact li { margin: 3px 0; }
+.rigs-hardware-label { display: flex; align-items: center; gap: 8px; font-size: .85rem; margin: 6px 0; }
+
 /* Two columns: the live status moves under the inspector. */
 @media (max-width: 1100px) {
   .rigs-shell { grid-template-columns: minmax(230px, 300px) minmax(0, 1fr); }

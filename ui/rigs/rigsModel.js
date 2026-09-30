@@ -80,7 +80,7 @@
   }
 
   /** The left column: sections of selectable items, in display order. */
-  function itemsOf(data) {
+  function itemsOf(data, pendingKey) {
     var rigs = ((data && data.rigs) || []).map(function (rig) {
       return {
         key: 'rig:' + (rig.deviceKey || rig.id),
@@ -95,6 +95,9 @@
         dot: connectedTone(rig.live && rig.live.connected),
       };
     });
+    if (pendingKey === 'new:rig') {
+      rigs.push({ key: 'new:rig', kind: 'new-rig', title: 'New rig', subtitle: 'Not added yet', badge: '+', chips: [], dot: 'idle' });
+    }
     var atem = (data && data.atem) || {};
     var connections = [{
       key: 'atem',
@@ -121,13 +124,14 @@
     ];
   }
 
-  function flatItems(data) {
-    return itemsOf(data).reduce(function (all, section) { return all.concat(section.items); }, []);
+  function flatItems(data, pendingKey) {
+    return itemsOf(data, pendingKey).reduce(function (all, section) { return all.concat(section.items); }, []);
   }
-  function findItem(data, key) { return flatItems(data).filter(function (item) { return item.key === key; })[0] || null; }
+  function findItem(data, key) { return flatItems(data, key).filter(function (item) { return item.key === key; })[0] || null; }
 
   /** Keep the selection if it still exists; otherwise the first rig, else the first item, else nothing. */
   function resolveSelection(data, key) {
+    if (key === 'new:rig') return key; // the form for a rig that is being added
     var items = flatItems(data);
     if (key && items.some(function (item) { return item.key === key; })) return key;
     return items.length ? items[0].key : null;
@@ -153,6 +157,7 @@
     if (key.indexOf('rig:') === 0) return rigInspector(data, findRig(data, key));
     if (key === 'atem') return atemInspector(data);
     if (key === 'sony') return sonyConnectionsInspector(data);
+    if (key === 'new:rig') return addRigInspector(data);
     return null;
   }
 
@@ -211,6 +216,9 @@
       kind: 'rig', title: rigTitle(rig), fields: fields, advanced: advanced, notes: notes,
       endpoint: editable ? '/api/rigs/' + encodeURIComponent(rig.deviceKey) : null,
       controls: controls, advancedControls: advancedControls,
+      removable: editable && data.rigs.length > 1
+        ? { allowed: true, endpoint: '/api/rigs/' + encodeURIComponent(rig.deviceKey), position: rig.position }
+        : { allowed: false, reason: editable ? 'A profile needs at least one rig.' : 'This config has no profiles.' },
     };
   }
 
@@ -225,6 +233,106 @@
       options.push(option);
     });
     return options;
+  }
+
+  var CONTROLLER_CHOICES = [
+    { value: 'vbot', label: 'V-BOT' },
+    { value: 'birddog', label: 'BirdDog (built-in camera)' },
+    { value: 'gimbal', label: 'DJI gimbal' },
+    { value: 'generic', label: 'Other VISCA camera' },
+  ];
+
+  /** The form for adding a rig. Connection fields depend on the controller type chosen. */
+  function addRigInspector(data) {
+    var rigs = (data && data.rigs) || [];
+    var max = (data && data.maxRigs) || 8;
+    var taken = {};
+    rigs.forEach(function (rig) { if (rig.camera) taken[rig.camera] = true; });
+    var cameras = [{ value: '', label: 'None' }];
+    ((data && data.sonyDevices) || []).forEach(function (device) {
+      var option = { value: device.key, label: device.label };
+      if (taken[device.key]) { option.disabled = true; option.label = device.label + ' — already on a rig'; }
+      cameras.push(option);
+    });
+    return {
+      kind: 'new-rig',
+      title: 'Add a rig',
+      endpoint: '/api/rigs',
+      full: rigs.length >= max,
+      fullReason: 'A profile can have at most ' + max + ' rigs.',
+      nextPosition: rigs.length + 1,
+      controllers: CONTROLLER_CHOICES,
+      existing: ((data && data.availableControllers) || []).map(function (c) { return { value: c.key, label: c.label + ' (' + (CONTROLLER[c.controller] || c.controller) + ')' }; }),
+      connection: {
+        visca: [
+          ctl('host', 'Camera address (IP)', 'text', '', 'host', { required: true, maxLength: 253 }),
+          ctl('port', 'Port', 'number', 52381, 'port', { min: 1, max: 65535, integer: true }),
+          ctl('address', 'VISCA address', 'number', 1, 'address', { min: 0, max: 7, integer: true }),
+        ],
+        gimbal: [
+          ctl('host', 'Bridge host', 'text', '', 'host', { required: true, maxLength: 253 }),
+          ctl('port', 'Port', 'number', 7878, 'port', { min: 1, max: 65535, integer: true }),
+          ctl('gimbalModel', 'Gimbal model', 'text', '', 'gimbalModel', { nullable: true, maxLength: 32 }),
+        ],
+      },
+      cameraOptions: cameras,
+      fields: [], advanced: [], notes: ['The new rig is added at the end (position ' + (rigs.length + 1) + '), so no existing rig changes position.'],
+    };
+  }
+
+  function whole(value, name, min, max) {
+    var n = Number(value);
+    if (value === '' || !isFinite(n) || Math.floor(n) !== n || n < min || n > max) throw new Error(name + ' must be a whole number from ' + min + ' to ' + max);
+    return n;
+  }
+
+  /**
+   * Turn the add-rig form's values into the POST /api/rigs body, or say what is wrong. `mode` is 'new' (new
+   * hardware) or 'existing' (put a controller that is already in the inventory on a new rig).
+   */
+  function buildNewRigPayload(values) {
+    try {
+      var payload = {};
+      if (values.mode === 'existing') {
+        if (!values.deviceKey) throw new Error('Choose a controller');
+        payload.deviceKey = values.deviceKey;
+      } else {
+        var label = String(values.label || '').trim();
+        if (!label) throw new Error('Give the rig a name');
+        if (label.length > 64) throw new Error('The name can be at most 64 characters');
+        if (['vbot', 'birddog', 'gimbal', 'generic'].indexOf(values.controller) < 0) throw new Error('Choose a controller type');
+        var host = String(values.host || '').trim();
+        if (!host) throw new Error(values.controller === 'gimbal' ? 'Enter the bridge host' : 'Enter the camera address (IP)');
+        payload.label = label;
+        payload.controller = values.controller;
+        if (values.controller === 'gimbal') {
+          payload.gimbal = { host: host, port: whole(values.port === undefined ? 7878 : values.port, 'Port', 1, 65535) };
+          var model = String(values.gimbalModel || '').trim();
+          if (model) payload.gimbal.gimbalModel = model;
+        } else {
+          payload.visca = { host: host, port: whole(values.port === undefined ? 52381 : values.port, 'Port', 1, 65535), address: whole(values.address === undefined ? 1 : values.address, 'VISCA address', 0, 7) };
+        }
+      }
+      if (values.inputId !== undefined && values.inputId !== '' && values.inputId !== null) payload.inputId = whole(values.inputId, 'ATEM input', 1, 99);
+      var builtIn = values.mode === 'existing' ? false : values.controller === 'birddog';
+      if (values.camera && !builtIn) payload.camera = values.camera;
+      return { ok: true, payload: payload };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+  }
+
+  /** The sentences shown when asking the operator to confirm removing a rig. */
+  function impactLines(impact) {
+    var lines = ['Remove "' + impact.label + '" (rig ' + impact.position + ', ' + impact.id + ') from the active profile.'];
+    if (impact.presetsLost && impact.presetsLost.length) lines.push('Its saved presets (' + impact.presetsLost.join(', ') + ') will be deleted.');
+    (impact.shifted || []).forEach(function (rig) {
+      var hotkey = rig.fromHotkey || rig.toHotkey ? ' (' + (rig.fromHotkey || 'no hotkey') + ' becomes ' + (rig.toHotkey || 'no hotkey') + ')' : '';
+      lines.push('"' + rig.label + '" moves from ' + rig.fromId + ' to ' + rig.toId + hotkey + (rig.presetsMoved && rig.presetsMoved.length ? '; its presets move with it' : '') + '.');
+    });
+    if (impact.usedInOtherProfiles && impact.usedInOtherProfiles.length) lines.push('This hardware is also used in: ' + impact.usedInOtherProfiles.join(', ') + '. It stays available there.');
+    if ((impact.shifted || []).length) lines.push('The moved rigs reconnect briefly.');
+    return lines;
   }
 
   function atemInspector(data) {
@@ -377,5 +485,6 @@
   return {
     itemsOf: itemsOf, flatItems: flatItems, findItem: findItem, resolveSelection: resolveSelection,
     inspectorFor: inspectorFor, statusFor: statusFor, sonyStateText: sonyStateText,
+    buildNewRigPayload: buildNewRigPayload, impactLines: impactLines,
   };
 });
