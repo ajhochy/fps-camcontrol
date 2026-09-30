@@ -844,6 +844,8 @@ function statusHtml(): string {
   .mapping-table td:nth-child(2) { color: var(--amber); min-width: 130px; font-family: 'Rajdhani', sans-serif; font-weight: 600; letter-spacing: 0.05em; }
 
   /* Controller list badges */
+  /* Author display rules (e.g. .badge) would otherwise beat the [hidden] attribute. */
+  [hidden] { display:none !important; }
   .badge {
     font-family: 'Rajdhani', sans-serif;
     font-size: 0.7rem;
@@ -916,6 +918,7 @@ function statusHtml(): string {
   .sony-touch-controls { display:flex; flex-wrap:wrap; align-items:end; gap:8px; margin-top:10px; }
   .sony-touch-controls label { width:90px; color:var(--text-2); }
   .sony-widget select, .sony-widget input, .sony-widget button { min-height:44px; }
+  .sony-widget select:disabled { opacity:.55; cursor:not-allowed; }
   #sony-device-config button { min-height:44px; }
   .sony-setup-link { min-height:44px; display:inline-flex; align-items:center; }
   .sony-device-id { overflow-wrap:anywhere; }
@@ -1551,6 +1554,13 @@ async function loadSonyProperties(id) {
       if (!select) return;
       if (!property || !Array.isArray(property.available_values)) { incomplete = true; select.innerHTML = '<option>Unavailable</option>'; select.disabled = true; return; }
       state.confirmed[name] = property.current_value;
+      // Read-only on this camera/lens (e.g. aperture set by a lens ring): show the value, greyed out.
+      if (property.available_values.length === 0 && property.current_formatted != null) {
+        select.innerHTML = '<option>' + esc(property.current_formatted) + ' (read-only)</option>';
+        select.disabled = true; select.title = 'Read-only: set on the camera or lens';
+        return;
+      }
+      select.title = property.writable === true ? '' : 'Read-only: set on the camera or lens';
       select.innerHTML = property.available_values.map(function(item) { return '<option value="' + esc(JSON.stringify(item.value)) + '"' + (typeof item.hex_value === 'string' ? ' data-hex="' + esc(item.hex_value) + '"' : '') + '>' + esc(item.formatted != null ? item.formatted : item.value) + '</option>'; }).join('');
       select.value = JSON.stringify(property.current_value);
       select.disabled = property.writable !== true || property.available_values.length === 0;
