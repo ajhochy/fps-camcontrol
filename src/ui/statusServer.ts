@@ -163,6 +163,7 @@ export function createStatusServer(
           oldCam.viscaIp !== cam.viscaIp ||
           oldCam.viscaPort !== cam.viscaPort ||
           oldCam.cameraType !== cam.cameraType ||
+          oldCam.cameraAddress !== cam.cameraAddress ||
           JSON.stringify(oldCam.bridge) !== JSON.stringify(cam.bridge);
 
         if (changed) {
@@ -177,8 +178,11 @@ export function createStatusServer(
         }
       }
 
-      // Update cameras array in config
-      config.cameras = parsed.cameras;
+      // Mutate the existing cameras array in place rather than reassigning, so
+      // anything that captured a reference at startup (e.g. CameraSelector)
+      // sees the new entries without being rebuilt.
+      config.cameras.length = 0;
+      for (const cam of parsed.cameras) config.cameras.push(cam);
 
       // Reconnect ATEM if IP changed
       if (atemIpChanged) {
@@ -229,7 +233,12 @@ export function startStatusServer(
   port = 8080
 ): http.Server {
   const server = http.createServer(app);
-  const wss = new WebSocketServer({ server, path: '/ws/controller-input' });
+  // Use noServer mode and route upgrades by path manually. Attaching two
+  // WebSocketServer instances to the same http.Server via `{ server, path }`
+  // causes each instance's auto-installed upgrade listener to reject the
+  // other's path with 400 (abortHandshake), since shouldHandle() runs before
+  // any siblings get a look.
+  const wss = new WebSocketServer({ noServer: true });
 
   const clients = new Set<WebSocket>();
   let lastBroadcast = 0;
@@ -259,7 +268,7 @@ export function startStatusServer(
   });
 
   const activityClients = new Set<WebSocket>();
-  const wssActivity = new WebSocketServer({ server, path: '/ws/activity' });
+  const wssActivity = new WebSocketServer({ noServer: true });
 
   wssActivity.on('connection', (ws) => {
     activityClients.add(ws);
@@ -273,6 +282,18 @@ export function startStatusServer(
     const payload = JSON.stringify({ type: 'entry', entry });
     for (const ws of activityClients) {
       if (ws.readyState === WebSocket.OPEN) ws.send(payload);
+    }
+  });
+
+  server.on('upgrade', (request, socket, head) => {
+    const url = request.url ?? '';
+    const pathname = url.split('?')[0];
+    if (pathname === '/ws/controller-input') {
+      wss.handleUpgrade(request, socket, head, (ws) => wss.emit('connection', ws, request));
+    } else if (pathname === '/ws/activity') {
+      wssActivity.handleUpgrade(request, socket, head, (ws) => wssActivity.emit('connection', ws, request));
+    } else {
+      socket.destroy();
     }
   });
 
@@ -909,6 +930,8 @@ function cameraRowHtml(cam, idx) {
     '<tr><td style="color:#888">Type</td><td><select class="cfg-input" name="cam-type"><option value="generic"' + (cam.cameraType==='generic'?' selected':'') + '>generic</option><option value="birddog"' + (cam.cameraType==='birddog'?' selected':'') + '>birddog</option><option value="vbot"' + (cam.cameraType==='vbot'?' selected':'') + '>vbot</option></select></td></tr>' +
     '<tr><td style="color:#888">VISCA IP</td><td style="display:flex;gap:6px"><input class="cfg-input" name="cam-ip" value="' + esc(cam.viscaIp) + '" style="flex:1"><button class="btn-sm" data-rowid="' + id + '" onclick="reconnectCamera(this.dataset.rowid)">Reconnect</button></td></tr>' +
     '<tr><td style="color:#888">VISCA Port</td><td><input class="cfg-input" name="cam-port" type="number" min="1" max="65535" value="' + cam.viscaPort + '"></td></tr>' +
+    '<tr><td style="color:#888">Camera Addr</td><td><input class="cfg-input" name="cam-addr" type="number" min="0" max="7" value="' + (cam.cameraAddress != null ? cam.cameraAddress : 1) + '" title="VISCA bus address (Camera ID in Companion). Default 1."></td></tr>' +
+    '<tr><td style="color:#888">Speed Scale</td><td><input class="cfg-input" name="cam-speed" type="number" min="0.1" max="5" step="0.1" value="' + (cam.speedScale != null ? cam.speedScale : 1.0) + '" title="Per-camera speed multiplier. 1.0 = same as global preset; >1 = faster (use for slow cams like V-BOT)."></td></tr>' +
     '<tr><td style="color:#888">ATEM Input</td><td><input class="cfg-input" name="cam-input" type="number" min="1" value="' + cam.inputId + '"></td></tr>' +
     '</tbody></table></div>';
 }
@@ -918,7 +941,7 @@ function addCameraRow() {
   document.getElementById('tab-config').dataset.editing = 'true';
   newCamCounter++;
   var idx = document.getElementById('cameras-editor').children.length;
-  var blank = { id: 'cam' + (idx+1), label: 'Camera ' + (idx+1), cameraType: 'generic', viscaIp: '192.168.50.', viscaPort: 52381, inputId: idx+1 };
+  var blank = { id: 'cam' + (idx+1), label: 'Camera ' + (idx+1), cameraType: 'generic', viscaIp: '192.168.50.', viscaPort: 52381, cameraAddress: 1, speedScale: 1.0, inputId: idx+1 };
   var div = document.createElement('div');
   div.innerHTML = cameraRowHtml(blank, idx);
   document.getElementById('cameras-editor').appendChild(div.firstChild);
@@ -969,12 +992,20 @@ async function saveDeviceConfig() {
   var rows = document.getElementById('cameras-editor').children;
   for (var i = 0; i < rows.length; i++) {
     var r = rows[i];
+    var addrInput = r.querySelector('[name="cam-addr"]');
+    var addrVal = addrInput ? parseInt(addrInput.value, 10) : 1;
+    if (isNaN(addrVal) || addrVal < 0 || addrVal > 7) addrVal = 1;
+    var speedInput = r.querySelector('[name="cam-speed"]');
+    var speedVal = speedInput ? parseFloat(speedInput.value) : 1.0;
+    if (isNaN(speedVal) || speedVal < 0.1 || speedVal > 5) speedVal = 1.0;
     cameras.push({
       id: r.querySelector('[name="cam-id"]').value.trim(),
       label: r.querySelector('[name="cam-label"]').value.trim(),
       cameraType: r.querySelector('[name="cam-type"]').value,
       viscaIp: r.querySelector('[name="cam-ip"]').value.trim(),
       viscaPort: parseInt(r.querySelector('[name="cam-port"]').value, 10) || 52381,
+      cameraAddress: addrVal,
+      speedScale: speedVal,
       inputId: parseInt(r.querySelector('[name="cam-input"]').value, 10) || 1,
     });
   }
@@ -1010,18 +1041,16 @@ var hidDebugEnabled = false;
 
 var ACTION_LABELS = {
   panTilt: 'Pan / Tilt',
-  zoom: 'Zoom',
+  zoomIn: 'Zoom In (RT, hold)',
+  zoomOut: 'Zoom Out (LT, hold)',
   cameraSelectLeft: 'Camera Select Left',
   cameraSelectRight: 'Camera Select Right',
-  takeLive: 'Take Live (Cut)',
-  autoTransition: 'Auto Transition',
+  autoTransition: 'Take Live (Auto Transition)',
   precisionMode: 'Precision Mode (hold)',
-  sprintMode: 'Sprint Mode (hold)',
-  presetA: 'Recall Preset A',
-  presetB: 'Recall Preset B',
-  presetX: 'Recall Preset X',
-  presetY: 'Recall Preset Y',
-  presetSave: 'Preset Save modifier',
+  selectCam1: 'Select Camera 1 → standby',
+  selectCam2: 'Select Camera 2 → standby',
+  selectCam3: 'Select Camera 3 → standby',
+  selectCam4: 'Select Camera 4 → standby',
   speedUp: 'Speed Up',
   speedDown: 'Speed Down',
   lowerThirds: 'Lower Thirds Toggle',
@@ -1092,7 +1121,7 @@ function renderControllers(controllers, active, mappings) {
   html += '</div>';
 
   // --- Raw HID Debug ---
-  html += '<details style="margin-top:14px" id="hid-debug-details">';
+  html += '<details style="margin-top:14px" id="hid-debug-details"' + (hidDebugEnabled ? ' open' : '') + '>';
   html += '<summary>Raw HID Debug</summary>';
   html += '<div class="hex-stream" id="hid-hex">Waiting for controller data&hellip;</div>';
   html += '</details>';
@@ -1104,6 +1133,7 @@ function renderControllers(controllers, active, mappings) {
   details.addEventListener('toggle', function() {
     hidDebugEnabled = details.open;
     if (hidDebugEnabled) connectControllerWS();
+    else disconnectControllerWS();
   });
 }
 
@@ -1119,6 +1149,9 @@ function startRemap(action) {
     return;
   }
   remappingAction = action;
+  // Reset capture state so we only respond to fresh input.
+  window._remapSawClean = false;
+  window._remapState = { counts: {}, armed: null };
   connectControllerWS();
   refreshControllers();
 }
@@ -1151,35 +1184,61 @@ function handleControllerMessage(evt) {
   if (!remappingAction) return;
   var action = remappingAction;
 
-  if (data.normalized && data.normalized.buttons) {
-    var btnKeys = Object.keys(data.normalized.buttons);
-    for (var bi = 0; bi < btnKeys.length; bi++) {
-      var btn = btnKeys[bi];
-      if (data.normalized.buttons[btn] === true) {
-        assignRemap(action, btn);
-        return;
-      }
-    }
+  var btns = (data.normalized && data.normalized.buttons) || {};
+  var trgs = (data.normalized && data.normalized.triggers) || {};
+  var axs  = (data.normalized && data.normalized.axes) || {};
+
+  // Require ONE clean frame (everything at rest) before we'll accept any input.
+  // Without this, a button held when Remap was clicked snaps onto the remap.
+  if (!window._remapSawClean) {
+    var anyPressed = Object.keys(btns).some(function(k) { return btns[k] === true; })
+                  || Object.keys(trgs).some(function(k) { return trgs[k] > 0.3; })
+                  || Object.keys(axs).some(function(k) { return Math.abs(axs[k]) > 0.5; });
+    if (!anyPressed) window._remapSawClean = true;
+    return;
   }
-  if (data.normalized && data.normalized.triggers) {
-    var trgKeys = Object.keys(data.normalized.triggers);
-    for (var ti = 0; ti < trgKeys.length; ti++) {
-      var trg = trgKeys[ti];
-      if (data.normalized.triggers[trg] > 0.5) {
-        assignRemap(action, trg);
-        return;
-      }
-    }
+
+  // Per-input counter model: each candidate input has its own count. Active
+  // this frame → count up (capped). Inactive this frame → count down (floored
+  // at 0). First input to reach HOLD_FRAMES arms. When it returns to inactive,
+  // we commit. A noisy hat-switch glitch (1 frame active, 1 frame inactive)
+  // gains and loses count equally and never arms — but a steady physical hold
+  // accumulates monotonically and wins.
+  //
+  // Controller WS broadcasts at ~10Hz, so HOLD_FRAMES = 10 ≈ 1 second hold.
+  var HOLD_FRAMES = 10;
+  var COUNT_CAP = HOLD_FRAMES + 5;
+  if (!window._remapState) window._remapState = { counts: {}, armed: null };
+  var rs = window._remapState;
+
+  // Build the set of inputs that are currently engaged.
+  var activeNames = {};
+  Object.keys(btns).forEach(function(k) { if (btns[k] === true) activeNames[k] = true; });
+  Object.keys(trgs).forEach(function(k) { if (trgs[k] > 0.6) activeNames[k] = true; });
+  Object.keys(axs).forEach(function(k) { if (Math.abs(axs[k]) > 0.8) activeNames[k] = true; });
+
+  // Increment counts for active inputs, decrement for inactive ones.
+  Object.keys(activeNames).forEach(function(name) {
+    rs.counts[name] = Math.min(COUNT_CAP, (rs.counts[name] || 0) + 1);
+  });
+  Object.keys(rs.counts).forEach(function(name) {
+    if (!activeNames[name]) rs.counts[name] = Math.max(0, rs.counts[name] - 1);
+  });
+
+  // Arm the first input to reach the threshold (only if not already armed).
+  if (!rs.armed) {
+    var armedName = null;
+    Object.keys(rs.counts).forEach(function(name) {
+      if (rs.counts[name] >= HOLD_FRAMES && !armedName) armedName = name;
+    });
+    if (armedName) rs.armed = armedName;
   }
-  if (data.normalized && data.normalized.axes) {
-    var axisKeys = Object.keys(data.normalized.axes);
-    for (var xi = 0; xi < axisKeys.length; xi++) {
-      var axis = axisKeys[xi];
-      if (Math.abs(data.normalized.axes[axis]) > 0.75) {
-        assignRemap(action, axis);
-        return;
-      }
-    }
+
+  // If armed, watch for the armed input to RELEASE (no longer active), then commit.
+  if (rs.armed && !activeNames[rs.armed]) {
+    var name = rs.armed;
+    window._remapState = { counts: {}, armed: null };
+    assignRemap(action, name);
   }
 }
 
@@ -1216,10 +1275,10 @@ async function saveMappingsUI() {
 }
 
 var DEFAULT_MAPPINGS = {
-  panTilt:'rightStick', zoom:'leftStickY', cameraSelectLeft:'leftStickLeft',
-  cameraSelectRight:'leftStickRight', takeLive:'rightTrigger', autoTransition:'RB',
-  precisionMode:'leftTrigger', sprintMode:'LS', presetA:'A', presetB:'B',
-  presetX:'X', presetY:'Y', presetSave:'LB', speedUp:'dpadUp', speedDown:'dpadDown',
+  panTilt:'rightStick', zoomIn:'rightTrigger', zoomOut:'leftTrigger',
+  cameraSelectLeft:'leftStickLeft', cameraSelectRight:'leftStickRight',
+  autoTransition:'RB', precisionMode:'LS', selectCam1:'X', selectCam2:'A',
+  selectCam3:'B', selectCam4:'Y', speedUp:'dpadUp', speedDown:'dpadDown',
   lowerThirds:'dpadLeft', emergencyStop:'back'
 };
 

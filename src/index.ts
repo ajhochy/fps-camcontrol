@@ -65,7 +65,7 @@ async function main() {
     logger.info({ profile: found.profile.name, connectionType: found.connectionType }, 'controller profile loaded');
     state.activeControllerProfile = found.profile.name;
     state.activeConnectionType = found.connectionType;
-    const gamepad = new GamepadDevice(found.device.vendorId, found.device.productId);
+    const gamepad = new GamepadDevice(found.device.vendorId, found.device.productId, found.device.path);
 
     gamepad.on('connected', () => {
       state.controllerConnected = true;

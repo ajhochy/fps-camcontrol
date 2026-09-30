@@ -12,7 +12,8 @@ export interface AxisDef {
 
 export interface ButtonDef {
   byte: number;
-  bit: number;
+  bit?: number;        // bit-encoded button (mutually exclusive with hatValue)
+  hatValue?: number;   // hat-switch encoded button: pressed when buf[byte] === hatValue
   activeLow?: boolean;
 }
 
@@ -76,7 +77,17 @@ export function findConnectedController(
 ): { device: HID.Device; profile: ControllerProfile; connectionType: 'usb' | 'bluetooth' } | null {
   const HID = require('node-hid');
   const devices: HID.Device[] = HID.devices();
-  for (const dev of devices) {
+
+  // When a controller exposes multiple HID interfaces, prefer usage 5 (Gamepad)
+  // over usage 1 (Generic Desktop) — macOS grants access to the Gamepad interface
+  // without requiring Input Monitoring permission.
+  const sorted = [...devices].sort((a, b) => {
+    const scoreA = a.usagePage === 1 && a.usage === 5 ? 0 : 1;
+    const scoreB = b.usagePage === 1 && b.usage === 5 ? 0 : 1;
+    return scoreA - scoreB;
+  });
+
+  for (const dev of sorted) {
     const connType = detectConnectionType(dev);
     for (const profile of profiles) {
       const profileConnType = profile.connectionType ?? 'any';

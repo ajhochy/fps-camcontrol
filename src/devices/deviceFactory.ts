@@ -14,7 +14,7 @@ export function createMotionDevice(cam: CameraConfig, activityLog: ActivityLog |
   }
   // Default: visca
   if (!cam.viscaIp) throw new Error(`camera ${cam.id}: visca protocol requires viscaIp`);
-  const client = new ViscaClient(cam.id, cam.viscaIp, cam.viscaPort, cam.cameraType);
+  const client = new ViscaClient(cam.id, cam.viscaIp, cam.viscaPort, cam.cameraType, cam.cameraAddress);
   const device = new ViscaDevice(client, cam.id, cam.label);
   if (activityLog) device.setActivityLog(activityLog, cam.label);
   return device;

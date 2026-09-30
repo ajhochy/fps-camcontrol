@@ -8,9 +8,10 @@ documented in [docs/dji-gimbal-spec.md](../docs/dji-gimbal-spec.md).
 
 ```bash
 cd pi-bridge
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-python3 dji_bridge.py --host 0.0.0.0 --port 7878 --driver mock
+python3 --version  # Python >=3.10 required by bleak>=3.0.2
+python3 -m venv .venv
+.venv/bin/python3 -m pip install -r requirements.txt
+.venv/bin/python3 dji_bridge.py --host 0.0.0.0 --port 7878 --driver mock
 ```
 
 Point the main app at it by adding a camera entry to `config/devices.yaml`:
@@ -31,30 +32,28 @@ Point the main app at it by adding a camera entry to `config/devices.yaml`:
 Restart the main app. The DJI device joins camera selection on the controller
 exactly like a VISCA camera.
 
-## Production deploy (Raspberry Pi 5 + PiCAN3)
+## Production deploy (target Pi: `worship`)
 
-Hardware (per [docs/dji-gimbal-spec.md §12.8](../docs/dji-gimbal-spec.md)):
-
-- Pi 5 + PiCAN3 HAT (or any SocketCAN-native interface)
-- PoE++ splitter → 12V into PiCAN3 barrel-in (powers the Pi via GPIO)
-- 4-pin GH1.25 pigtail to the gimbal's RSA expansion port
+The active RS3 path is Bluetooth LE. CAN/PiCAN3 is fallback/history only.
+This unit intentionally targets the deployed `worship` account and stable
+`/home/worship/dji-bridge` symlink; change both only for a deliberate new
+deployment convention.
 
 Setup:
 
 ```bash
-# On the Pi
-sudo apt install python3-pip python3-venv
-git clone <this repo> /home/pi/fps-camcontrol
-cd /home/pi/fps-camcontrol/pi-bridge
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+# On the Pi: Python >=3.10 is required by bleak>=3.0.2.
+python3 --version
+sudo apt install python3-pip python3-venv bluez
+git clone <this repo> /home/worship/fps-camcontrol
+cd /home/worship/fps-camcontrol/pi-bridge
+python3 -m venv .venv
+.venv/bin/python3 -m pip install -r requirements.txt
 
-# Bring up CAN once, manually, before deploying the service:
-sudo ip link set can0 up type can bitrate 1000000
-candump can0    # confirm gimbal frames are visible before continuing
-
-# Symlink into a stable working directory the unit file expects:
-sudo ln -s /home/pi/fps-camcontrol/pi-bridge /home/pi/dji-bridge
+# Create the stable path only after the repository venv exists:
+ln -sfn /home/worship/fps-camcontrol/pi-bridge /home/worship/dji-bridge
+sudo install -m 600 /dev/null /etc/default/dji-bridge
+echo 'DJI_RS3_BLE_ADDRESS=34:D2:62:15:A5:47' | sudo tee /etc/default/dji-bridge
 
 # Install the systemd unit:
 sudo cp systemd/dji-bridge.service /etc/systemd/system/
@@ -65,15 +64,16 @@ sudo systemctl enable --now dji-bridge
 journalctl -u dji-bridge -f
 ```
 
-Once the real DJI driver lands, edit the unit's `ExecStart` to use
-`--driver dji-rs-sdk --can-iface can0` instead of `--driver mock`.
+The service uses the stable symlink's `.venv/bin/python3`. Mock mode does not
+import `bleak`. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the
+adapted RS3 protocol attribution and license.
 
 ## Architecture
 
 ```
-fps-camcontrol (Node)  ──ws://pi:7878──▶  dji_bridge.py  ──CAN──▶  Gimbal
-                       JSON frames per      Driver dispatch       (PiCAN3,
-                       spec §5              & safety watchdog      1 Mbit CAN)
+fps-camcontrol (Node)  ──ws://pi:7878──▶  dji_bridge.py  ──BLE──▶  RS3
+                        JSON frames per      Driver dispatch       (Bluetooth LE)
+                        spec §5              & safety watchdog
 ```
 
 - `dji_bridge.py` is the WebSocket server. It handles the protocol envelope,
@@ -81,9 +81,8 @@ fps-camcontrol (Node)  ──ws://pi:7878──▶  dji_bridge.py  ──CAN─�
   agnostic.
 - `drivers/mock_driver.py` integrates velocity into yaw/pitch over real time.
   Use for dev and CI.
-- `drivers/dji_rs_driver.py` is the stub for the real DJI RS SDK. Currently
-  raises on `connect()`; implement against the DJI SDK or a SocketCAN-ported
-  fork of [ConstantRobotics/DJIR_SDK](https://github.com/ConstantRobotics/DJIR_SDK).
+- `drivers/dji_rs_driver.py` is the RS3 BLE driver. It defers importing `bleak`
+  so mock mode remains usable without it.
 
 ## Protocol summary
 

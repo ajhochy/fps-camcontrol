@@ -22,14 +22,6 @@ export class VirtualVisca {
     this.log.push(`send([${cmd}])`);
   }
 
-  async queryPanTilt(): Promise<{ pan: number; tilt: number }> {
-    return { pan: this.state.pan, tilt: this.state.tilt };
-  }
-
-  async queryZoom(): Promise<{ zoom: number }> {
-    return { zoom: this.state.zoom };
-  }
-
   async probe(_timeoutMs?: number): Promise<boolean> {
     return this.connected;
   }
@@ -65,6 +57,17 @@ export class VirtualVisca {
       ]);
     }
     throw new Error(`VirtualVisca: unknown inquiry [${payload.join(', ')}]`);
+  }
+
+  // Match the real ViscaClient inquiry interface used by ptzActions.queryPosition.
+  async queryPanTilt(): Promise<{ pan: number; tilt: number }> {
+    this.log.push('queryPanTilt()');
+    return { pan: this.state.pan, tilt: this.state.tilt };
+  }
+
+  async queryZoom(): Promise<{ zoom: number }> {
+    this.log.push('queryZoom()');
+    return { zoom: this.state.zoom };
   }
 
   printLog(): void {

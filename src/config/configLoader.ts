@@ -20,6 +20,10 @@ const CameraSchema = z.object({
   inputId: z.number(),
   viscaIp: z.string().optional(),
   viscaPort: z.number().default(52381),
+  cameraAddress: z.number().min(0).max(7).default(1),
+  // Per-camera speed multiplier. 1.0 = same speed as the global preset; raise
+  // above 1 for slower cameras (V-BOT) so they keep up with faster BirdDogs.
+  speedScale: z.number().min(0.1).max(5).default(1.0),
   bridge: BridgeSchema.optional(),
 }).superRefine((cam, ctx) => {
   if (cam.protocol === 'visca' && !cam.viscaIp) {
@@ -35,6 +39,9 @@ const GraphicsSchema = z.object({
   dskIndex: z.number().default(0),
   uskIndex: z.number().default(0),
   meIndex: z.number().default(0),
+  // Fade duration (in frames) for the KEY on/off auto-transition. ~15 frames
+  // is a smooth half-second fade at 30fps. Set to 0 for an instant hard cut.
+  fadeFrames: z.number().min(0).max(250).default(15),
 });
 
 const AtemSchema = z.object({
@@ -60,18 +67,16 @@ const SpeedPresetsSchema = z.object({
 
 const MappingSchema = z.object({
   panTilt: z.string().default('rightStick'),
-  zoom: z.string().default('leftStickY'),
+  zoomIn: z.string().default('rightTrigger'),
+  zoomOut: z.string().default('leftTrigger'),
   cameraSelectLeft: z.string().default('leftStickLeft'),
   cameraSelectRight: z.string().default('leftStickRight'),
-  takeLive: z.string().default('rightTrigger'),
   autoTransition: z.string().default('RB'),
-  precisionMode: z.string().default('leftTrigger'),
-  sprintMode: z.string().default('LS'),
-  presetA: z.string().default('A'),
-  presetB: z.string().default('B'),
-  presetX: z.string().default('X'),
-  presetY: z.string().default('Y'),
-  presetSave: z.string().default('LB'),
+  precisionMode: z.string().default('LS'),
+  selectCam1: z.string().default('X'),
+  selectCam2: z.string().default('A'),
+  selectCam3: z.string().default('B'),
+  selectCam4: z.string().default('Y'),
   speedUp: z.string().default('dpadUp'),
   speedDown: z.string().default('dpadDown'),
   lowerThirds: z.string().default('dpadLeft'),
