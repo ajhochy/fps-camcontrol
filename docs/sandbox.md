@@ -65,6 +65,11 @@ Sony SDK: pairing, Wi-Fi discovery and the camera's own timing still need a hard
 with a Back button), with the keyboard (arrows, Home/End, Enter to the inspector, Escape back), and with a rename
 made behind its back (`curl -X PATCH ... /api/rigs/vbot`): the list updates, an inspector you are focused in does not.
 
+The live status column shows a live preview for a rig whose Sony camera is connected (power the fake camera on,
+Connect it, select the rig). It pauses while the browser tab is hidden, like the Status page, so a hidden or
+headless browser pane shows no picture unless it reports itself visible. Power the camera off and the picture gets a
+STALE badge, then disappears once the app marks the camera disconnected.
+
 ## What the self-test covers (`pnpm sandbox:check`)
 
 The app starts and adopts the fake Sony service; bound cameras show their names; `GET /api/rigs` shape;

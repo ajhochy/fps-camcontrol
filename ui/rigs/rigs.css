@@ -73,6 +73,12 @@
 .rigs-btn.is-primary { border-color: var(--amber, #ffb547); color: var(--amber, #ffb547); }
 .rigs-btn.is-danger { color: var(--err-text, #ff8a91); }
 
+.rigs-preview { position: relative; aspect-ratio: 16 / 9; background: #000; border: 1px solid var(--border, #2a343a); overflow: hidden; margin-bottom: 4px; }
+.rigs-preview-img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.rigs-preview-badge { position: absolute; top: 6px; right: 6px; padding: 2px 6px; background: var(--warn-bg, #332713); color: var(--warn-text, #ffc66d); font-size: .7rem; font-weight: 700; letter-spacing: .06em; }
+.rigs-preview-caption { font-size: .75rem; color: var(--text-2, #93a0a7); margin-bottom: 8px; min-height: 0; }
+.rigs-preview-caption:empty { display: none; }
+
 /* Two columns: the live status moves under the inspector. */
 @media (max-width: 1100px) {
   .rigs-shell { grid-template-columns: minmax(230px, 300px) minmax(0, 1fr); }

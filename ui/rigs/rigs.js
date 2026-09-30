@@ -58,8 +58,20 @@
 
   var statusCol = el('section', 'rigs-col rigs-status');
   statusCol.setAttribute('aria-label', 'Live status');
+  // The preview box is not part of what redraws every poll, so the picture does not flicker.
+  var previewBox = el('div', 'rigs-preview');
+  previewBox.hidden = true;
+  var previewImg = el('img', 'rigs-preview-img');
+  previewImg.alt = 'Live preview';
+  var previewBadge = el('span', 'rigs-preview-badge', 'STALE');
+  previewBadge.hidden = true;
+  var previewCaption = el('div', 'rigs-preview-caption');
+  previewBox.appendChild(previewImg);
+  previewBox.appendChild(previewBadge);
   var statusBody = el('div', 'rigs-status-body');
   statusBody.setAttribute('aria-live', 'polite');
+  statusCol.appendChild(previewBox);
+  statusCol.appendChild(previewCaption);
   statusCol.appendChild(statusBody);
 
   shell.appendChild(listCol);
@@ -466,10 +478,53 @@
     inspectBody.appendChild(addRow);
   }
 
+  // ---- live preview (Sony live view, the same feed the Status page uses)
+  var preview = { id: null, timer: null, url: null, fails: 0 };
+  function stopPreview() {
+    if (preview.timer) window.clearTimeout(preview.timer);
+    if (preview.url) URL.revokeObjectURL(preview.url);
+    preview.id = null; preview.timer = null; preview.url = null; preview.fails = 0;
+    previewImg.removeAttribute('src');
+    previewBox.hidden = true;
+    previewBadge.hidden = true;
+    previewCaption.textContent = '';
+  }
+  async function pollPreview(id) {
+    if (preview.id !== id) return;
+    if (!panelVisible()) { preview.timer = window.setTimeout(function () { pollPreview(id); }, 500); return; }
+    try {
+      var response = await fetch('/api/sony/cameras/' + encodeURIComponent(id) + '/live-view/frame', { cache: 'no-store' });
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      var blob = await response.blob();
+      if (preview.id !== id) return;
+      var next = URL.createObjectURL(blob);
+      previewImg.src = next;
+      if (preview.url) URL.revokeObjectURL(preview.url);
+      preview.url = next; preview.fails = 0;
+      previewBadge.hidden = true;
+    } catch (error) {
+      if (preview.id !== id) return;
+      preview.fails++;
+      if (preview.fails >= 3) previewBadge.hidden = false;
+    }
+    preview.timer = window.setTimeout(function () { pollPreview(id); }, preview.fails ? Math.min(2000, 250 * preview.fails) : 150);
+  }
+  async function startPreview(id, name) {
+    if (preview.id === id) { previewCaption.textContent = 'Live preview — ' + name; return; }
+    stopPreview();
+    preview.id = id;
+    previewBox.hidden = false;
+    previewImg.alt = 'Live preview from ' + name;
+    previewCaption.textContent = 'Live preview — ' + name;
+    try { await fetch('/api/sony/cameras/' + encodeURIComponent(id) + '/live-view/start', { method: 'POST' }); } catch (error) { /* the frame poll reports trouble */ }
+    pollPreview(id);
+  }
+
   function drawStatus() {
     clear(statusBody);
     var status = app.data ? model.statusFor(app.data, app.selected) : null;
-    if (!status) { statusBody.appendChild(el('p', 'rigs-empty', 'Live status appears here.')); return; }
+    if (!status) { stopPreview(); statusBody.appendChild(el('p', 'rigs-empty', 'Live status appears here.')); return; }
+    if (status.previewCameraId) startPreview(status.previewCameraId, status.headline); else stopPreview();
     statusBody.appendChild(el('h2', 'rigs-heading', status.headline));
     var dl = el('dl', 'rigs-fields');
     status.lines.forEach(function (line) {
@@ -479,7 +534,14 @@
       dl.appendChild(dd);
     });
     statusBody.appendChild(dl);
-    statusBody.appendChild(el('p', 'rigs-info', 'Live preview and quick actions arrive in a later step.'));
+    if (!status.previewCameraId && status.noPreviewReason) statusBody.appendChild(el('p', 'rigs-info', status.noPreviewReason));
+    (status.actions || []).forEach(function (action) {
+      var row = el('div', 'rigs-actions');
+      var key = 'status:' + action.id;
+      row.appendChild(button(action.label, '', function (b) { act(b, action.progress || 'Working…', function () { return call(action.method, action.url); }, action.done || null, key); }));
+      row.appendChild(messageNode(key));
+      statusBody.appendChild(row);
+    });
   }
 
   function drawNotice() {

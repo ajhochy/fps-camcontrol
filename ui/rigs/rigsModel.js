@@ -314,6 +314,22 @@
     };
   }
 
+  /** Why there is no live preview for a rig (null when there is one). */
+  function previewReason(rig, camera) {
+    if (rig.builtInCamera) return 'No preview: a BirdDog\'s built-in camera has no preview feed here.';
+    if (!rig.camera) return 'No preview: no Sony camera is assigned to this rig.';
+    if (!camera || !camera.sonyCameraId) return 'No preview: this camera is not bound to a physical camera yet.';
+    var why = {
+      discovered_unapproved: 'has been found but is not connected yet (connect it in Sony connections)',
+      connecting: 'is connecting',
+      disconnected: 'is disconnected',
+      needs_pairing: 'needs pairing on the camera',
+      error: 'has a connection error',
+    };
+    if (camera.state !== 'connected') return 'No preview: the Sony camera ' + (why[camera.state] || 'has not been seen yet') + '.';
+    return null;
+  }
+
   /** The right column: live state of the selected item. */
   function statusFor(data, key) {
     if (!key) return null;
@@ -328,10 +344,15 @@
       if (rig.builtInCamera) lines.push({ label: 'Camera', value: 'Built in', tone: 'idle' });
       else if (!rig.camera) lines.push({ label: 'Sony camera', value: 'None assigned', tone: 'warn' });
       else lines.push({ label: 'Sony camera', value: (rig.cameraLabel || rig.camera) + ' — ' + sonyStateText(camera && camera.state), tone: sonyTone(camera && camera.state) });
-      return { headline: rigTitle(rig), lines: lines, previewCameraId: camera && camera.state === 'connected' ? camera.sonyCameraId : null };
+      var cameraInfo = camera ? cameraStatus(data, camera.sonyCameraId) : null;
+      if (cameraInfo && cameraInfo.message) lines.push({ label: 'Last message', value: cameraInfo.message, tone: camera.state === 'error' ? 'bad' : 'idle' });
+      var actions = [{ id: 'reconnect-controller', label: rig.gimbal ? 'Reconnect gimbal' : 'Reconnect camera control', method: 'POST', url: '/api/reconnect/camera/' + encodeURIComponent(rig.id), progress: 'Reconnecting…', done: 'Reconnect requested' }];
+      if (camera && camera.sonyCameraId && camera.state === 'discovered_unapproved') actions.push({ id: 'connect-sony', label: 'Connect Sony camera', method: 'POST', url: '/api/sony/cameras/' + encodeURIComponent(camera.sonyCameraId) + '/connect', progress: 'Connecting…', done: 'Connected' });
+      if (camera && camera.sonyCameraId && RETRYABLE[camera.state]) actions.push({ id: 'retry-sony', label: 'Retry Sony camera', method: 'POST', url: '/api/sony/cameras/' + encodeURIComponent(camera.sonyCameraId) + '/retry', progress: 'Retrying…', done: 'Retry requested' });
+      return { headline: rigTitle(rig), lines: lines, actions: actions, previewCameraId: camera && camera.state === 'connected' ? camera.sonyCameraId : null, noPreviewReason: previewReason(rig, camera) };
     }
     if (key === 'atem') {
-      return { headline: 'ATEM switcher', lines: [{ label: 'Connection', value: connectedText(data ? data.atemConnected : null), tone: connectedTone(data ? data.atemConnected : null) }], previewCameraId: null };
+      return { headline: 'ATEM switcher', lines: [{ label: 'Connection', value: connectedText(data ? data.atemConnected : null), tone: connectedTone(data ? data.atemConnected : null) }], actions: [{ id: 'reconnect-atem', label: 'Reconnect ATEM', method: 'POST', url: '/api/reconnect/atem', progress: 'Reconnecting…', done: 'Reconnect requested' }], previewCameraId: null };
     }
     if (key === 'sony') {
       var overview = sonyOverview(data);
@@ -345,7 +366,10 @@
       ((data && data.unboundCameras) || []).forEach(function (camera) {
         rows.push({ label: (camera.model || 'Sony camera') + ' (new)', value: sonyStateText(camera.state), tone: sonyTone(camera.state) });
       });
-      return { headline: 'Sony connections', lines: rows, previewCameraId: null };
+      var sonyActions = [];
+      if (overview.service.state === 'absent' || overview.service.state === 'crashed') sonyActions.push({ id: 'retry-service', label: 'Retry Sony service', method: 'POST', url: '/api/sony/service/retry', progress: 'Retrying…', done: 'Retry requested' });
+      if (overview.service.state === 'healthy') sonyActions.push({ id: 'refresh', label: 'Refresh cameras', method: 'POST', url: '/api/sony/cameras/discover', progress: 'Scanning…', done: 'Scan finished' });
+      return { headline: 'Sony connections', lines: rows, actions: sonyActions, previewCameraId: null };
     }
     return null;
   }

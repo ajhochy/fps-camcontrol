@@ -160,6 +160,26 @@ check('it lists each named camera with its state', line(sonyStatus, 'FX3A — st
 check('it lists each new camera as new', line(sonyStatus, 'ILCE-7M4 (new)').value === 'New camera — connect to approve');
 check('a service message is shown when there is one', line(model.statusFor(downService, 'sony'), 'Service message').value === 'Sony service unavailable');
 
+// ---- status: actions and preview reasons
+const vbotStatus = model.statusFor(data, 'rig:vbot');
+check('every rig can reconnect its controller', vbotStatus.actions[0].id === 'reconnect-controller' && vbotStatus.actions[0].url === '/api/reconnect/camera/cam1' && vbotStatus.actions[0].method === 'POST' && vbotStatus.actions[0].label === 'Reconnect camera control');
+check('a gimbal rig says it reconnects the gimbal', rigStatus.actions[0].label === 'Reconnect gimbal' && rigStatus.actions[0].url === '/api/reconnect/camera/cam3');
+check('a rig whose Sony camera has an error can retry it', rigStatus.actions.some((a: any) => a.id === 'retry-sony' && a.url === '/api/sony/cameras/78%3AF5%3A05%3A43%3AAD%3A50/retry'));
+check('a rig whose Sony camera is connected offers no Sony retry', !vbotStatus.actions.some((a: any) => a.id === 'retry-sony' || a.id === 'connect-sony'));
+const waiting = payload(); waiting.sonyDevices[0].state = 'discovered_unapproved'; waiting.sony.cameras[0].state = 'discovered_unapproved';
+check('a rig whose Sony camera is found but not approved offers Connect', model.statusFor(waiting, 'rig:vbot').actions.some((a: any) => a.id === 'connect-sony'));
+check('a BirdDog rig only offers reconnecting its controller', model.statusFor(data, 'rig:birddog1').actions.length === 1);
+check('the last Sony message shows as a status line', line(rigStatus, 'Last message').value === 'Camera connection failed' && line(rigStatus, 'Last message').tone === 'bad');
+check('a connected Sony camera gives a preview', vbotStatus.previewCameraId === '9C:50:D1:AC:7B:72' && vbotStatus.noPreviewReason === null);
+check('a BirdDog says why it has no preview', model.statusFor(data, 'rig:birddog1').noPreviewReason.includes('built-in camera'));
+check('a rig with no camera says why it has no preview', /no Sony camera is assigned/.test(model.statusFor(payload(config('test')), 'rig:rs3').noPreviewReason));
+check('a rig whose camera has an error says so', rigStatus.noPreviewReason === 'No preview: the Sony camera has a connection error.');
+check('a rig whose camera was found but not connected says where to connect it', /found but is not connected yet \(connect it in Sony connections\)/.test(model.statusFor(waiting, 'rig:vbot').noPreviewReason));
+check('a rig whose camera device has no camera bound says so', (() => { const c = payload(); c.sonyDevices[0].sonyCameraId = null; return /not bound to a physical camera/.test(model.statusFor(c, 'rig:vbot').noPreviewReason); })());
+check('the ATEM can be reconnected', model.statusFor(data, 'atem').actions[0].url === '/api/reconnect/atem');
+check('a healthy Sony service offers Refresh cameras', model.statusFor(data, 'sony').actions.map((a: any) => a.id).join() === 'refresh');
+check('a Sony service that is not running offers Retry Sony service', model.statusFor(downService, 'sony').actions.map((a: any) => a.id).join() === 'retry-service');
+
 // ---- selection
 check('a selection that still exists is kept', model.resolveSelection(data, 'rig:birddog1') === 'rig:birddog1');
 check('a selection that vanished falls back to the first item', model.resolveSelection(data, 'rig:gone') === 'rig:vbot' && model.resolveSelection(data, null) === 'rig:vbot');
