@@ -71,8 +71,8 @@ The service uses the stable symlink's `.venv/bin/python3`. Mock mode does not
 import `bleak`. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the
 adapted RS3 protocol attribution and license.
 
-`DJI_RS3_MAX_JOYSTICK` scales normalized joystick input; it defaults to `200`
-and is clamped to the RS3 safe protocol range `1..1000`. Tune it only while
+`DJI_RS3_MAX_JOYSTICK` scales normalized joystick input; it defaults to `80`
+(the deployed env files set `200`) and is clamped to the RS3 safe protocol range `1..1000`. Tune it only while
 viewing actual camera video.
 
 ## Architecture

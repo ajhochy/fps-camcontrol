@@ -1,4 +1,4 @@
-import { AppState, CameraId } from '../app/state';
+import { AppState, CameraId, applyDeviceLinkState } from '../app/state';
 import { AtemClient } from '../atem/atemClient';
 import { MotionDevice } from '../devices/motionDevice';
 import { ViscaDevice } from '../devices/viscaDevice';
@@ -27,7 +27,7 @@ export function startWatchdog(
         // cameras (e.g. V-BOT) don't reply to that specific inquiry even when
         // they're perfectly responsive to control commands, so a probe miss
         // must NOT force the camera into a disconnected state.
-        state.cameraConnected[id] = client.connected;
+        applyDeviceLinkState(state, id, { connected: client.connected });
         client.probe().then(reachable => {
           if (!reachable && client.connected) {
             throttledLog.warn(`probe-${id}`, 300000, { cameraId: id }, 'camera probe returned no reply (camera may still be controllable)');
@@ -35,13 +35,17 @@ export function startWatchdog(
         }).catch(() => { /* ignore */ });
           continue;
         }
+        // `probe()` on a DJI bridge pings the Pi, which keeps acking with no
+        // gimbal attached — so it measures the bridge, not the camera. Pair it
+        // with the device's own gimbal verdict, or this 30s sweep would keep
+        // resurrecting a dead gimbal as "connected".
         device.probe().then(reachable => {
-          state.cameraConnected[id] = reachable;
+          applyDeviceLinkState(state, id, { connected: reachable, gimbalAttached: device.gimbalAttached });
           if (!reachable) {
             logger.warn({ cameraId: id }, 'camera probe failed — not reachable');
           }
         }).catch(() => {
-          state.cameraConnected[id] = false;
+          applyDeviceLinkState(state, id, { connected: false, gimbalAttached: device.gimbalAttached });
         });
       }
     }

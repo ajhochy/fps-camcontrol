@@ -17,6 +17,44 @@ const TRIGGER_DEADZONE = 0.05;
 const FACE_CAMERA_BUTTONS = ['X', 'A', 'B', 'Y'] as const;
 const INPUT_STALE_MS = 250;
 const PTZ_HEARTBEAT_MS = 250;
+// A gimbal's motion commands leave the Pi as Bluetooth LE writes, and a BLE link
+// sustains roughly 20-30 writes/sec. The 60Hz control loop used to send one per
+// tick — gimbals skipped throttling entirely — which overran the radio's buffer
+// and dropped the link after a few seconds of holding the stick. Observed as
+// 46 link drops/hour on the weaker-signal gimbal and none while idle.
+const GIMBAL_MIN_SEND_MS = 50;    // ceiling of ~20 commands/sec per gimbal
+// Must stay clear of the bridge's 250ms safety watchdog: if commands stop
+// arriving for that long the gimbal is auto-stopped, so too slow a heartbeat
+// would make a held stick stutter to a halt.
+const GIMBAL_HEARTBEAT_MS = 150;
+
+/**
+ * Whether a motion frame should go out on this tick.
+ *
+ * The control loop runs at 60Hz, but neither transport wants 60 commands/sec:
+ * VISCA cameras queue them up (which made stops lag ~1.2s), and a gimbal's BLE
+ * link drops outright once its buffer overruns. Both are therefore rate-limited;
+ * gimbals additionally get a hard floor between sends because BLE is the tighter
+ * pipe. A stop is never routed through here — a dropped stop is a camera that
+ * keeps moving.
+ *
+ * Returns true for the first frame, then on a meaningful change, then on a
+ * heartbeat so held motion keeps being refreshed.
+ */
+export function shouldSendMotion(
+  protocol: string,
+  changed: boolean,
+  lastSentAt: number | undefined,
+  now: number
+): boolean {
+  if (lastSentAt === undefined) return true;
+  const since = now - lastSentAt;
+  const isGimbal = protocol !== 'visca';
+  // Hard rate cap: never exceed ~20 writes/sec on a BLE link, however fast the
+  // stick is moving. 50ms of latency on a stick change is imperceptible.
+  if (isGimbal && since < GIMBAL_MIN_SEND_MS) return false;
+  return changed || since >= (isGimbal ? GIMBAL_HEARTBEAT_MS : PTZ_HEARTBEAT_MS);
+}
 
 const INPUT_LABELS: Record<string, string> = {
   rightStick: 'Right Stick',
@@ -126,8 +164,7 @@ export class ControlStateMachine {
         const last = this.lastPanTilt.get(cameraId);
         const changed = !last || Math.abs(pan - last.pan) > 0.05 || Math.abs(tilt - last.tilt) > 0.05
           || Math.sign(pan) !== Math.sign(last.pan) || Math.sign(tilt) !== Math.sign(last.tilt);
-        const heartbeatDue = !!last && now - last.ts >= PTZ_HEARTBEAT_MS;
-        if (device.protocol !== 'visca' || changed || heartbeatDue) {
+        if (shouldSendMotion(device.protocol, changed, last?.ts, now)) {
           device.setPanTilt(pan, tilt);
           this.lastPanTilt.set(cameraId, { pan, tilt, ts: now });
         }
@@ -144,8 +181,7 @@ export class ControlStateMachine {
         const speed = this.getEffectiveSpeed(zoomAxis);
         const last = this.lastZoom.get(cameraId);
         const changed = !last || Math.abs(speed - last.speed) > 0.05 || Math.sign(speed) !== Math.sign(last.speed);
-        const heartbeatDue = !!last && now - last.ts >= PTZ_HEARTBEAT_MS;
-        if (device.protocol !== 'visca' || changed || heartbeatDue) {
+        if (shouldSendMotion(device.protocol, changed, last?.ts, now)) {
           device.setZoom(speed);
           this.lastZoom.set(cameraId, { speed, ts: now });
         }

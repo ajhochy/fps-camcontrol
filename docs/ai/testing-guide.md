@@ -6,18 +6,40 @@ pnpm install
 pnpm build          # tsc typecheck + emit to dist/
 pnpm test:smoke     # ts-node src/testing/smokeTest.ts
 ```
-The smoke suite runs entirely against virtual hardware — no ATEM, cameras, gimbal, or controller required.
+The assertions run against virtual hardware, but **importing the suite also boots
+the real app**: modules pull `logger` from `src/index.ts`, so `main()` executes,
+connects to the configured ATEM/cameras, and binds `STATUS_PORT`. So:
+
+```bash
+STATUS_PORT=8175 pnpm test:smoke   # required while the app is running
+```
+
+Otherwise it dies with `EADDRINUSE`. Two concurrent runs also contend for the
+controller's exclusive HID handle, which shows up as a bogus
+`cannot open device` — check for strays with `ps aux | grep smokeTest` before
+believing a controller-open failure.
+
+`ai-workflow checks` does not work here: there is no `scripts/run_ai_workflow.py`,
+so it falls back to a nonexistent `npm run typecheck`. Use the commands above.
 
 The Pi bridge's `bleak>=3.0.2` runtime requires Python >=3.10.
 
 ## What's covered
-- Custom virtual-hardware smoke suite (`src/testing/smokeTest.ts`): **36/36 assertions** as of Round 11.
+- Custom virtual-hardware smoke suite (`src/testing/smokeTest.ts`): **86/86 assertions** as of the controller hot-plug fix.
+- Controller hot-plug via an injectable `ControllerSupervisor` (`detect` /
+  `enumerate` / `createGamepad` are swappable, so no real HID is needed):
+  attach-after-startup, detach only after two consecutive enumeration misses,
+  re-attach, and the diagnostic text for a detected-but-silent pad.
 - VISCA path via `virtualVisca.ts` (incl. preset save/recall round-trip).
 - ATEM path via `virtualAtem.ts` (cut, auto-transition, state sync).
 - Controller input via `virtualController.ts`.
 - DJI gimbal via `virtualDjiBridge.ts`: hello/capability handshake, moveVelocity, 250 ms safety timeout, position round-trip, preset save/recall.
 
 ## What's NOT covered (manual verification only)
+- Real controller input flow. `GamepadDevice`'s 2 s handshake window needs a live
+  HID open, so "opened, idle, then a stick moves → connected" is manual only.
+  A Bluetooth Xbox pad sends **zero** reports while untouched, so "no packets"
+  alone does not mean anything is broken.
 - Real VISCA cameras (BirdDog / V-BOT) — needs the cameras on the LAN at their configured IPs.
 - Real ATEM switcher — input IDs, DSK/USK index, transition behavior.
 - Real DJI bridge deployment — focused fake-BLE driver tests cover RS3 frame

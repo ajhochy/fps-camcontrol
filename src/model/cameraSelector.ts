@@ -50,11 +50,20 @@ export class CameraSelector {
     const oldDevice = this.devices.get(this.state.controlledCamera);
     if (oldDevice) oldDevice.stop();
 
+    const cam = this.cameras[clamped];
     this.state.cameraIndex = clamped;
-    this.state.controlledCamera = this.cameras[clamped].id as CameraId;
-    this.state.previewCamera = this.state.controlledCamera;
+    this.state.controlledCamera = cam.id as CameraId;
 
-    this.atem.changePreviewInput(this.cameras[clamped].inputId).catch(err => {
+    if (cam.inputId === undefined) {
+      // Control-only camera (video not wired to the switcher). Take control of
+      // its motion, but leave the preview bus alone — moving it to a dead input
+      // would arm black for the next take.
+      logger.info({ camera: cam.id, label: cam.label }, 'controlled camera changed (control-only: no ATEM input)');
+      return;
+    }
+
+    this.state.previewCamera = this.state.controlledCamera;
+    this.atem.changePreviewInput(cam.inputId).catch(err => {
       logger.warn({ err }, 'failed to update ATEM preview after camera select');
     });
 

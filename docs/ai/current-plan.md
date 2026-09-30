@@ -5,14 +5,24 @@ type: project
 # Current Plan — fps-camcontrol
 
 ## Active plan
-Finish the remaining live-use checks for the verified and deployed DJI RS3 BLE bridge. Switch Pro Bluetooth detection, DJI configuration preservation, controller camera selection, all-direction pan/tilt, and stop-on-release have passed with the physical RS3. The deployed joystick maximum is `200` and felt good in the initial live test.
+Open a draft PR for the verified Sony multi-camera dashboard, then complete the remaining physical-camera smoke checks. Automated verification and browser-fixture evaluation passed; the feature remains incomplete and unmerged pending manual validation.
 
 ## Next steps
 
-1. Tune controller speed while viewing actual camera video.
-2. Verify emergency stop and preset `moveTo`/`recenter` against the physical RS3.
-3. Verify safe stop and recovery across Ethernet yank, reconnect, and Pi reboot.
-4. Complete idle and representative-show soaks.
+1. Open a draft PR from `feat/sony-dashboard`.
+2. Verify two physical cameras simultaneously.
+3. Verify FX3 touch focus.
+4. Verify HDMI coexistence.
+
+The final-gate live physical sidecar timed out. Automated verification still passed: `pnpm build`, smoke 89/89, and `git diff --check`; browser artifacts are under `docs/ai/runs/artifacts/sony-dashboard/`.
+
+## Remaining DJI live-use checks
+
+1. Run a controller-driven live pan/tilt test through FPS CamControl.
+2. Verify preset `moveTo` and `recenter` against the physical RS3.
+3. Verify safe stop on bridge SIGTERM and Ethernet yank.
+4. Verify app/bridge recovery after reconnect and Pi reboot.
+5. Complete 30-minute idle and representative-show soaks.
 
 The deployed target is `dji-bridge.local` (`192.168.10.150`), user `worship`.
 The active and enabled `dji-bridge` service uses `/home/worship/dji-bridge`, a

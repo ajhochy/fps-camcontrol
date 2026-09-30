@@ -1,0 +1,27 @@
+[Unit]
+# Templated unit: one instance per gimbal. The instance name (%i) selects the
+# per-gimbal env file, which supplies that gimbal's BLE address and WS port.
+#   sudo systemctl enable --now dji-bridge@rs3
+# Each instance holds its own BLE link; BlueZ allows several established links
+# but only one connect at a time, which dji_bridge.py serialises via a file lock.
+Description=DJI RS gimbal bridge (%i) for fps-camcontrol
+After=network-online.target bluetooth.target
+Wants=network-online.target bluetooth.target
+
+[Service]
+Type=simple
+User=worship
+WorkingDirectory=/home/worship/dji-bridge
+Environment=PYTHONUNBUFFERED=1
+# Per-instance config: BRIDGE_PORT, DJI_RS3_BLE_ADDRESS, optional
+# DJI_RS3_MAX_JOYSTICK=200 (safe range 1..1000; tune while viewing camera video).
+EnvironmentFile=/etc/default/dji-bridge-%i
+ExecStart=/home/worship/dji-bridge/.venv/bin/python3 /home/worship/dji-bridge/dji_bridge.py \
+    --host 0.0.0.0 --port ${BRIDGE_PORT} --driver dji-rs3-ble
+# The bridge no longer exits when the gimbal is absent (it serves and retries),
+# so a restart here means a genuine crash.
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

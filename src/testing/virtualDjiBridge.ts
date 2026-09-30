@@ -3,6 +3,9 @@ import http from 'http';
 
 const PROTOCOL_VERSION = 1;
 
+/** Methods the real Pi driver rejects outright when it has no BLE link. */
+const GIMBAL_TOUCHING_METHODS = new Set(['moveVelocity', 'getPosition', 'moveToPosition', 'recenter', 'setMode']);
+
 interface Frame {
   v: number;
   id?: number;
@@ -17,6 +20,10 @@ export interface VirtualDjiBridgeOptions {
   capabilities?: string[];
   gimbalModel?: string;
   safetyTimeoutMs?: number;
+  /** Start with a gimbal attached (default true). */
+  gimbalConnected?: boolean;
+  /** How often to emit `status`, matching the Pi's 500 ms loop. */
+  statusIntervalMs?: number;
 }
 
 /**
@@ -26,6 +33,13 @@ export interface VirtualDjiBridgeOptions {
  * Integrates pan/tilt velocity into yaw/pitch over real time at 30 deg/s
  * full-scale, which is enough to verify the command path and round-trip
  * preset save/recall.
+ *
+ * It also runs the `status` telemetry loop, and models the Pi's real behaviour
+ * when no gimbal is attached: `hello` and `ping` keep working (the bridge stays
+ * reachable on purpose) but the status stream goes SILENT rather than reporting
+ * `gimbalConnected: false`, because the Pi builds each frame from a live pose
+ * poll that raises when the gimbal is gone. Verified against a real RS3 Pro with
+ * its BLE link down. `setGimbalConnected` flips between the two.
  */
 export class VirtualDjiBridge {
   private server: http.Server;
@@ -42,7 +56,14 @@ export class VirtualDjiBridge {
   velTilt = 0;
   private lastTickAt = Date.now();
   private safetyTimer: NodeJS.Timeout | null = null;
+  private statusTimer: NodeJS.Timeout | null = null;
   private connections = new Set<WebSocket>();
+  private gimbalConnected: boolean;
+  private statusIntervalMs: number;
+  /** Emit `gimbalConnected: false` instead of going silent (a future bridge). */
+  explicitDetachedStatus = false;
+  /** See goSilent(): attached but unresponsive, neither acking nor nacking. */
+  private silent = false;
   log: string[] = [];
 
   constructor(opts: VirtualDjiBridgeOptions = {}) {
@@ -50,6 +71,8 @@ export class VirtualDjiBridge {
     this.capabilities = opts.capabilities ?? ['velocity', 'position', 'moveTo'];
     this.gimbalModel = opts.gimbalModel ?? 'mock-RS4Pro';
     this.safetyTimeoutMs = opts.safetyTimeoutMs ?? 250;
+    this.gimbalConnected = opts.gimbalConnected ?? true;
+    this.statusIntervalMs = opts.statusIntervalMs ?? 200;
 
     this.server = http.createServer();
     this.wss = new WebSocketServer({ server: this.server });
@@ -61,9 +84,48 @@ export class VirtualDjiBridge {
       this.server.listen(this.port, '127.0.0.1', () => {
         const addr = this.server.address();
         if (addr && typeof addr === 'object') this.port = addr.port;
+        this.startStatusLoop();
         resolve(this.port);
       });
     });
+  }
+
+  /**
+   * Power the gimbal on or off without touching the WebSocket, reproducing the
+   * one state this bug was about: bridge reachable, gimbal absent.
+   */
+  setGimbalConnected(connected: boolean): void {
+    this.gimbalConnected = connected;
+  }
+
+  /**
+   * Model a gimbal that is attached but too busy to answer: telemetry stops and
+   * gimbal calls never come back — no reply, no rejection. Measured on real
+   * hardware at 13.6s for a healthy gimbal on a shared bridge, so this state
+   * must NOT be read as a detached gimbal. `ping` keeps working.
+   */
+  goSilent(): void {
+    this.silent = true;
+  }
+
+  private startStatusLoop(): void {
+    if (this.statusTimer) clearInterval(this.statusTimer);
+    this.statusTimer = setInterval(() => {
+      if (this.silent) return;
+      if (!this.gimbalConnected && !this.explicitDetachedStatus) return; // silence, like the Pi
+      this.integrate();
+      const params: Record<string, unknown> = {
+        gimbalConnected: this.gimbalConnected,
+        sdkConnected: this.gimbalConnected,
+        mode: 'follow',
+      };
+      if (this.gimbalConnected) {
+        params.position = { yaw: this.yaw, pitch: this.pitch, roll: this.roll };
+      }
+      for (const ws of this.connections) {
+        this.send(ws, { v: PROTOCOL_VERSION, type: 'evt', method: 'status', params });
+      }
+    }, this.statusIntervalMs);
   }
 
   async stop(): Promise<void> {
@@ -71,6 +133,7 @@ export class VirtualDjiBridge {
       try { ws.close(); } catch { /* ignore */ }
     }
     this.connections.clear();
+    if (this.statusTimer) { clearInterval(this.statusTimer); this.statusTimer = null; }
     if (this.safetyTimer) { clearTimeout(this.safetyTimer); this.safetyTimer = null; }
     await new Promise<void>((resolve) => this.wss.close(() => resolve()));
     await new Promise<void>((resolve) => this.server.close(() => resolve()));
@@ -129,6 +192,19 @@ export class VirtualDjiBridge {
     try { frame = JSON.parse(raw); } catch { return; }
     if (frame.type !== 'cmd' || typeof frame.id !== 'number') return;
     this.log.push(`${frame.method} ${JSON.stringify(frame.params ?? {})}`);
+
+    // With no gimbal on the far end the real Pi still serves `hello` and `ping`
+    // (that is the point of staying reachable) but every call that actually
+    // touches the gimbal is rejected immediately — measured at ~0ms, because the
+    // BLE write fails before it is attempted. `stop` is the odd one out: the real
+    // driver returns early when it has no link, so it acks happily and is
+    // therefore worthless as proof of a gimbal.
+    if (!this.gimbalConnected && GIMBAL_TOUCHING_METHODS.has(frame.method ?? '')) {
+      this.nack(ws, frame.id, 'sdk_error', "BleakError('Service Discovery has not been performed yet')");
+      return;
+    }
+    // Attached but swamped: swallow gimbal calls entirely. Only `ping` answers.
+    if (this.silent && GIMBAL_TOUCHING_METHODS.has(frame.method ?? '')) return;
 
     switch (frame.method) {
       case 'hello':
