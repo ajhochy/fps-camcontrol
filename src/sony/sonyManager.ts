@@ -745,6 +745,11 @@ export class SonyManager {
     return this.operation(id, () => this.request(`${this.cameraPath(id)}/live-view/start`, { method: 'POST' }, READ_TIMEOUT_MS));
   }
 
+  /** Stop a camera's live view (the sidecar keeps pulling frames from the camera until told to stop). */
+  liveViewStop(id: string): Promise<unknown> {
+    return this.operation(id, () => this.request(`${this.cameraPath(id)}/live-view/stop`, { method: 'POST' }, READ_TIMEOUT_MS));
+  }
+
   liveViewFrame(id: string): Promise<SonyFrame> {
     return this.readOnce(id, 'frame', () => this.requestBinary(`${this.cameraPath(id)}/live-view/frame`, FRAME_TIMEOUT_MS));
   }

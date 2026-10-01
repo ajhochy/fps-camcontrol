@@ -927,7 +927,7 @@
       preview.fails++;
       if (preview.fails >= 3) previewBadge.hidden = false;
     }
-    preview.timer = window.setTimeout(function () { pollPreview(id); }, preview.fails ? Math.min(2000, 250 * preview.fails) : 150);
+    preview.timer = window.setTimeout(function () { pollPreview(id); }, preview.fails ? Math.min(2000, 250 * preview.fails) : 200); // 5 fps, matching the Sony service
   }
   async function startPreview(id, name) {
     if (preview.id === id) { previewCaption.textContent = 'Live preview — ' + name; return; }

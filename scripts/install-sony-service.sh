@@ -20,6 +20,9 @@ LOG_DIR="$HOME/Library/Logs/fps-camcontrol"
 LOG="$LOG_DIR/sony-sidecar.log"
 EXECUTABLE="${SONY_SERVER_EXECUTABLE:-$HOME/Developer/alpha-sdk-api/api/server/build/CameraWebApp}"
 PORT=8181
+# Live preview frame interval for the service's live-view worker (scripts/sony-sidecar-liveview-rate.patch):
+# 200 ms = 5 fps, which keeps camera Wi-Fi/processor load (and heat) down. The unpatched default is 66 ms.
+LIVEVIEW_INTERVAL_MS="${LIVEVIEW_INTERVAL_MS:-200}"
 DOMAIN="gui/$(id -u)"
 
 while [ $# -gt 0 ]; do
@@ -50,6 +53,7 @@ cat > "$WRAPPER" <<EOF
 LOG="$LOG"
 if [ -f "\$LOG" ] && [ "\$(stat -f %z "\$LOG")" -gt 52428800 ]; then mv -f "\$LOG" "\$LOG.1"; fi
 cd "$(dirname "$EXECUTABLE")"
+export LIVEVIEW_INTERVAL_MS="$LIVEVIEW_INTERVAL_MS"
 exec "$EXECUTABLE" --port "$PORT" >>"\$LOG" 2>&1
 EOF
 chmod +x "$WRAPPER"

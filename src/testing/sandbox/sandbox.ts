@@ -313,8 +313,11 @@ async function selfTest(): Promise<number> {
     const aperture = props.body?.data?.properties?.aperture;
     check('the a7S III reports a writable aperture with 23 options', aperture?.writable === true && aperture?.available_values?.length === 23);
     check('a setting can be changed with the hex value the dashboard sends', (await put(`/api/sony/cameras/${A}/properties/aperture`, { value: '0x190' })).status === 200);
-    const after = (await api(`/api/sony/cameras/${A}/properties`)).body?.data?.properties?.aperture;
-    check('the camera now reports F4', after?.current_formatted === 'F4');
+    const right = (await api(`/api/sony/cameras/${A}/properties/aperture`)).body?.data;
+    check('right after a change the camera still reports the old value (the lag behind the menu bug)', right?.formatted !== 'F4');
+    const after = await waitFor('the camera to report F4', async () => { const a = (await api(`/api/sony/cameras/${A}/properties`)).body?.data?.properties?.aperture; return a?.current_formatted === 'F4' && a; }, 5000);
+    check('the camera now reports F4 (once it has applied it), and one setting can be read fresh', after?.current_formatted === 'F4' && (await api(`/api/sony/cameras/${A}/properties/aperture`)).body?.data?.formatted === 'F4');
+    check('the page keeps a pending choice and waits for the camera instead of snapping back', pageHtml.includes('function sonyReported') && pageHtml.includes('state.pending[name]'));
     check('a raw number is refused, as the real service does', (await put(`/api/sony/cameras/${A}/properties/aperture`, { value: 250 })).status === 400);
     const frame = await api(`/api/sony/cameras/${A}/live-view/frame`);
     check('a live-view frame comes back as an image', frame.status === 200 && frame.type.startsWith('image/'));

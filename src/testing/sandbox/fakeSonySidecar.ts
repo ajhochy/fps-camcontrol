@@ -73,6 +73,10 @@ export class FakeSonySidecar {
   connectDelayMs: number;
   /** The next N settings reads answer 500, like a busy service. */
   failProperties = 0;
+  /** A camera reports a newly set value only this long after accepting it (the real FX3/A7S III lag). */
+  applyLagMs = 600;
+  /** Live-view stop requests received. */
+  liveViewStops = 0;
   requests = 0;
 
   constructor(specs: FakeSonyCameraSpec[], options: { scanDelayMs?: number; connectDelayMs?: number } = {}) {
@@ -250,6 +254,15 @@ export class FakeSonySidecar {
         });
       }
       const propMatch = sub.match(/^properties\/([a-z-]+)$/);
+      if (propMatch && method === 'GET') {
+        const prop = camera.props.find((p) => p.name === propMatch[1]);
+        if (!prop) return this.json(res, 404, { success: false, message: `Unknown property ${propMatch[1]}`, camera: this.info(camera) });
+        const current = prop.options.find((o) => o.value === prop.current);
+        return this.json(res, 200, {
+          success: true, message: 'Property retrieved successfully', camera: this.info(camera),
+          data: { property: prop.name, value: hex(prop.current), formatted: current?.formatted ?? String(prop.current), writable: prop.writable, available_values: prop.options.map((o) => ({ value: o.value, hex_value: o.hex, formatted: o.formatted })) },
+        });
+      }
       if (propMatch && method === 'PUT') {
         const prop = camera.props.find((p) => p.name === propMatch[1]);
         if (!prop) return this.json(res, 404, { success: false, message: `Unknown property ${propMatch[1]}`, camera: this.info(camera) });
@@ -259,10 +272,13 @@ export class FakeSonySidecar {
         const wanted = body.value.trim().toLowerCase().replace(/^f\//, 'f');
         const option = prop.options.find((o) => o.hex.toLowerCase() === wanted || o.formatted.toLowerCase().replace(/\s/g, '') === wanted.replace(/\s/g, ''));
         if (!option) return this.json(res, 400, { success: false, message: `${prop.name} value ${body.value} not supported by camera`, camera: this.info(camera) });
-        prop.current = option.value;
+        // Like a real camera: it accepts the change at once but only reports the new value a moment later.
+        if (this.applyLagMs > 0) setTimeout(() => { prop.current = option.value; }, this.applyLagMs);
+        else prop.current = option.value;
         return this.json(res, 200, { success: true, message: `Property ${prop.name} set successfully`, camera: this.info(camera), data: { value: option.hex, requested_value: body.value, property: prop.name } });
       }
       if (sub === 'live-view/start' && method === 'POST') return this.json(res, 200, { success: true, message: 'Live view started', camera: this.info(camera) });
+      if (sub === 'live-view/stop' && method === 'POST') { this.liveViewStops++; return this.json(res, 200, { success: true, message: 'Live view stopped', camera: this.info(camera) }); }
       if (sub === 'live-view/frame' && method === 'GET') {
         const svg = this.frame(camera);
         res.writeHead(200, { 'content-type': 'image/svg+xml', 'content-length': Buffer.byteLength(svg), 'cache-control': 'no-store' });

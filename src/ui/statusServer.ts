@@ -166,6 +166,12 @@ export function createStatusServer(
     const manager = sony(res); const id = sonyId(req, res); if (!manager || !id) return;
     void manager.properties(id).then(body => res.json(body)).catch(error => sonyError(res, error));
   });
+  // One setting, read fresh: used after a change to wait until the camera reports the new value.
+  app.get('/api/sony/cameras/:id/properties/:name', (req, res) => {
+    const manager = sony(res); const id = sonyId(req, res); if (!manager || !id) return;
+    if (!sonyProperties.has(req.params.name)) { res.status(400).json({ error: 'Unsupported Sony property' }); return; }
+    void manager.property(id, req.params.name).then(body => res.json(body)).catch(error => sonyError(res, error));
+  });
   app.put('/api/sony/cameras/:id/properties/:name', (req, res) => {
     const manager = sony(res); const id = sonyId(req, res); if (!manager || !id) return;
     if (!sonyProperties.has(req.params.name)) { res.status(400).json({ error: 'Unsupported Sony property' }); return; }
@@ -179,10 +185,31 @@ export function createStatusServer(
     const manager = sony(res); const id = sonyId(req, res); if (!manager || !id) return;
     void manager.liveViewStart(id).then(body => res.json(body)).catch(error => sonyError(res, error));
   });
-  app.get('/api/sony/cameras/:id/live-view/frame', (req, res) => {
+  // Live view costs the camera (Wi-Fi and processor, so heat): the sidecar pulls frames from a camera for as long
+  // as its live view runs, whether or not anyone is looking. Stop it after LIVE_VIEW_IDLE_MS with no page asking
+  // for frames, and start it again on the next request.
+  const LIVE_VIEW_IDLE_MS = 30000;
+  const lastFrameAsk = new Map<string, number>();
+  const idleStopped = new Set<string>();
+  app.get('/api/sony/cameras/:id/live-view/frame', async (req, res) => {
     const manager = sony(res); const id = sonyId(req, res); if (!manager || !id) return;
+    lastFrameAsk.set(id, Date.now());
+    if (idleStopped.has(id)) {
+      idleStopped.delete(id);
+      try { await manager.liveViewStart(id); } catch { /* the frame read below reports trouble */ }
+    }
     void manager.liveViewFrame(id).then(frame => res.type(frame.contentType).send(frame.body)).catch(error => sonyError(res, error));
   });
+  setInterval(() => {
+    if (!sonyManager) return;
+    const now = Date.now();
+    for (const [id, at] of lastFrameAsk) {
+      if (now - at < LIVE_VIEW_IDLE_MS || idleStopped.has(id)) continue;
+      idleStopped.add(id);
+      lastFrameAsk.delete(id);
+      void sonyManager.liveViewStop(id).then(() => logger.info({ camera: id }, 'Sony live view stopped: nobody watching')).catch(() => { idleStopped.delete(id); });
+    }
+  }, 10000).unref();
   app.post('/api/sony/cameras/:id/touch', (req, res) => {
     const manager = sony(res); const id = sonyId(req, res); if (!manager || !id) return;
     const x = req.body?.normalized?.x;
@@ -2127,7 +2154,7 @@ function renderSonyCameras(cameras, rigs) {
     var camera = slot.camera;
     var created = !sonyWidgets[camera.id];
     if (created) {
-      sonyWidgets[camera.id] = { active:true, confirmed:{}, delay:125, frameUrl:null, loadingProperties:false, previewAnnouncementState:'loading' };
+      sonyWidgets[camera.id] = { active:true, confirmed:{}, delay:200, frameUrl:null, loadingProperties:false, previewAnnouncementState:'loading' };
       holder.innerHTML = sonyWidgetHtml(camera); var article = holder.firstChild; root.appendChild(article); sonyWidgets[camera.id].article = article;
       loadSonyProperties(camera.id);
     } else updateSonyWidget(camera);
@@ -2286,6 +2313,8 @@ async function loadSonyProperties(id) {
       var property = properties[name];
       var select = document.getElementById('sony-' + id.replace(/:/g, '-') + '-' + name);
       if (!select) return;
+      // Never overwrite a menu that is mid-change or that the operator is using.
+      if ((state.pending && state.pending[name]) || document.activeElement === select) return;
       if (!property || !Array.isArray(property.available_values)) { incomplete = true; select.innerHTML = '<option>Unavailable</option>'; select.disabled = true; return; }
       state.confirmed[name] = property.current_value;
       // Read-only on this camera/lens (e.g. aperture set by a lens ring): show the value, greyed out.
@@ -2310,14 +2339,32 @@ async function loadSonyProperties(id) {
   finally { if (sonyWidgets[id] === state) state.loadingProperties = false; }
 }
 
+// The camera applies a change a moment after it accepts it, and reports the new value later still: reading
+// straight back showed the old value (the menu snapped back) and then the previous pick (the menu jumped). So
+// the menu keeps the operator's choice while the setting is pending, and the page asks the camera for that one
+// setting a few times until it reports the new value.
+function sonyReported(body) {
+  var d = (body && body.data) || body || {};
+  var raw = d.value !== undefined ? d.value : d.current_value;
+  if (typeof raw === 'number') return raw;
+  if (typeof raw === 'string' && /^0x[0-9a-f]+$/i.test(raw)) return parseInt(raw, 16);
+  if (typeof raw === 'string' && /^-?[0-9]+$/.test(raw)) return Number(raw);
+  return null;
+}
+
 async function saveSonyProperty(select) {
   var id = select.dataset.id, name = select.dataset.property, state = sonyWidgets[id];
   if (!state || select.disabled) return;
+  state.pending = state.pending || {};
+  var label = name.replace(/-/g, ' ');
+  var chosen = select.options[select.selectedIndex];
+  var chosenValue = JSON.parse(select.value);
+  var chosenText = chosen ? chosen.textContent : String(chosenValue);
+  var token = {}; state.pending[name] = token;
   select.disabled = true;
   try {
     // The Sony API takes the camera's hex value as a string; raw numbers are rejected.
-    var chosen = select.options[select.selectedIndex];
-    var sendValue = chosen && chosen.dataset.hex ? chosen.dataset.hex : JSON.parse(select.value);
+    var sendValue = chosen && chosen.dataset.hex ? chosen.dataset.hex : chosenValue;
     var response;
     for (var attempt = 0; attempt < 4; attempt++) {
       response = await fetch('/api/sony/cameras/' + id + '/properties/' + name, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ value:sendValue }) });
@@ -2329,12 +2376,37 @@ async function saveSonyProperty(select) {
       var detail = ''; try { detail = (await response.json()).error || ''; } catch (_) {}
       throw new Error('HTTP ' + response.status + (detail ? ' ' + detail : ''));
     }
-    await loadSonyProperties(id);
-    sonyStatus(id, name.replace(/-/g, ' ') + ' saved.');
+    select.value = JSON.stringify(chosenValue);
+    select.disabled = false;
+    sonyStatus(id, 'Applying ' + label + ' ' + chosenText + '…');
+    var waits = [300, 500, 700, 1000, 1500], reported = null;
+    for (var i = 0; i < waits.length; i++) {
+      await new Promise(function(resolve) { setTimeout(resolve, waits[i]); });
+      if (state.pending[name] !== token || sonyWidgets[id] !== state) return; // a newer choice took over
+      try {
+        var read = await fetch('/api/sony/cameras/' + id + '/properties/' + name, { cache:'no-store' });
+        if (read.ok) { reported = sonyReported(await read.json()); if (reported === chosenValue) break; }
+      } catch (_) { /* keep waiting */ }
+    }
+    if (state.pending[name] !== token) return;
+    delete state.pending[name];
+    if (reported === chosenValue) {
+      state.confirmed[name] = chosenValue;
+      sonyStatus(id, label + ' saved: ' + chosenText + '.');
+    } else if (reported !== null) {
+      state.confirmed[name] = reported;
+      var match = [].slice.call(select.options).filter(function(o) { return o.value === JSON.stringify(reported); })[0];
+      if (match) select.value = match.value;
+      sonyStatus(id, 'The camera kept ' + label + ' at ' + (match ? match.textContent : reported) + ' (it may not allow ' + chosenText + ' right now).', true);
+    } else {
+      state.confirmed[name] = chosenValue;
+      sonyStatus(id, label + ' sent: ' + chosenText + ' (the camera did not confirm yet).');
+    }
   } catch (error) {
+    if (state.pending[name] === token) delete state.pending[name];
     select.value = JSON.stringify(state.confirmed[name]);
     select.disabled = false;
-    sonyStatus(id, name.replace(/-/g, ' ') + ' save failed (' + (error && error.message ? error.message : 'unknown error') + '); restored confirmed value.', true);
+    sonyStatus(id, label + ' save failed (' + (error && error.message ? error.message : 'unknown error') + '); restored confirmed value.', true);
   }
 }
 
@@ -2361,7 +2433,7 @@ async function pollSonyFrame(id) {
     var previousUrl = state.frameUrl;
     state.frameUrl = nextUrl; image.src = nextUrl;
     image.onload = function() { if (previousUrl) URL.revokeObjectURL(previousUrl); };
-    preview.classList.remove('sony-preview-loading', 'sony-preview-stale'); state.delay = 125;
+    preview.classList.remove('sony-preview-loading', 'sony-preview-stale'); state.delay = 200; // 5 fps, matching the Sony service
     if (state.previewAnnouncementState === 'loading') sonyStatus(id, 'Live preview ready.');
     else if (state.previewAnnouncementState === 'stale') sonyStatus(id, 'Live preview recovered.');
     state.previewAnnouncementState = 'ready';
