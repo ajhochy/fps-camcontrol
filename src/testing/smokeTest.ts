@@ -5,7 +5,7 @@ import * as YAML from 'yaml';
 import { createInitialState, trackDeviceLinkState, AppState, CameraId } from '../app/state';
 import {
   AppConfig, resolveProfile, validateDevicesConfig, saveDevicesConfig,
-  saveActiveProfile, saveProfiles,
+  saveActiveProfile, saveProfiles, devicesFileVersion, ConfigConflictError, writeFileAtomic,
 } from '../config/configLoader';
 import { VirtualAtem } from './virtualAtem';
 import { VirtualVisca } from './virtualVisca';
@@ -351,7 +351,14 @@ async function runTests(): Promise<void> {
   assert('Sony UI includes sequential hidden-aware bounded preview polling', home.text.includes('document.hidden') && home.text.includes('setTimeout') && home.text.includes('sony-preview-stale'));
   assert('Sony UI includes contained-image touch mapping and keyboard fallback', home.text.includes('naturalWidth') && home.text.includes('Apply touch point') && home.text.includes('aria-live'));
   assert('Sony UI explains camera Touch Function behavior', home.text.includes('Touch Function determines focus vs tracking'));
-  assert('Device Config has explicit Sony discovery/connect controls', home.text.includes('sony-device-config') && home.text.includes('Connect'));
+  assert('the Sony settings load retries after a failed read instead of staying on Unavailable',
+    home.text.includes('function retrySonyProperties') && home.text.includes('Could not read camera settings yet'));
+  assert('a settings read that keeps failing is retried slowly for as long as the camera stays connected',
+    home.text.includes('state.propertyRetries <= 6 ? 2000 * state.propertyRetries : 15000'));
+  const rigsJs = (await sonyGet('/ui/rigs/rigs.js')).text;
+  const rigsModelJs = (await sonyGet('/ui/rigs/rigsModel.js')).text;
+  assert('Device Config has explicit Sony connect, retry, forget, refresh and add controls',
+    ['Connect', 'Retry connect', 'Forget', 'Refresh cameras', 'Retry Sony service', 'Add as named camera', 'Bind to a found camera'].every((label) => rigsJs.includes(`'${label}`) || rigsJs.includes(label)) && rigsJs.includes("'/api/sony/cameras/'"));
   // UI review repair: catches five-second wholesale DOM replacement that loses focus,
   // select values, previews, and can start overlapping property requests/pollers.
   assert('Sony refresh reconciles widgets by camera ID without replacing the root', home.text.includes('sony-grid-root') && home.text.includes('appendChild') && home.text.includes('state.article.remove()') && !home.text.includes("root.innerHTML = '<div class=\"section-header\">Sony Cameras"));
@@ -362,44 +369,33 @@ async function runTests(): Promise<void> {
   // Re-review regression: repeated frames/failures must not rewrite aria-live;
   // these assertions fail if pollSonyFrame announces outside state transitions.
   assert('Sony preview aria-live updates only on loading/ready/stale/recovered transitions', home.text.includes("previewAnnouncementState:'loading'") && home.text.includes("state.previewAnnouncementState === 'loading') sonyStatus(id, 'Live preview ready.'") && home.text.includes("state.previewAnnouncementState === 'stale') sonyStatus(id, 'Live preview recovered.'") && home.text.includes("state.previewAnnouncementState !== 'stale') sonyStatus(id, 'Live preview stale.'") && !home.text.includes("sonyStatus(id, recovered ?"));
-  assert('Sony discovery and connect failures clear stale state and report accessibly', home.text.includes('sonyDiscovered = [];') && home.text.includes('renderSonyCameras([])') && home.text.includes('sony-device-status') && home.text.includes('Sony camera connection failed.'));
+  assert('Sony failures on the Status page clear stale state and report accessibly', home.text.includes('sonyDiscovered = [];') && home.text.includes('renderSonyCameras([])') && home.text.includes('Sony camera service unavailable'));
   assert('Sony controls alone have 44px targets', home.text.includes('.sony-widget select, .sony-widget input, .sony-widget button { min-height:44px; }'));
   assert('Sony desktop layout has four equal widget columns with 16:9 previews', home.text.includes('grid-template-columns:repeat(4,minmax(0,1fr))') && home.text.includes('aspect-ratio:16 / 9'));
   assert('Sony layout uses two widget columns on tablet and one on mobile', home.text.includes('@media (max-width:1100px)') && home.text.includes('@media (max-width:700px)'));
   assert('Sony settings remain a compact two-column grid at desktop widths', home.text.includes('.sony-controls { display:grid; grid-template-columns:repeat(2,minmax(0,1fr));'));
   assert('Every Sony widget has a heading labeling its article and preview', (home.text.match(/aria-labelledby="sony-heading-/g) || []).length === 2 && home.text.includes('<h3 class="sony-widget__title" id="sony-heading-'));
   assert('Browser code only references CamControl Sony API', !home.text.includes(`127.0.0.1:${fakeSonyPort}`) && !home.text.includes('127.0.0.1:8181'));
-  // UI review repair: a connected camera must never look like an enabled retry;
-  // this fails if the state-action matrix routes Connected back through retry.
-  assert('Sony device action matrix gives Connected a noninteractive status and only retryable states Retry Connect',
-    home.text.includes("connected.textContent='Connected'") && home.text.includes("row.connected.hidden=state!=='connected'") &&
-    home.text.includes("state==='discovered_unapproved'") && home.text.includes("primary.textContent='Connect'") &&
-    home.text.includes("state==='connecting'") && home.text.includes("primary.textContent='Connecting'") &&
-    home.text.includes("state==='disconnected'||state==='needs_pairing'||state==='error'") && home.text.includes("primary.textContent='Retry Connect'") &&
-    home.text.includes("row.primary.onclick=null") && home.text.includes("row.forget.hidden=!camera.approved"));
-  // UI review repair: polling must reconcile rows in place so focus and a pending
-  // action survive; this fails if #sony-device-list is assigned innerHTML again.
-  assert('Sony device refresh reconciles stable rows without root replacement and keeps pending actions disabled',
-    home.text.includes('sonyDeviceRows = new Map()') && home.text.includes('sonyPendingActions = new Set()') &&
-    home.text.includes('sonyDeviceRoot.contains(document.activeElement)') && home.text.includes('sonyPendingActions.has(camera.id)') &&
-    home.text.includes('sonyPendingActions.add(id)') && home.text.includes('await refreshSony();\n  sonyPendingActions.delete(id)') &&
-    home.text.includes('replaceChild(sonySection, replacement)') && home.text.includes('root.appendChild(row.element)') && home.text.includes('row.element.remove()') &&
-    !home.text.includes('root.innerHTML=sidecarHtml'));
-  assert('Sony Device Config gives approved cameras one reconnect guidance line and wraps long IDs',
-    home.text.includes('Approved cameras reconnect automatically after app or camera restart') && home.text.includes('late power-on may take up to 75 seconds') &&
-    home.text.includes('.sony-device-id { overflow-wrap:anywhere; }'));
-  // Final UI review: a pending service retry must survive polling, then release
-  // its guard on both success and failure so an absent/crashed service is retryable again.
-  assert('Sony service retry blocks duplicates while pending and is reusable after settlement',
-    home.text.includes('var sonyServiceRetryPending = false;') && home.text.includes('if (sonyServiceRetryPending) return;') &&
-    home.text.includes('sonyServiceRetryPending = true;') && home.text.includes('sonyServiceRow.retry.disabled=sonyServiceRetryPending') &&
-    home.text.includes('finally { sonyServiceRetryPending = false; updateSonyServiceRow(); }'));
+  // The action rules now live in the tested rigs model (rigsUiModelTest); the page must still use them and never rebuild under the operator.
+  assert('the Sony action rules are in the rigs model: connect, retry, forget, bind, delete',
+    ['canConnect', 'canRetry', 'canForget', 'canBind', 'canDelete'].every((rule) => rigsModelJs.includes(rule)) && rigsModelJs.includes('RETRYABLE'));
+  assert('the rigs screen never rebuilds an inspector or the profile bar under someone using it',
+    rigsJs.includes('inspectBody.contains(document.activeElement)') && rigsJs.includes('profileBar.contains(document.activeElement)'));
+  assert('the rigs screen keeps action messages across redraws and always reloads after an action',
+    rigsJs.includes('app.messages[key]') && rigsJs.includes('await load();'));
+  assert('the Sony connections screen explains automatic reconnect and links to the setup guide',
+    rigsJs.includes('Approved cameras reconnect by themselves after an app or camera restart') && rigsJs.includes('up to about 75 seconds') && rigsJs.includes('/docs/sony-sidecar-setup'));
+  // A pending action must block duplicate clicks, and the button must be usable again once it settles
+  // (the screen reloads and rebuilds it), including when the Sony service is absent or crashed.
+  assert('a Sony action blocks duplicate clicks while pending and is usable again after it settles',
+    rigsJs.includes("b.disabled = true;\n    if (b.tagName === 'BUTTON') b.textContent = progress;") && rigsJs.includes('await load();\n    drawInspector(true);') &&
+    rigsJs.includes("'Retry Sony service'") && rigsModelJs.includes("service.state === 'absent' || service.state === 'crashed'"));
   const setupPage = await sonyGet('/docs/sony-sidecar-setup');
   const unsafeDocsPage = await sonyGet('/docs/current-plan');
   assert('Sony setup link serves current setup content without exposing arbitrary docs paths',
     setupPage.response.status === 200 && setupPage.text.includes('Sony CameraWebApp sidecar setup') && setupPage.text.includes('Sony SDK EULA') &&
-    unsafeDocsPage.response.status === 404 && home.text.includes("setup.href='/docs/sony-sidecar-setup'") &&
-    home.text.includes('.sony-setup-link { min-height:44px; display:inline-flex; align-items:center; }'));
+    unsafeDocsPage.response.status === 404 && rigsJs.includes("help.href = '/docs/sony-sidecar-setup'") &&
+    (await sonyGet('/ui/rigs/rigs.css')).text.includes('.rigs-link { display: inline-flex; align-items: center; min-height: 44px;'));
   // Failed status must remain after the empty-camera reconciliation; only the
   // successful status path may clear it before rendering recovered cameras.
   const renderSonyBody = home.text.match(/function renderSonyCameras\(cameras\) \{([\s\S]*?)\n\}/)?.[1] ?? '';
@@ -415,7 +411,7 @@ async function runTests(): Promise<void> {
     !sonySetupDoc.includes('Future CamControl runtime configuration') && sonySetupDoc.includes('adopt a sidecar you start externally') &&
     sonySetupDoc.includes('launch and supervise') && sonySetupDoc.includes('approved-camera state file') &&
     sonySetupDoc.includes('select **Connect** explicitly') && sonySetupDoc.includes('automatic reconnect') &&
-    sonySetupDoc.includes('**Retry Connect**') && sonySetupDoc.includes('**Forget**') && sonySetupDoc.includes('Retry Sony service') &&
+    sonySetupDoc.includes('**Retry connect**') && sonySetupDoc.includes('**Forget**') && sonySetupDoc.includes('Retry Sony service') &&
     sonySetupDoc.includes('never Sony usernames, passwords') && sonySetupDoc.includes('Sony SDK EULA'));
 
   const camerasResult = await sonyGet('/api/sony/cameras');
@@ -1074,6 +1070,97 @@ async function runTests(): Promise<void> {
   saveDevicesConfig(legacy);
   assert('a legacy cameras-only config still saves', readYaml().cameras[0].viscaIp === '10.0.0.3');
   assert('a legacy config with a blank input stores no inputId', readYaml().cameras[0].inputId === undefined);
+
+  // Rigs plan #1: writes are atomic, and a save based on a stale view of the file is refused.
+  console.log('\nTest 16b: devices.yaml saves are atomic and refuse a stale version');
+  resetFixture();
+  const loadedVersion = devicesFileVersion();
+  assert('the file version is a stable fingerprint of the file', loadedVersion === devicesFileVersion() && loadedVersion !== 'missing');
+  fs.writeFileSync(cfgPath, fixture.replace('192.168.50.15"', '192.168.50.99"'), 'utf8'); // a hand edit after the page loaded
+  assert('a hand edit changes the file version', devicesFileVersion() !== loadedVersion);
+  const beforeStale = fs.readFileSync(cfgPath, 'utf8');
+  let staleRefused = false;
+  try { saveDevicesConfig(validateDevicesConfig(uiPayload), loadedVersion); } catch (err) { staleRefused = err instanceof ConfigConflictError; }
+  assert('a device-config save with a stale version is refused', staleRefused);
+  assert('a refused save leaves the file byte-identical', fs.readFileSync(cfgPath, 'utf8') === beforeStale);
+  let staleProfilesRefused = false;
+  try { saveProfiles({ production: { label: 'Production', slots: [{ device: 'vbot', inputId: 6 }] } }, loadedVersion); } catch (err) { staleProfilesRefused = err instanceof ConfigConflictError; }
+  assert('a profile save with a stale version is refused', staleProfilesRefused);
+  assert('a refused profile save leaves the file byte-identical', fs.readFileSync(cfgPath, 'utf8') === beforeStale);
+  saveDevicesConfig(validateDevicesConfig(uiPayload), devicesFileVersion());
+  assert('a save with the current version goes through', readYaml().devices.vbot.label === 'V-BOT MAIN');
+  assert('a save with the current version still keeps every comment', commentLines(fs.readFileSync(cfgPath, 'utf8')).length === commentLines(fixture).length);
+  resetFixture();
+  saveDevicesConfig(validateDevicesConfig(uiPayload));
+  assert('a save with no version is not checked (older clients keep working)', readYaml().devices.vbot.label === 'V-BOT MAIN');
+  assert('saves leave no temp files behind', fs.readdirSync(cfgDir).every((name) => !name.endsWith('.tmp')));
+  fs.chmodSync(cfgPath, 0o600);
+  saveDevicesConfig(validateDevicesConfig(uiPayload));
+  assert('a save keeps the file permissions', (fs.statSync(cfgPath).mode & 0o777) === 0o600);
+
+  // A failure at the very last step (the rename) must leave the old file whole and no temp file behind.
+  resetFixture();
+  const beforeCrash = fs.readFileSync(cfgPath, 'utf8');
+  let crashed = false;
+  try { writeFileAtomic(cfgPath, 'half written garbage', { rename: () => { throw new Error('simulated power loss'); } }); } catch (_) { crashed = true; }
+  assert('a failed atomic write throws', crashed);
+  assert('a failed atomic write leaves the original file intact', fs.readFileSync(cfgPath, 'utf8') === beforeCrash);
+  assert('a failed atomic write leaves no temp file behind', fs.readdirSync(cfgDir).every((name) => !name.endsWith('.tmp')));
+  const freshPath = path.join(cfgDir, 'fresh.yaml');
+  writeFileAtomic(freshPath, 'a: 1\n');
+  assert('an atomic write creates a new file with the content', fs.readFileSync(freshPath, 'utf8') === 'a: 1\n');
+
+  // The same guarantees through the real HTTP routes.
+  resetFixture();
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { createStatusServer: createConfigApp } = require('../ui/statusServer');
+  const configServer: any = await new Promise((resolve) => {
+    const server = createConfigApp(state, config, presetManager).listen(0, '127.0.0.1', () => resolve(server));
+  });
+  const configBase = `http://127.0.0.1:${configServer.address().port}`;
+  const getConfig: any = await (await fetch(`${configBase}/api/config`)).json();
+  assert('GET /api/config returns the file version', getConfig.version === devicesFileVersion());
+  const getProfiles: any = await (await fetch(`${configBase}/api/profiles`)).json();
+  assert('GET /api/profiles returns the file version', getProfiles.version === devicesFileVersion());
+  fs.writeFileSync(cfgPath, fixture.replace('192.168.50.15"', '192.168.50.98"'), 'utf8');
+  const beforeHttp = fs.readFileSync(cfgPath, 'utf8');
+  const staleHttp = await fetch(`${configBase}/api/config`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ ...uiPayload, expectedVersion: getConfig.version }),
+  });
+  const staleBody: any = await staleHttp.json();
+  assert('POST /api/config with a stale version answers 409 conflict', staleHttp.status === 409 && staleBody.conflict === true && staleBody.ok === false);
+  assert('a 409 save leaves the file untouched', fs.readFileSync(cfgPath, 'utf8') === beforeHttp);
+  const staleProfilesHttp = await fetch(`${configBase}/api/profiles`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ profiles: getProfiles.profiles, expectedVersion: getProfiles.version }),
+  });
+  assert('POST /api/profiles with a stale version answers 409 conflict', staleProfilesHttp.status === 409);
+  const rigsHttp: any = await (await fetch(`${configBase}/api/rigs`)).json();
+  assert('GET /api/rigs lists one rig per configured camera', Array.isArray(rigsHttp.rigs) && rigsHttp.rigs.length === config.cameras.length);
+  assert('GET /api/rigs reports the file version', rigsHttp.version === devicesFileVersion());
+  assert('GET /api/rigs flags a flat cameras: config as legacy', rigsHttp.legacy === true && rigsHttp.activeProfile === null);
+  assert('GET /api/rigs reports no Sony service when none is configured', rigsHttp.sony === null);
+  assert('GET /api/rigs includes the ATEM block', typeof rigsHttp.atem?.ip === 'string');
+  const uiPage = await (await fetch(`${configBase}/`)).text();
+  assert('the page loads the rigs screen files in the Device Config tab', uiPage.includes('id="tab-btn-rigs"') && uiPage.includes('id="rigs-root"') && uiPage.includes('/ui/rigs/rigs.js') && uiPage.includes('/ui/rigs/rigsModel.js') && uiPage.includes('/ui/rigs/rigs.css'));
+  assert('the old Device Config tab and its editor are gone', !uiPage.includes('id="tab-config"') && !uiPage.includes('device-config-content') && !uiPage.includes('function saveDeviceConfig') && !uiPage.includes('cameras-editor') && !uiPage.includes('function renderDeviceConfig'));
+  assert('the Device Config tab is now the rigs screen', /id="tab-btn-rigs"[^>]*>Device Config</.test(uiPage));
+  assert('the dark mode switch moved into Device Config and still exists once', (uiPage.match(/id="dark-mode-toggle"/g) || []).length === 1 && uiPage.indexOf('id="dark-mode-toggle"') > uiPage.indexOf('id="tab-rigs"') && uiPage.indexOf('id="dark-mode-toggle"') < uiPage.indexOf('id="rigs-root"'));
+  assert('the Profiles tab is labelled classic and points to Device Config', uiPage.includes('Profiles (classic)') && uiPage.includes('managed in <strong>Device Config</strong>'));
+  assert('the Status page still has the Sony dashboard', uiPage.includes('id="sony-cameras"') && uiPage.includes('id="sony-grid-root"'));
+  for (const file of ['rigs.js', 'rigsModel.js']) {
+    const served = await fetch(`${configBase}/ui/rigs/${file}`);
+    assert(`/ui/rigs/${file} is served as JavaScript`, served.status === 200 && (served.headers.get('content-type') ?? '').includes('javascript'));
+  }
+  const css = await fetch(`${configBase}/ui/rigs/rigs.css`);
+  assert('/ui/rigs/rigs.css is served as CSS', css.status === 200 && (css.headers.get('content-type') ?? '').includes('css'));
+  assert('the rigs files are not cached stale', (await fetch(`${configBase}/ui/rigs/rigs.js`)).headers.get('cache-control') === 'no-cache');
+  const traversal = await fetch(`${configBase}/ui/%2e%2e/package.json`);
+  assert('the /ui route cannot read files outside ui/', traversal.status !== 200);
+  assert('GET /api/rigs reports the ATEM connection state field', 'atemConnected' in rigsHttp);
+  await new Promise<void>((resolve) => configServer.close(() => resolve()));
+  resetFixture();
 
   if (previousDevicesConfig === undefined) delete process.env.DEVICES_CONFIG;
   else process.env.DEVICES_CONFIG = previousDevicesConfig;

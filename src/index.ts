@@ -30,6 +30,8 @@ async function main() {
   logger.info('FPS CamControl starting…');
 
   const config = loadConfig();
+  if (config.working) logger.info({ profile: config.working.base, rigs: config.working.slots.length }, 'restored unsaved rig changes (working copy)');
+  if (config.workingNotice) logger.warn(config.workingNotice);
   const state: AppState = createInitialState();
   const activityLog = new ActivityLog();
   const sonyManager = new SonyManager(config.sony!, new SonyStateStore(config.sony!.stateFile));
@@ -99,9 +101,13 @@ async function main() {
     eventBus.emit('controllerData', { type: 'rawHidData', raw: data, normalized: input });
   });
 
-  supervisor.start();
+  // CAMCONTROL_NO_CONTROLLER=1 (the sandbox, isolated tests): never open the real
+  // HID controller, so a second copy of the app cannot take it from the live one.
+  const controllerDisabled = process.env.CAMCONTROL_NO_CONTROLLER === '1';
+  if (controllerDisabled) logger.warn('controller input disabled (CAMCONTROL_NO_CONTROLLER=1)');
+  else supervisor.start();
 
-  if (!supervisor.isAttached()) {
+  if (!controllerDisabled && !supervisor.isAttached()) {
     logger.warn('no known controller found — watching for one to connect; calibration wizard available at http://localhost:8080');
     const wizard = new CalibrationWizard();
     wizard.start();
@@ -145,7 +151,7 @@ async function main() {
   // Step 10: Status UI
   const app = createStatusServer(state, config, presetManager, activityLog, atem, devices, sonyManager);
   const port = parseInt(process.env.STATUS_PORT ?? '8080', 10);
-  startStatusServer(app, activityLog, port);
+  startStatusServer(app, activityLog, port, config.serverHost ?? '127.0.0.1');
 
   logger.info({ controlledCamera: state.controlledCamera }, 'FPS CamControl running');
 

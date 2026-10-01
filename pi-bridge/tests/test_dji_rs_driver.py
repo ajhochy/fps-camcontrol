@@ -285,6 +285,175 @@ class DjiRsDriverTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.driver._pose.yaw, 25.0)
 
 
+class LinkHealthTests(unittest.IsolatedAsyncioTestCase):
+    """The driver reports how its Bluetooth link is holding up, so the app can warn before it fails."""
+
+    async def asyncSetUp(self):
+        self.transport = FakeTransport(None, None)
+        self.driver = DjiRsDriver("48:1C:B9:54:C6:BC", transport_factory=lambda *_: self.transport, max_joystick=DEFAULT_MAX_JOYSTICK)
+        await self.driver.connect()
+
+    async def test_a_clean_link_reports_no_drops_and_no_corruption(self):
+        await self.transport.push(pose_frame())
+        health = self.driver.link_health()
+        self.assertEqual(health["drops10m"], 0)
+        self.assertEqual(health["corruptLastMin"], 0)
+        self.assertGreaterEqual(health["framesLastMin"], 1)
+        self.assertIsNotNone(health["linkedForS"])
+
+    async def test_corrupt_frames_are_counted(self):
+        for i in range(3):
+            await self.transport.push(corrupt(pose_frame(sequence=10 + i)))
+        await self.transport.push(pose_frame(sequence=20))
+        health = self.driver.link_health()
+        self.assertGreaterEqual(health["corruptLastMin"], 3)
+        self.assertGreaterEqual(health["framesLastMin"], health["corruptLastMin"] + 1)
+
+    async def test_a_dropped_link_is_counted_and_survives_the_reconnect(self):
+        self.transport.drop()
+        self.assertIsNone(self.driver.link_health()["linkedForS"])
+        await self.driver.connect()
+        health = self.driver.link_health()
+        self.assertEqual(health["drops10m"], 1)
+        self.assertIsNotNone(health["linkedForS"])
+
+    async def test_closing_on_purpose_is_not_a_drop(self):
+        await self.driver.close()
+        self.assertEqual(self.driver.link_health()["drops10m"], 0)
+
+
+def status_frame(cmd_set, cmd_id, payload, sender=0x04, receiver=0x02, sequence=7):
+    """A gimbal-to-host frame with any cmd_set/cmd_id (the sleep status notification, a 0x0d/0x02 push, ...)."""
+    frame = bytearray(_frame(sequence, cmd_set, cmd_id, payload))
+    frame[4], frame[5] = sender, receiver
+    from drivers.dji_rs_driver import _crc16
+    body = bytes(frame[:-2])
+    checksum = _crc16(body)
+    return body + bytes((checksum & 0xFF, checksum >> 8))
+
+
+class SleepStatusTests(unittest.IsolatedAsyncioTestCase):
+    """The gimbal's own sleep report (0x04/0x27), read passively: nothing is written to the gimbal for it."""
+
+    async def asyncSetUp(self):
+        self.transport = FakeTransport(None, None)
+        self.driver = DjiRsDriver("48:1C:B9:56:31:95", transport_factory=lambda *_: self.transport, max_joystick=DEFAULT_MAX_JOYSTICK)
+        await self.driver.connect()
+
+    async def test_unknown_until_the_gimbal_reports(self):
+        self.assertIsNone(self.driver.asleep)
+
+    async def test_asleep_and_awake_reports_are_read(self):
+        writes = len(self.transport.frames)
+        await self.transport.push(status_frame(0x04, 0x27, bytes.fromhex("0000000001")))
+        self.assertIs(self.driver.asleep, True)
+        await self.transport.push(status_frame(0x04, 0x27, bytes.fromhex("0000000000"), sequence=8))
+        self.assertIs(self.driver.asleep, False)
+        self.assertEqual(len(self.transport.frames), writes, "reading the sleep state must not write to the gimbal")
+
+    async def test_a_new_link_forgets_the_old_report(self):
+        await self.transport.push(status_frame(0x04, 0x27, bytes.fromhex("0000000001")))
+        self.transport.drop()
+        await self.driver.connect()
+        self.assertIsNone(self.driver.asleep)
+
+    async def test_other_frames_still_give_the_pose(self):
+        await self.transport.push(status_frame(0x0D, 0x02, bytes(20), sender=0xE5))
+        await self.transport.push(pose_frame())
+        pose = await self.driver.get_position()
+        self.assertEqual(pose.yaw, 20.0)
+
+    async def test_census_can_be_switched_off(self):
+        with unittest.mock.patch.dict(os.environ, {"DJI_RS3_FRAME_CENSUS": "0"}):
+            quiet = DjiRsDriver("48:1C:B9:56:31:95", transport_factory=lambda *_: FakeTransport(None, None))
+        self.assertFalse(quiet._census_on)
+        self.assertTrue(self.driver._census_on)
+
+
+class WakeTests(unittest.IsolatedAsyncioTestCase):
+    """Wake (0x04/0x0f, payload 23 01 00) is sent only when an operator asks for it."""
+
+    async def asyncSetUp(self):
+        self.transport = FakeTransport(None, None)
+        self.driver = DjiRsDriver("48:1C:B9:56:31:95", transport_factory=lambda *_: self.transport, max_joystick=DEFAULT_MAX_JOYSTICK)
+        await self.driver.connect()
+
+    def test_wake_is_advertised(self):
+        self.assertIn("wake", DjiRsDriver.capabilities)
+
+    async def test_wake_writes_exactly_the_documented_frame(self):
+        before = len(self.transport.frames)
+        await self.driver.wake()
+        self.assertEqual(len(self.transport.frames), before + 1, "wake writes exactly one frame")
+        frame = self.transport.frames[-1]
+        self.assertEqual(frame[9:11], b"\x04\x0f", "cmd_set 0x04, cmd_id 0x0f")
+        self.assertEqual(payload(frame), bytes((0x23, 0x01, 0x00)), "23 01 00 = wake (23 01 01 would be sleep)")
+        self.assertEqual(frame[5], 0x04, "receiver 0x04 (the gimbal)")
+        sequence = frame[6] | (frame[7] << 8)
+        self.assertEqual(frame, _frame(sequence, 0x04, 0x0F, bytes.fromhex("230100")), "well-formed DUML frame with valid CRCs")
+
+    async def test_wake_does_not_pretend_the_gimbal_woke(self):
+        await self.transport.push(status_frame(0x04, 0x27, bytes.fromhex("0000000001")))
+        await self.driver.wake()
+        self.assertIs(self.driver.asleep, True, "only the gimbal's own report may clear asleep")
+        await self.transport.push(status_frame(0x04, 0x27, bytes.fromhex("0000000000"), sequence=9))
+        self.assertIs(self.driver.asleep, False)
+
+    async def test_wake_is_refused_when_not_connected(self):
+        self.transport.drop()
+        before = len(self.transport.frames)
+        with self.assertRaises(GimbalError):
+            await self.driver.wake()
+        self.assertEqual(len(self.transport.frames), before, "nothing written on a dead link")
+
+
+class StaleLinkTests(unittest.IsolatedAsyncioTestCase):
+    """A gimbal BlueZ still holds a link to does not advertise; the bridge must release it, not wait forever."""
+
+    async def test_a_stale_link_is_released(self):
+        from drivers import dji_rs_driver as d
+        calls = []
+
+        class Proc:
+            def __init__(self, out):
+                self.out = out
+            async def communicate(self):
+                return self.out, b""
+
+        async def fake_exec(*args, **_kw):
+            calls.append(args[1:])
+            return Proc(b"Device 48:1C\n\tConnected: yes\n" if args[1] == "info" else b"Disconnection successful")
+
+        with unittest.mock.patch.object(d.asyncio, "create_subprocess_exec", fake_exec):
+            self.assertTrue(await d._release_stale_link("48:1C:B9:54:C6:BC"))
+        self.assertEqual(calls, [("info", "48:1C:B9:54:C6:BC"), ("disconnect", "48:1C:B9:54:C6:BC")])
+
+    async def test_a_gimbal_that_is_really_gone_is_left_alone(self):
+        from drivers import dji_rs_driver as d
+        calls = []
+
+        class Proc:
+            async def communicate(self):
+                return b"Device 48:1C\n\tConnected: no\n", b""
+
+        async def fake_exec(*args, **_kw):
+            calls.append(args[1:])
+            return Proc()
+
+        with unittest.mock.patch.object(d.asyncio, "create_subprocess_exec", fake_exec):
+            self.assertFalse(await d._release_stale_link("48:1C:B9:54:C6:BC"))
+        self.assertEqual(calls, [("info", "48:1C:B9:54:C6:BC")])
+
+    async def test_no_bluetoothctl_is_not_an_error(self):
+        from drivers import dji_rs_driver as d
+
+        async def missing(*_a, **_kw):
+            raise FileNotFoundError("bluetoothctl")
+
+        with unittest.mock.patch.object(d.asyncio, "create_subprocess_exec", missing):
+            self.assertFalse(await d._release_stale_link("48:1C:B9:54:C6:BC"))
+
+
 class BleakTransportTests(unittest.IsolatedAsyncioTestCase):
     """The bleak-backed transport, exercised without bleak installed."""
 

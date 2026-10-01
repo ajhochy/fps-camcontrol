@@ -1,7 +1,8 @@
 import fs from 'fs';
 import { z } from 'zod';
 import { AppState, CameraId, PresetSlot } from '../app/state';
-import { AppConfig } from '../config/configLoader';
+import { AppConfig, writeFileAtomic } from '../config/configLoader';
+import { shiftPresetsAfterRemoval } from './presetShift';
 import { MotionDevice, DevicePosition } from '../devices/motionDevice';
 import { logger } from '../index';
 
@@ -83,7 +84,7 @@ export class PresetManager {
   }
 
   private savePresets(): void {
-    fs.writeFileSync(this.presetsFile, JSON.stringify(this.data, null, 2));
+    writeFileAtomic(this.presetsFile, JSON.stringify(this.data, null, 2));
   }
 
   async recallPreset(cameraId: CameraId, slot: PresetSlot): Promise<void> {
@@ -131,6 +132,19 @@ export class PresetManager {
       this.savePresets();
       logger.info({ cameraId, slot }, 'preset cleared');
     }
+  }
+
+  /** Put a saved copy of the presets back (Revert of unsaved rig edits, which may have moved presets). */
+  replaceAll(data: PresetData): void {
+    this.data = data;
+    this.savePresets();
+  }
+
+  /** A rig was removed: presets of every later rig move down one place so they stay with their camera. */
+  removeRigSlot(position: number, totalBefore: number): void {
+    this.data = shiftPresetsAfterRemoval(this.data, position, totalBefore);
+    this.savePresets();
+    logger.info({ position, totalBefore }, 'presets shifted after a rig was removed');
   }
 
   getData(): PresetData {

@@ -3,7 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { SonyStateStore, SonyCameraApproval } from '../sony/sonyStateStore';
-import { SonyManager, SonyManagerDependencies, SonyChildProcess } from '../sony/sonyManager';
+import { SonyManager, SonyManagerDependencies, SonyChildProcess, overheatState } from '../sony/sonyManager';
 
 /**
  * Deterministic lifecycle checks. Every timer, process, clock, and HTTP call is
@@ -20,7 +20,7 @@ const criteria = new Set<string>();
 
 function record(name: string): void {
   const criterion = name.split(':')[0];
-  assert.ok(/^c(?:[1-9]|1[0-2])$/.test(criterion), `check name must start with a criterion id: ${name}`);
+  assert.ok(/^c(?:[1-9]|1[0-7])$/.test(criterion), `check name must start with a criterion id: ${name}`);
   assert.ok(!checks.includes(name), `duplicate check name: ${name}`);
   checks.push(name);
   criteria.add(criterion);
@@ -144,6 +144,7 @@ interface Harness {
   manager: SonyManager;
   clock: Clock;
   calls: string[];
+  bodies: string[];
   timeouts: number[];
   spawns: FakeChild[];
   spawnOptions: unknown[];
@@ -168,6 +169,7 @@ const build = (
 ): Harness => {
   const clock = new Clock();
   const calls: string[] = [];
+  const bodies: string[] = [];
   const timeouts: number[] = [];
   const spawns: FakeChild[] = [];
   const spawnOptions: unknown[] = [];
@@ -177,7 +179,7 @@ const build = (
     { enabled: true, apiUrl: 'http://127.0.0.1:8181', ...config },
     store ?? new SonyStateStore(config.stateFile),
     {
-      fetch: async (url, init) => { calls.push(`${init?.method ?? 'GET'} ${url}`); return upstream(url, init); },
+      fetch: async (url, init) => { calls.push(`${init?.method ?? 'GET'} ${url}`); if (typeof init?.body === 'string') bodies.push(init.body); return upstream(url, init); },
       spawn: (command, args, options) => {
         spawnCommands.push(command); spawnArgs.push(args); spawnOptions.push(options);
         const child = fakeChild(); spawns.push(child); return child;
@@ -190,7 +192,7 @@ const build = (
       ...extra,
     },
   );
-  return { manager, clock, calls, timeouts, spawns, spawnOptions, spawnArgs, spawnCommands };
+  return { manager, clock, calls, bodies, timeouts, spawns, spawnOptions, spawnArgs, spawnCommands };
 };
 
 async function main(): Promise<void> {
@@ -359,6 +361,7 @@ async function main(): Promise<void> {
   checkEqual('c6: an explicit successful connect persists approval', (await store.load()).map((camera) => camera.id), ['AA:BB']);
   checkEqual('c6: an explicit connect writes the approval exactly once', store.approvals, 1);
   checkEqual('c6: connect uses the 30 s upstream budget', approval.timeouts[approval.timeouts.length - 1], 30000);
+  check('c16: connect asks for the SDK\'s own reconnect, so a Wi-Fi blip is resumed without re-pairing', approval.bodies.some((body: string) => { try { const b = JSON.parse(body); return b.mode === 'remote' && b.reconnecting === 'on'; } catch { return false; } }));
   checkEqual('c6: a connected camera is reported connected', approval.manager.getStatus().cameras[0].state, 'connected');
   await approval.manager.stop();
 
@@ -448,7 +451,7 @@ async function main(): Promise<void> {
   check('c8: coalesced readers observe the same response', firstBody === secondBody);
   await lanes.manager.properties('AA:BB');
   checkEqual('c8: a settled lane accepts the next read', propertyReads, 2);
-  checkEqual('c8: reads use the 5 s upstream budget', lanes.timeouts[lanes.timeouts.length - 1], 5000);
+  checkEqual('c8: a full settings read gets the 15 s budget (it can queue behind other cameras connecting)', lanes.timeouts[lanes.timeouts.length - 1], 15000);
   await lanes.manager.stop();
 
   // -- c9: stop shuts down only owned children, on the approved deadlines ------
@@ -552,8 +555,225 @@ async function main(): Promise<void> {
   await leakyStop;
   checkEqual('c12: a curated shutdown leaves no live timers', leaky.clock.pending(), 0);
 
+  // -- c13: a powered-off camera stops showing as connected --------------------
+  const camA = 'AA:BB:CC:DD:EE:01';
+  const camB = 'AA:BB:CC:DD:EE:02';
+  const powered = new Set<string>([camA, camB]);
+  const linked = new Set<string>();
+  const linkUpstream = (url: string, init?: RequestInit): Response => {
+    if (url.endsWith('/api/server/status')) return healthy();
+    if (url.endsWith('/api/cameras')) {
+      return json(200, { cameras: [camA, camB].filter((id) => powered.has(id)).map((id) => ({ id, model: 'ILCE-7SM3', connectionType: 'Network', connected: linked.has(id) })) });
+    }
+    const connection = url.match(/\/api\/cameras\/([^/]+)\/connection$/);
+    if (connection) {
+      const id = decodeURIComponent(connection[1]);
+      if (init?.method === 'POST') { linked.add(id); return json(200, { success: true, camera: { connected: true, model: 'ILCE-7SM3', id } }); }
+      return json(200, { success: true, camera: { connected: linked.has(id) && powered.has(id), model: '', id } });
+    }
+    return json(200, {});
+  };
+  const link = build({ stateFile: file('link.json') }, linkUpstream);
+  link.manager.start();
+  await link.manager.whenIdle();
+  await link.manager.connect(camA, false);
+  await link.manager.whenIdle();
+  const stateOf = (id: string): string | undefined => link.manager.getStatus().cameras.find((camera) => camera.id === id)?.state;
+  checkEqual('c13: an explicitly connected camera shows connected', stateOf(camA), 'connected');
+  await link.clock.run(link.manager, 5000);
+  check('c13: the link of a connected camera is re-checked every 5 s', link.calls.filter((call) => call === `GET http://127.0.0.1:8181/api/cameras/${camA}/connection`).length >= 1);
+  checkEqual('c13: a camera that still answers stays connected', stateOf(camA), 'connected');
+  check('c13: link checks use a short 2 s timeout', link.timeouts.includes(2000));
+  powered.delete(camA);
+  await link.clock.run(link.manager, 5000);
+  checkEqual('c13: a camera that powers off stops showing connected', stateOf(camA), 'disconnected');
+  checkEqual('c13: the lost link is explained to the operator', link.manager.getStatus().cameras.find((camera) => camera.id === camA)?.message, 'Camera stopped responding');
+  linked.delete(camA);
+  powered.add(camA);
+  // c16: right after a drop the SDK's own reconnect is given the first chance (no fresh connect, which an FX3
+  // refuses until it is paired again); after that the app connects as before.
+  const freshConnects = () => link.calls.filter((call) => call === `POST http://127.0.0.1:8181/api/cameras/${camA}/connection`).length;
+  const before = freshConnects();
+  await link.clock.run(link.manager, 12000);
+  checkEqual('c16: no fresh connect while the SDK may still be resuming the dropped session', freshConnects(), before);
+  await link.clock.run(link.manager, 48000);
+  checkEqual('c13: an approved camera reconnects by itself after power returns', stateOf(camA), 'connected');
+  check('c16: after the grace the app connects as before', freshConnects() > before);
+  const afterReconnect = link.calls.length;
+  await link.manager.stop();
+  checkEqual('c13: stop cancels the link check timer', link.clock.pending(), 0);
+  await link.clock.advance(20000);
+  checkEqual('c13: no link checks run after stop', link.calls.length, afterReconnect);
+
+  // -- c14: an approval file written by the retired gimbal-link build still loads ---
+  const legacyFile = file('legacy-gimbal.json');
+  fs.writeFileSync(legacyFile, `${JSON.stringify({ version: 1, approvedCameras: [{ id: camA, model: 'ILCE-7SM3', connectionType: 'Network', approvedAt: '2026-09-30T21:20:07.215Z', gimbalDevice: 'rs3' }] })}\n`);
+  const legacyLoaded = await new SonyStateStore(legacyFile).load();
+  checkEqual('c14: an approval file with the retired gimbalDevice key still loads', legacyLoaded.map((camera) => camera.id), [camA]);
+  check('c14: the retired gimbalDevice key is dropped, not kept', !('gimbalDevice' in (legacyLoaded[0] as unknown as Record<string, unknown>)));
+  check('c14: the file is not set aside as corrupt', fs.readdirSync(root).every((name) => !name.startsWith('legacy-gimbal.json.corrupt')));
+  await new SonyStateStore(legacyFile).approve({ id: camB, model: 'ILME-FX3A' });
+  const rewritten = JSON.parse(fs.readFileSync(legacyFile, 'utf8'));
+  check('c14: the next save writes the file without the retired key', rewritten.approvedCameras.length === 2 && rewritten.approvedCameras.every((camera: Record<string, unknown>) => !('gimbalDevice' in camera)));
+
+  // -- c15: saved cameras survive an app restart, even when they are off at start ---
+  const restartFile = file('restart.json');
+  const seedStore = new SonyStateStore(restartFile);
+  await seedStore.approve({ id: camA, model: 'ILCE-7SM3', connectionType: 'Network' });
+  await seedStore.approve({ id: camB, model: 'ILME-FX3A', connectionType: 'Network' });
+  powered.clear(); linked.clear();
+  const restarted = build({ stateFile: restartFile }, linkUpstream);
+  restarted.manager.start();
+  await restarted.manager.whenIdle();
+  const restartedCamera = (id: string) => restarted.manager.getStatus().cameras.find((camera) => camera.id === id);
+  check('c15: saved cameras are listed after a restart even while powered off', restartedCamera(camA)?.approved === true && restartedCamera(camB)?.approved === true);
+  checkEqual('c15: a saved camera that is off shows as disconnected', [restartedCamera(camA)?.state, restartedCamera(camB)?.state], ['disconnected', 'disconnected']);
+  checkEqual('c15: the saved model is kept for a camera that is off', [restartedCamera(camA)?.model, restartedCamera(camB)?.model], ['ILCE-7SM3', 'ILME-FX3A']);
+  powered.add(camB);
+  await restarted.clock.run(restarted.manager, 70000);
+  checkEqual('c15: a saved camera powered on after the restart connects by itself', restartedCamera(camB)?.state, 'connected');
+  checkEqual('c15: a saved camera still off stays listed as disconnected', restartedCamera(camA)?.state, 'disconnected');
+  await restarted.manager.stop();
+  checkEqual('c15: stop cancels every timer', restarted.clock.pending(), 0);
+
+  // -- c17: battery level is read slowly, one camera at a time, and quietly ---------
+  const batteryCams = [camA, camB];
+  const batPowered = new Set<string>(batteryCams);
+  const batLinked = new Set<string>();
+  const batteryValue = new Map<string, string>([[camA, '0x52'], [camB, '0x28']]);
+  let batteryFails = false;
+  let batteryHold: Promise<void> | null = null;
+  let batteryInFlight = 0;
+  let batteryMaxInFlight = 0;
+  const batteryUpstream = async (url: string, init?: RequestInit): Promise<Response> => {
+    if (url.endsWith('/api/server/status')) return healthy();
+    if (url.endsWith('/api/cameras')) {
+      return json(200, { cameras: batteryCams.filter((id) => batPowered.has(id)).map((id) => ({ id, model: 'ILCE-7SM3', connectionType: 'Network', connected: batLinked.has(id) })) });
+    }
+    const connection = url.match(/\/api\/cameras\/([^/]+)\/connection$/);
+    if (connection) {
+      const id = decodeURIComponent(connection[1]);
+      if (init?.method === 'POST') {
+        if (!batPowered.has(id)) return json(404, { success: false, message: 'Camera not found' });
+        batLinked.add(id);
+        return json(200, { success: true, camera: { connected: true, model: 'ILCE-7SM3', id } });
+      }
+      return json(200, { success: true, camera: { connected: batLinked.has(id) && batPowered.has(id), id } });
+    }
+    const battery = url.match(/\/api\/cameras\/([^/]+)\/properties\/battery-remain$/);
+    if (battery) {
+      batteryInFlight++;
+      batteryMaxInFlight = Math.max(batteryMaxInFlight, batteryInFlight);
+      try {
+        if (batteryHold) await batteryHold;
+        if (batteryFails) return json(500, { success: false, message: 'Service busy' });
+        // The real sidecar's single-property shape: data.value is hex, data.formatted is "NN%" (65535% when not taken).
+        const value = batteryValue.get(decodeURIComponent(battery[1])) ?? '0xffff';
+        return json(200, { success: true, message: 'Property retrieved successfully', data: { property: 'battery-remain', value, formatted: `${parseInt(value, 16)}%`, writable: false, available_values: [] } });
+      } finally { batteryInFlight--; }
+    }
+    return json(200, {});
+  };
+  const batteryReads = (calls: string[], id: string): number => calls.filter((call) => call === `GET http://127.0.0.1:8181/api/cameras/${id}/properties/battery-remain`).length;
+
+  const bat = build({ stateFile: file('battery.json') }, batteryUpstream);
+  const batteryOf = (id: string) => bat.manager.getStatus().cameras.find((camera) => camera.id === id);
+  bat.manager.start();
+  await bat.manager.whenIdle();
+  await bat.manager.connect(camA);
+  await bat.manager.whenIdle();
+  checkEqual('c17: a camera has no battery reading until it is read', batteryOf(camA)?.battery, null);
+  await bat.clock.run(bat.manager, 1000);
+  checkEqual('c17: the battery is read once right after connect', batteryReads(bat.calls, camA), 1);
+  checkEqual('c17: the reading is the percent the camera reports', batteryOf(camA)?.battery?.percent, 82);
+  check('c17: a fresh reading carries its time and is not stale', typeof batteryOf(camA)?.battery?.at === 'string' && batteryOf(camA)?.battery?.stale === false);
+  check('c17: a battery read uses the normal 5 s read budget', bat.timeouts.includes(5000));
+  await bat.clock.run(bat.manager, 59000);
+  checkEqual('c17: no second battery read before 60 s', batteryReads(bat.calls, camA), 1);
+  await bat.clock.run(bat.manager, 1000);
+  checkEqual('c17: the battery is re-read every 60 s', batteryReads(bat.calls, camA), 2);
+  batteryFails = true;
+  await bat.clock.run(bat.manager, 60000);
+  checkEqual('c17: a failed read is still on the 60 s cadence', batteryReads(bat.calls, camA), 3);
+  check('c17: a failed read keeps the last value and changes nothing else about the camera',
+    batteryOf(camA)?.battery?.percent === 82 && batteryOf(camA)?.state === 'connected' && batteryOf(camA)?.message === null);
+  await bat.clock.run(bat.manager, 125000);
+  check('c17: a reading not refreshed for over 3 minutes is marked stale, keeping its value', batteryOf(camA)?.battery?.stale === true && batteryOf(camA)?.battery?.percent === 82);
+  batteryFails = false;
+  batteryValue.set(camA, '0xffff');
+  await bat.clock.run(bat.manager, 60000);
+  check('c17: the SDK not-taken value 0xFFFF is an unknown level (null), not 65535%', batteryOf(camA)?.battery?.percent === null && batteryOf(camA)?.battery?.stale === false);
+  checkEqual('c17: a camera that is not connected is never read', batteryReads(bat.calls, camB), 0);
+  batPowered.delete(camA);
+  batLinked.delete(camA);
+  await bat.clock.run(bat.manager, 5000);
+  checkEqual('c17: (setup) the powered-off camera shows disconnected', batteryOf(camA)?.state, 'disconnected');
+  const readsWhileOff = batteryReads(bat.calls, camA);
+  await bat.clock.run(bat.manager, 180000);
+  checkEqual('c17: a disconnected camera gets no battery reads', batteryReads(bat.calls, camA), readsWhileOff);
+  await bat.manager.stop();
+  checkEqual('c17: stop cancels the battery timer', bat.clock.pending(), 0);
+
+  batPowered.add(camA);
+  batLinked.clear();
+  batteryValue.set(camA, '0x52');
+  batteryMaxInFlight = 0;
+  let releaseBattery!: () => void;
+  batteryHold = new Promise<void>((resolve) => { releaseBattery = resolve; });
+  const lap = build({ stateFile: file('battery-lap.json') }, batteryUpstream);
+  lap.manager.start();
+  await lap.manager.whenIdle();
+  await lap.manager.connect(camA);
+  await lap.manager.connect(camB);
+  await lap.manager.whenIdle();
+  await lap.clock.run(lap.manager, 1000);
+  checkEqual('c17: cameras are read one at a time, not together', [batteryReads(lap.calls, camA), batteryReads(lap.calls, camB)], [1, 0]);
+  const pageRead = lap.manager.property(camA, 'battery-remain');
+  checkEqual('c17: a page read of the battery during the poll joins it (no second request)', batteryReads(lap.calls, camA), 1);
+  await lap.clock.run(lap.manager, 120000);
+  checkEqual('c17: a slow battery read is never overlapped by the next poll', [batteryReads(lap.calls, camA), batteryReads(lap.calls, camB)], [1, 0]);
+  releaseBattery();
+  batteryHold = null;
+  await pageRead;
+  await lap.clock.run(lap.manager, 0);
+  checkEqual('c17: the next camera is read once the previous read finishes', batteryReads(lap.calls, camB), 1);
+  checkEqual('c17: the second camera reports its own level', lap.manager.getStatus().cameras.find((camera) => camera.id === camB)?.battery?.percent, 40);
+  checkEqual('c17: never more than one battery read in flight', batteryMaxInFlight, 1);
+  await lap.manager.stop();
+  checkEqual('c17: stop leaves no battery timer behind', lap.clock.pending(), 0);
+  // Stop / Start from the app: a clean shutdown, nothing relaunches it, Start kicks the launchd job and adopts it.
+  {
+    let up = true; const commands: string[] = [];
+    const svc = build({ stateFile: file('svc.json'), launchdLabel: 'com.test.sony' } as never, (url, init) => {
+      if (url.endsWith('/api/server/shutdown') && init?.method === 'POST') { up = false; return json(200, { success: true }); }
+      if (url.endsWith('/api/server/status')) return up ? healthy() : Promise.reject(new Error('ECONNREFUSED'));
+      if (url.endsWith('/api/cameras')) return json(200, { cameras: [] });
+      return json(404, {});
+    }, { runCommand: async (command: string, args: string[]) => { commands.push(`${command} ${args.join(' ')}`); up = true; return 0; } } as never);
+    svc.manager.start();
+    await svc.clock.run(svc.manager, 0);
+    checkEqual('c17: the service starts healthy', svc.manager.getStatus().sidecar.state, 'healthy');
+    await svc.manager.stopService();
+    check('c17: Stop asks the service to shut down cleanly', svc.calls.includes('POST http://127.0.0.1:8181/api/server/shutdown'));
+    checkEqual('c17: a stopped service says it was stopped from the app', [svc.manager.getStatus().sidecar.state, svc.manager.getStatus().sidecar.message], ['stopped', 'Stopped from the app']);
+    const callsAfterStop = svc.calls.length;
+    await svc.clock.advance(180000);
+    checkEqual('c17: nothing probes or relaunches a service the operator stopped', svc.calls.length, callsAfterStop);
+    const starting = svc.manager.startService();
+    await svc.clock.advance(2000);
+    await starting;
+    await svc.clock.run(svc.manager, 0);
+    check('c17: Start kicks the launchd job', commands.some((c) => c.startsWith('launchctl kickstart gui/') && c.endsWith('/com.test.sony')));
+    checkEqual('c17: and the service is adopted again', svc.manager.getStatus().sidecar.state, 'healthy');
+    await svc.manager.stop();
+  }
+  checkEqual('c17: the overheating reading is understood (Normal / Pre-Overheating / Overheating)', [
+    overheatState({ data: { formatted: 'Normal' } }), overheatState({ data: { formatted: 'Pre-Overheating' } }),
+    overheatState({ data: { formatted: 'Overheating' } }), overheatState({ data: { value: '0x2' } }), overheatState({ data: { formatted: '' } }),
+  ], ['normal', 'pre', 'over', 'over', null]);
+
   const covered = [...criteria].sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
-  assert.strictEqual(covered.length, 12, `every criterion needs a check; covered: ${covered.join(',')}`);
+  assert.strictEqual(covered.length, 17, `every criterion needs a check; covered: ${covered.join(',')}`);
   assert.strictEqual(new Set(checks).size, checks.length, 'check names must be unique');
   console.log(`sony manager: ${checks.length} checks passed across ${covered.length} criteria (${covered.join(' ')})`);
 }

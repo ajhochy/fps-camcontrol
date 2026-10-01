@@ -4,7 +4,7 @@ import http from 'http';
 const PROTOCOL_VERSION = 1;
 
 /** Methods the real Pi driver rejects outright when it has no BLE link. */
-const GIMBAL_TOUCHING_METHODS = new Set(['moveVelocity', 'getPosition', 'moveToPosition', 'recenter', 'setMode']);
+const GIMBAL_TOUCHING_METHODS = new Set(['moveVelocity', 'getPosition', 'moveToPosition', 'recenter', 'setMode', 'wake']);
 
 interface Frame {
   v: number;
@@ -24,6 +24,13 @@ export interface VirtualDjiBridgeOptions {
   gimbalConnected?: boolean;
   /** How often to emit `status`, matching the Pi's 500 ms loop. */
   statusIntervalMs?: number;
+  /** Answer GET /info like a bridge >= 0.2.0 (default true); false acts like an older bridge. */
+  info?: boolean;
+  /** The Pi's host name reported by /info and hello (default "virtual-pi"). */
+  hostname?: string;
+  instance?: string | null;
+  /** The gimbal's Bluetooth address (default derived from the port). */
+  gimbalAddress?: string | null;
 }
 
 /**
@@ -65,16 +72,46 @@ export class VirtualDjiBridge {
   /** See goSilent(): attached but unresponsive, neither acking nor nacking. */
   private silent = false;
   log: string[] = [];
+  /** Linked and reporting its pose, but ignoring every move (asleep, motors off). */
+  asleep = false;
+  /** Send the gimbal's sleep report (asleep: this.asleep) with each status, like a bridge >= 0.4.0. */
+  reportSleep = false;
+  /** Wake commands received (bridge 0.5.0+ "wake"). */
+  wakes = 0;
+  /** When false the bridge acks a wake but the gimbal stays asleep (e.g. motor protection on an RS3 Pro). */
+  wakeWorks = true;
+  /** Bluetooth link figures sent with every status (like a bridge >= 0.3.0); null sends none. */
+  link: { drops10m: number; framesLastMin: number; corruptLastMin: number; linkedForS: number | null } | null = { drops10m: 0, framesLastMin: 60, corruptLastMin: 0, linkedForS: 100 };
+  /** GET /info requests answered (they open no session). */
+  infoRequests = 0;
+  /** WebSocket sessions ever opened (a probe that says hello opens one). */
+  sessionsOpened = 0;
+  private identity: { hostname: string; instance: string | null; gimbalAddress: string | null };
 
   constructor(opts: VirtualDjiBridgeOptions = {}) {
     this.port = opts.port ?? 0;
-    this.capabilities = opts.capabilities ?? ['velocity', 'position', 'moveTo'];
+    this.capabilities = opts.capabilities ?? ['velocity', 'position', 'moveTo', 'wake'];
     this.gimbalModel = opts.gimbalModel ?? 'mock-RS4Pro';
     this.safetyTimeoutMs = opts.safetyTimeoutMs ?? 250;
     this.gimbalConnected = opts.gimbalConnected ?? true;
     this.statusIntervalMs = opts.statusIntervalMs ?? 200;
 
-    this.server = http.createServer();
+    const info = opts.info ?? true;
+    this.identity = {
+      hostname: opts.hostname ?? 'virtual-pi',
+      instance: opts.instance ?? null,
+      gimbalAddress: opts.gimbalAddress === undefined ? `AA:BB:CC:00:${String(Math.floor(this.port / 256) % 100).padStart(2, '0')}:${String(this.port % 100).padStart(2, '0')}` : opts.gimbalAddress,
+    };
+    this.server = http.createServer((req, res) => {
+      if (info && req.method === 'GET' && (req.url ?? '').split('?')[0] === '/info') {
+        this.infoRequests++;
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify(this.info()));
+        return;
+      }
+      res.writeHead(426, { 'Content-Type': 'text/plain' });
+      res.end('Upgrade Required');
+    });
     this.wss = new WebSocketServer({ server: this.server });
     this.wss.on('connection', (ws) => this.onConnection(ws));
   }
@@ -117,6 +154,8 @@ export class VirtualDjiBridge {
       const params: Record<string, unknown> = {
         gimbalConnected: this.gimbalConnected,
         sdkConnected: this.gimbalConnected,
+        ...(this.link ? { link: this.link } : {}),
+        ...(this.reportSleep ? { asleep: this.asleep } : {}),
         mode: 'follow',
       };
       if (this.gimbalConnected) {
@@ -148,7 +187,13 @@ export class VirtualDjiBridge {
     this.log = [];
   }
 
+  /** What a bridge >= 0.2.0 says about itself on GET /info. */
+  info(): Record<string, unknown> {
+    return { bridgeVersion: '0.2.0', ...this.identity, port: this.port, gimbalModel: this.gimbalModel, gimbalConnected: this.gimbalConnected, clients: this.connections.size };
+  }
+
   private onConnection(ws: WebSocket): void {
+    this.sessionsOpened++;
     this.connections.add(ws);
     ws.on('message', (data) => this.onFrame(ws, data.toString()));
     ws.on('close', () => this.connections.delete(ws));
@@ -212,6 +257,8 @@ export class VirtualDjiBridge {
           bridgeVersion: 'virtual-0.1',
           gimbalModel: this.gimbalModel,
           capabilities: this.capabilities,
+          ...this.identity,
+          port: this.port,
         });
         return;
       case 'ping':
@@ -221,8 +268,9 @@ export class VirtualDjiBridge {
       case 'moveVelocity': {
         this.integrate();
         const p = frame.params as { pan?: number; tilt?: number };
-        this.velPan = p?.pan ?? 0;
-        this.velTilt = p?.tilt ?? 0;
+        // An asleep gimbal acks moves and keeps reporting its pose, but does not move (like an unbalanced RS3 Pro).
+        this.velPan = this.asleep ? 0 : p?.pan ?? 0;
+        this.velTilt = this.asleep ? 0 : p?.tilt ?? 0;
         this.armSafety(ws);
         this.ack(ws, frame.id, {});
         return;
@@ -246,6 +294,13 @@ export class VirtualDjiBridge {
         this.roll = 0;
         this.velPan = 0;
         this.velTilt = 0;
+        this.ack(ws, frame.id, {});
+        return;
+      }
+      case 'wake': {
+        if (!this.capabilities.includes('wake')) { this.nack(ws, frame.id, 'not_supported', 'unknown method wake'); return; }
+        this.wakes++;
+        if (this.wakeWorks) this.asleep = false;
         this.ack(ws, frame.id, {});
         return;
       }
