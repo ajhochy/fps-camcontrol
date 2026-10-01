@@ -16,6 +16,8 @@ export type RigController = 'vbot' | 'birddog' | 'gimbal' | 'generic';
 export interface RigConnectionVisca { host: string | null; port: number; address: number }
 export interface RigConnectionGimbal {
   host: string; port: number; gimbalModel: string | null; safetyTimeoutMs: number; rollEnabled: boolean;
+  /** The model the bridge reports for the gimbal it is attached to; null until the bridge has answered. */
+  reportedModel: string | null;
 }
 
 export interface RigView {
@@ -136,6 +138,7 @@ export function buildRigs(
         ? {
           host: cam.bridge.host, port: cam.bridge.port, gimbalModel: cam.bridge.gimbalModel ?? null,
           safetyTimeoutMs: cam.bridge.safetyTimeoutMs, rollEnabled: cam.bridge.rollEnabled,
+          reportedModel: state.cameraGimbalModel?.[cam.id] ?? null,
         }
         : null,
       speedScale: cam.speedScale,

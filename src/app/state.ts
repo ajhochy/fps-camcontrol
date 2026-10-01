@@ -35,6 +35,8 @@ export interface AppState {
    */
   cameraBridgeReachable: Record<string, boolean>;
   cameraGimbalAttached: Record<string, boolean>;
+  /** The gimbal model a DJI bridge named in its handshake, by camera id; absent for VISCA or before one. */
+  cameraGimbalModel: Record<string, string>;
   controllerConnected: boolean;
   activeControllerProfile: string | null;
   activeConnectionType: 'usb' | 'bluetooth' | null;
@@ -57,6 +59,7 @@ export const defaultState: AppState = {
   cameraConnected: {},
   cameraBridgeReachable: {},
   cameraGimbalAttached: {},
+  cameraGimbalModel: {},
   controllerConnected: false,
   activeControllerProfile: null,
   activeConnectionType: null,
@@ -78,6 +81,7 @@ export function createInitialState(overrides: Partial<AppState> = {}): AppState 
     cameraConnected: {},
     cameraBridgeReachable: {},
     cameraGimbalAttached: {},
+    cameraGimbalModel: {},
     ...overrides,
   };
 }
@@ -100,8 +104,10 @@ export function createInitialState(overrides: Partial<AppState> = {}): AppState 
 export function applyDeviceLinkState(
   state: AppState,
   cameraId: string,
-  link: { connected: boolean; gimbalAttached?: boolean }
+  link: { connected: boolean; gimbalAttached?: boolean; reportedGimbalModel?: string | null }
 ): void {
+  if (typeof link.reportedGimbalModel === 'string') state.cameraGimbalModel[cameraId] = link.reportedGimbalModel;
+  else delete state.cameraGimbalModel[cameraId];
   if (link.gimbalAttached === undefined) {
     delete state.cameraBridgeReachable[cameraId];
     delete state.cameraGimbalAttached[cameraId];
@@ -121,6 +127,7 @@ export function applyDeviceLinkState(
 interface LinkStateSource {
   readonly connected: boolean;
   readonly gimbalAttached?: boolean;
+  readonly reportedGimbalModel?: string | null;
   on(event: string, listener: (...args: unknown[]) => void): unknown;
 }
 
@@ -150,4 +157,5 @@ export function clearCameraLinkState(state: AppState, cameraId: string): void {
   delete state.cameraConnected[cameraId];
   delete state.cameraBridgeReachable[cameraId];
   delete state.cameraGimbalAttached[cameraId];
+  delete state.cameraGimbalModel[cameraId];
 }

@@ -184,6 +184,25 @@ async function selfTest(): Promise<number> {
     check('an edit with the current version goes through', (await patch('/api/rigs/vbot', { label: 'V-BOT', expectedVersion: fresh })).status === 200);
 
     // --- the ATEM: connection and graphics settings
+    // Follow-up F3: the controller type and the gimbal model, live.
+    const reported = (await api('/api/rigs')).body.rigs?.find((r: any) => r.deviceKey === 'rs3')?.gimbal?.reportedModel;
+    check('a gimbal rig shows the model its bridge reports', typeof reported === 'string' && reported.length > 0);
+    const labelled = await patch('/api/rigs/rs3', { gimbal: { gimbalModel: reported } });
+    const afterLabel = labelled.body.rigs?.find((r: any) => r.deviceKey === 'rs3');
+    check('choosing the gimbal model saves it without dropping the bridge connection', labelled.status === 200 && afterLabel?.gimbal?.gimbalModel === reported && afterLabel?.gimbal?.reportedModel === reported && afterLabel?.live?.bridgeReachable === true);
+    const toGeneric = await patch('/api/rigs/birddog2', { controller: 'generic' });
+    check('a BirdDog can be changed to another VISCA-IP camera and stays connected', toGeneric.status === 200 && toGeneric.body.rigs?.find((r: any) => r.deviceKey === 'birddog2')?.controller === 'generic'
+      && !!(await waitFor('the changed camera to reconnect', async () => (await api('/api/rigs')).body.rigs?.find((r: any) => r.deviceKey === 'birddog2')?.live?.connected === true)));
+    check('the camera type is changed back', (await patch('/api/rigs/birddog2', { controller: 'birddog' })).status === 200);
+    check('a rig with a Sony camera cannot become a BirdDog (400, says why)', await patch('/api/rigs/vbot', { controller: 'birddog' }).then((r) => r.status === 400 && /built-in camera/.test(r.body.error)));
+    const toGimbal = await patch('/api/rigs/vbot', { controller: 'gimbal' });
+    const asGimbal = toGimbal.body.rigs?.find((r: any) => r.deviceKey === 'vbot');
+    check('a V-BOT can become a gimbal: bridge on the same address, port 7878, live at once', toGimbal.status === 200 && asGimbal?.protocol === 'dji-bridge' && asGimbal?.gimbal?.port === 7878 && (await api('/api/config')).body.cameras?.[0]?.protocol === 'dji-bridge');
+    const backToVbot = await patch('/api/rigs/vbot', { controller: 'vbot', visca: { port: rigs.rigs[0].visca.port } });
+    check('and back to a V-BOT on its VISCA port, reconnecting to the camera', backToVbot.status === 200 && backToVbot.body.rigs?.[0]?.protocol === 'visca' && backToVbot.body.rigs?.[0]?.visca?.port === rigs.rigs[0].visca.port
+      && !!(await waitFor('the V-BOT to reconnect', async () => (await api('/api/rigs')).body.rigs?.[0]?.live?.connected === true)));
+    check('the round trip leaves the file documented', commentCount() === commentsBefore);
+
     const atemBefore = (await api('/api/rigs')).body.atem;
     const atemEdit = await patch('/api/atem', { defaultTransition: 'auto', graphics: { fadeFrames: 25 } });
     check('PATCH /api/atem changes the default transition and graphics and answers with the new view', atemEdit.status === 200 && atemEdit.body.atem?.defaultTransition === 'auto' && atemEdit.body.graphics?.fadeFrames === 25);

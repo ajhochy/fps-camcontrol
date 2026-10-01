@@ -489,6 +489,13 @@ export function createStatusServer(
    * devices whose connection details are unchanged. Shared by the Device Config
    * save and by profile switching, so both take the same, tested path.
    */
+  // The gimbal model is a label for the operator; changing it must not drop a live gimbal connection.
+  function bridgeLink(bridge: AppConfig['cameras'][number]['bridge']): unknown {
+    if (!bridge) return bridge;
+    const { gimbalModel: _label, ...link } = bridge;
+    return link;
+  }
+
   function reconcileCameras(newCameras: AppConfig['cameras']): void {
     const oldIds = new Set(devices.keys());
     const newIds = new Set(newCameras.map(c => c.id as CameraId));
@@ -513,7 +520,7 @@ export function createStatusServer(
         oldCam.viscaPort !== cam.viscaPort ||
         oldCam.cameraType !== cam.cameraType ||
         oldCam.cameraAddress !== cam.cameraAddress ||
-        JSON.stringify(oldCam.bridge) !== JSON.stringify(cam.bridge);
+        JSON.stringify(bridgeLink(oldCam.bridge)) !== JSON.stringify(bridgeLink(cam.bridge));
 
       if (changed) {
         existing?.close();

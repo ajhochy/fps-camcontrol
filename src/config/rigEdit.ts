@@ -9,7 +9,8 @@ import { validateDevicesConfig } from './configLoader';
  * returns an edited copy, and refuses (RigEditError) before returning anything
  * that would not pass the same validation the file gets when it is loaded.
  * The caller writes the result through the comment-preserving writer, so a rig
- * edit can never erase a comment or change a device's protocol (issues #14, #18).
+ * edit can never erase a comment. A device's protocol changes only through an
+ * explicit `controller` change (follow-up F3), never as a side effect.
  *
  * Interim (until issue 9a): slot-level fields (`inputId`, `camera`) are written
  * straight into the active profile. Issue 9a redirects them into the working copy.
@@ -85,9 +86,46 @@ function setGimbal(device: Raw, g: unknown): void {
   device.bridge = bridge;
 }
 
+export type ControllerType = 'vbot' | 'birddog' | 'gimbal' | 'generic';
+const CONTROLLERS: ControllerType[] = ['vbot', 'birddog', 'gimbal', 'generic'];
+
+/**
+ * Change what kind of controller a device is. Within VISCA (V-BOT, BirdDog, other VISCA-IP camera) only the
+ * camera type changes. Between VISCA and a DJI gimbal the connection is rebuilt on the same address with that
+ * kind's default port, so the operator only has to check the port.
+ */
+function setController(raw: Raw, deviceKey: string, device: Raw, value: unknown): void {
+  if (!CONTROLLERS.includes(value as ControllerType)) fail('controller must be vbot, birddog, gimbal or generic');
+  const controller = value as ControllerType;
+  if (controller === 'birddog') {
+    const holding = Object.entries(isObject(raw.profiles) ? raw.profiles : {})
+      .filter(([, profile]) => Array.isArray((profile as Raw).slots) && (profile as Raw).slots.some((slot: Raw) => slot.device === deviceKey && slot.camera !== undefined))
+      .map(([name]) => name);
+    if (holding.length) fail(`a BirdDog has a built-in camera; take the Sony camera off this rig first (it has one in ${holding.map((name) => `"${name}"`).join(', ')})`);
+  }
+  const protocol = device.protocol ?? 'visca';
+  if (controller === 'gimbal') {
+    if (protocol === 'dji-bridge') return;
+    const host = typeof device.viscaIp === 'string' && device.viscaIp ? device.viscaIp : fail('set the camera address before changing the controller');
+    delete device.viscaIp; delete device.viscaPort; delete device.cameraAddress; delete device.cameraType;
+    device.protocol = 'dji-bridge';
+    device.bridge = { host, port: 7878 };
+    return;
+  }
+  if (protocol === 'dji-bridge') {
+    const host = isObject(device.bridge) && typeof device.bridge.host === 'string' ? device.bridge.host : fail('set the bridge host before changing the controller');
+    delete device.bridge;
+    device.protocol = 'visca';
+    device.viscaIp = host; device.viscaPort = 52381; device.cameraAddress = 1;
+  }
+  device.cameraType = controller;
+}
+
 export interface RigPatch {
   /** Hardware record, shared by every profile. */
   label?: string;
+  /** What kind of controller this device is (shared by every profile). Applied before `visca` / `gimbal`. */
+  controller?: ControllerType;
   speedScale?: number;
   visca?: { host?: string; port?: number; address?: number };
   gimbal?: { host?: string; port?: number; gimbalModel?: string | null; safetyTimeoutMs?: number; rollEnabled?: boolean; reconnectBackoffMs?: number[] };
@@ -104,10 +142,11 @@ export function applyRigPatch(current: Raw, deviceKey: string, patch: unknown): 
   if (!isObject(device)) throw new RigEditError(`unknown device "${deviceKey}"`, 404);
   if (device.protocol === 'sony') fail('Sony cameras are edited with the Sony camera routes, not as rigs');
   if (!isObject(patch)) return fail('the change must be an object');
-  expectKeys(patch, ['label', 'speedScale', 'visca', 'gimbal', 'inputId', 'camera', 'position'], 'rig');
+  expectKeys(patch, ['label', 'controller', 'speedScale', 'visca', 'gimbal', 'inputId', 'camera', 'position'], 'rig');
 
   // ---- hardware record (shared by every profile)
   if ('label' in patch) device.label = text(patch.label, 'name', 64);
+  if ('controller' in patch) setController(raw, deviceKey, device, patch.controller);
   if ('speedScale' in patch) {
     if (typeof patch.speedScale !== 'number' || !(patch.speedScale >= 0.1 && patch.speedScale <= 5)) fail('speed multiplier must be a number from 0.1 to 5');
     device.speedScale = patch.speedScale;

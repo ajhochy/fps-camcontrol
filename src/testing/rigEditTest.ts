@@ -82,6 +82,27 @@ check('the speed multiplier can be set', applyRigPatch(current(), 'vbot', { spee
 refused('a speed multiplier outside 0.1-5 is refused', () => applyRigPatch(current(), 'vbot', { speedScale: 9 }), /speed multiplier/);
 refused('the protocol cannot be changed from here (issue #18)', () => applyRigPatch(current(), 'rs3', { protocol: 'visca' }), /"protocol" cannot be changed here/);
 refused('the controller type cannot be changed from here', () => applyRigPatch(current(), 'vbot', { cameraType: 'birddog' }), /"cameraType" cannot be changed here/);
+// ---- rig: changing the controller type (follow-up F3)
+raw = applyRigPatch(current(), 'vbot', { controller: 'generic' });
+check('a V-BOT can become another VISCA-IP camera: only the camera type changes', raw.devices.vbot.cameraType === 'generic' && raw.devices.vbot.protocol === 'visca' && raw.devices.vbot.viscaIp === '192.168.50.15' && raw.devices.vbot.viscaPort === 52381 && raw.devices.vbot.speedScale === 2);
+raw = applyRigPatch(current(), 'vbot', { controller: 'gimbal' });
+check('a VISCA camera can become a gimbal on the same address, bridge port 7878', raw.devices.vbot.protocol === 'dji-bridge' && raw.devices.vbot.bridge.host === '192.168.50.15' && raw.devices.vbot.bridge.port === 7878);
+check('becoming a gimbal drops the VISCA-only fields and keeps the name and speed', ['viscaIp', 'viscaPort', 'cameraAddress', 'cameraType'].every((k) => !(k in raw.devices.vbot)) && raw.devices.vbot.label === 'V-BOT' && raw.devices.vbot.speedScale === 2);
+check('the gimbal keeps its Sony camera', raw.profiles.production.slots[0].camera === 'a7s3');
+raw = applyRigPatch(current(), 'rs3pro', { controller: 'vbot' });
+check('a gimbal can become a V-BOT on the bridge host, VISCA port 52381 address 1', raw.devices.rs3pro.protocol === 'visca' && raw.devices.rs3pro.cameraType === 'vbot' && raw.devices.rs3pro.viscaIp === 'dji-bridge.local' && raw.devices.rs3pro.viscaPort === 52381 && raw.devices.rs3pro.cameraAddress === 1 && !('bridge' in raw.devices.rs3pro));
+raw = applyRigPatch(current(), 'rs3', { controller: 'gimbal' });
+check('choosing the type it already is changes nothing', JSON.stringify(raw.devices.rs3) === JSON.stringify(current().devices.rs3));
+raw = applyRigPatch(current(), 'rs3pro', { controller: 'generic', visca: { port: 52400 } });
+check('connection settings sent with the change apply to the new kind', raw.devices.rs3pro.viscaPort === 52400 && raw.devices.rs3pro.viscaIp === 'dji-bridge.local');
+refused('becoming a BirdDog is refused while a Sony camera is on the rig, naming the profile', () => applyRigPatch(current(), 'vbot', { controller: 'birddog' }), /built-in camera.*take the Sony camera off.*"production"/);
+check('a rig with no Sony camera can become a BirdDog', applyRigPatch(current(), 'rs3pro', { controller: 'birddog' }).devices.rs3pro.cameraType === 'birddog');
+refused('an unknown controller type is refused', () => applyRigPatch(current(), 'vbot', { controller: 'ptzoptics' }), /controller must be/);
+refused('a Sony camera cannot be turned into a controller', () => applyRigPatch(current(), 'fx3', { controller: 'vbot' }), /Sony cameras are edited/);
+reset();
+writeDevicesFile(applyRigPatch(current(), 'rs3pro', { controller: 'vbot' }));
+check('a controller change survives the comment-preserving writer and reloads', onDisk().devices.rs3pro.cameraType === 'vbot' && onDisk().devices.rs3pro.viscaIp === 'dji-bridge.local' && onDisk().devices.rs3pro.bridge === undefined && comments(fs.readFileSync(file, 'utf8')) === comments(fixture));
+reset();
 refused('an unknown field is refused rather than ignored', () => applyRigPatch(current(), 'vbot', { colour: 'red' }), /"colour" cannot be changed here/);
 refused('an empty VISCA address (IP) is refused', () => applyRigPatch(current(), 'vbot', { visca: { host: '' } }), /camera address \(IP\) must be/);
 

@@ -108,7 +108,26 @@ check('a camera the app has approved is marked approved; an unbound device is no
 const control = (info: any, id: string): any => [...(info.controls ?? []), ...(info.advancedControls ?? [])].find((c: any) => c.id === id);
 check('an editable rig inspector says where its changes go', rig.endpoint === '/api/rigs/vbot' && gimbal.endpoint === '/api/rigs/rs3');
 check('the name is a required text control of at most 64 characters', control(rig, 'label').type === 'text' && control(rig, 'label').path === 'label' && control(rig, 'label').maxLength === 64 && control(rig, 'label').required === true);
-check('the controller type is read-only (it cannot be changed once the rig exists)', control(rig, 'controller').type === 'readonly');
+check('the controller type is a choice of V-BOT, BirdDog, DJI gimbal or other VISCA-IP camera', control(rig, 'controller').type === 'select' && control(rig, 'controller').path === 'controller' && control(rig, 'controller').value === 'vbot' && control(rig, 'controller').options.map((o: any) => o.value).join() === 'vbot,birddog,gimbal,generic' && /VISCA-IP/.test(control(rig, 'controller').options[3].label));
+check('switching between VISCA kinds asks nothing; switching to or from a gimbal asks first and mentions presets', control(rig, 'controller').confirm.generic === undefined && control(rig, 'controller').confirm.birddog === undefined && /DJI bridge at 192\.168\.50\.15, port 7878/.test(control(rig, 'controller').confirm.gimbal) && /Presets/.test(control(rig, 'controller').confirm.gimbal) && /VISCA at dji-bridge\.local, port 52381/.test(control(gimbal, 'controller').confirm.vbot));
+check('a rig with a Sony camera says why it cannot become a BirdDog', /take the Sony camera off/.test(control(rig, 'controller').note));
+const gimbalWith = (saved: string | null, reported: string | null): any => {
+  const d = JSON.parse(JSON.stringify(data));
+  const g = d.rigs.find((r: any) => r.deviceKey === 'rs3');
+  g.gimbal.gimbalModel = saved; g.gimbal.reportedModel = reported;
+  return control(model.inspectorFor(d, 'rig:rs3'), 'gimbal.gimbalModel');
+};
+let gm = gimbalWith(null, 'RS3');
+check('the gimbal model is a choice, with what the bridge reports offered first', gm.type === 'select' && gm.nullable === true && gm.options[0].value === '' && gm.options[1].value === 'RS3' && /reported by the bridge/.test(gm.options[1].label) && gm.value === '' && /reports RS3/.test(gm.note));
+check('the known RS models are offered, without repeating the reported one', gm.options.map((o: any) => o.value).join() === ',RS3,RS 5,RS 4 Pro,RS 4,RS 3 Pro');
+gm = gimbalWith('RS3', 'RS3');
+check('a saved model that matches the report is selected and says so', gm.value === 'RS3' && /Matches/.test(gm.note));
+gm = gimbalWith('RS 3', 'RS 4 Pro');
+check('a saved model that differs from the report is flagged', gm.value === 'RS 3' && /reports RS 4 Pro, not RS 3/.test(gm.note));
+gm = gimbalWith('RS3', null);
+check('with no report yet the saved spelling is kept selected and the note says to connect the bridge', gm.value === 'RS 3' && !gm.options.some((o: any) => o.value === 'RS3') && /Connect the bridge/.test(gm.note));
+gm = gimbalWith('Ronin 2', null);
+check('an unknown saved model stays offered so nothing is lost', gm.value === 'Ronin 2' && gm.options[gm.options.length - 1].value === 'Ronin 2');
 check('a V-BOT has IP, port and VISCA address controls with their limits', control(rig, 'visca.host').path === 'visca.host' && control(rig, 'visca.port').min === 1 && control(rig, 'visca.port').max === 65535 && control(rig, 'visca.address').max === 7 && control(rig, 'visca.address').integer === true && control(rig, 'gimbal.host') === undefined);
 check('a gimbal has bridge host, port and model controls and no VISCA controls', control(gimbal, 'gimbal.host').value === 'dji-bridge.local' && control(gimbal, 'gimbal.port').value === 7878 && control(gimbal, 'gimbal.gimbalModel').nullable === true && control(gimbal, 'visca.host') === undefined);
 check('the ATEM input control is optional, and empty means control only', control(rig, 'inputId').nullable === true && control(rig, 'inputId').value === 6 && control(gimbal, 'inputId').value === '' && /control only/.test(control(gimbal, 'inputId').note));

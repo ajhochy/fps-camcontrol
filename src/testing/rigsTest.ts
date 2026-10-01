@@ -2,7 +2,7 @@ import assert from 'assert';
 import { AppConfig, resolveProfile, InventoryDevice, Profile } from '../config/configLoader';
 import { buildRigs, describeRigDelete } from '../config/rigs';
 import { presetSlotsSet } from '../model/presetShift';
-import { createInitialState } from '../app/state';
+import { createInitialState, applyDeviceLinkState } from '../app/state';
 
 /**
  * buildRigs is a pure read of the running config, so this needs no app, no
@@ -50,6 +50,16 @@ check('controller kinds are classified', view.rigs.map((rig) => rig.controller).
 check('the rig name is the device label', view.rigs[0].label === 'V-BOT' && view.rigs[2].label === 'DJI RS3');
 check('hotkeys come from mappings.yaml selectCamN', view.rigs.map((rig) => rig.hotkey).join() === 'X,A,B');
 check('VISCA rigs carry connection details and no gimbal block', view.rigs[0].visca?.host === '192.168.50.15' && view.rigs[0].visca?.port === 52381 && view.rigs[0].gimbal === null);
+check('a gimbal rig has no reported model until its bridge has answered', view.rigs[2].gimbal?.reportedModel === null);
+{
+  const reporting = createInitialState({} as never);
+  applyDeviceLinkState(reporting, 'cam3', { connected: true, gimbalAttached: false, reportedGimbalModel: 'RS 4 Pro' });
+  check('a gimbal rig carries the model its bridge reports', buildRigs(baseConfig('production'), reporting, 'v1').rigs[2].gimbal?.reportedModel === 'RS 4 Pro');
+  applyDeviceLinkState(reporting, 'cam3', { connected: false, gimbalAttached: false, reportedGimbalModel: null });
+  check('the report is dropped when the device has none', !('cam3' in reporting.cameraGimbalModel));
+  applyDeviceLinkState(reporting, 'cam1', { connected: true });
+  check('a VISCA camera never gets a gimbal model', !('cam1' in reporting.cameraGimbalModel));
+}
 check('gimbal rigs carry bridge details and no VISCA block', view.rigs[2].gimbal?.host === 'dji-bridge.local' && view.rigs[2].gimbal?.gimbalModel === 'RS3' && view.rigs[2].visca === null);
 check('gimbal safety timeout and roll are exposed', view.rigs[2].gimbal?.safetyTimeoutMs === 250 && view.rigs[2].gimbal?.rollEnabled === false);
 check('speed multiplier is exposed', view.rigs[0].speedScale === 2);

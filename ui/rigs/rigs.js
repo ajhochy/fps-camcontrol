@@ -259,6 +259,9 @@
       if (saving) { queued = true; return; }
       var payload;
       try { payload = toPayload(raw); } catch (error) { say(error.message, 'err'); return; }
+      // A change that rebuilds hardware (e.g. the controller type) asks first; cancelling puts the old value back.
+      var question = control.confirm && typeof payload === 'string' ? control.confirm[payload] : null;
+      if (question && !window.confirm(question)) { input.value = saved === '' ? '' : String(saved); say(''); return; }
       saving = true; say('Saving…');
       try {
         var body = patchFor(control.path, payload);
@@ -762,6 +765,13 @@
         type.addEventListener('change', function () { values.controller = type.value; values.host = ''; values.port = undefined; values.address = undefined; drawDynamic(); });
         dynamic.appendChild(labeledRow('Controller', type, 'rigs-add-type'));
         (values.controller === 'gimbal' ? info.connection.gimbal : info.connection.visca).forEach(function (control) {
+          if (control.type === 'select') {
+            var choice = selectInput(control.options, values[control.id] || '', 'rigs-add-' + control.id);
+            choice.addEventListener('change', function () { values[control.id] = choice.value; });
+            dynamic.appendChild(labeledRow(control.label, choice, 'rigs-add-' + control.id));
+            if (control.note) choice.parentNode.appendChild(el('span', 'rigs-note', control.note));
+            return;
+          }
           var input = plainInput(control.type === 'number' ? 'number' : 'text', values[control.id] === undefined ? control.value : values[control.id], 'rigs-add-' + control.id, control.type === 'number' ? { min: control.min, max: control.max, step: 1 } : { maxlength: control.maxLength });
           input.addEventListener('input', function () { values[control.id] = input.value; });
           dynamic.appendChild(labeledRow(control.label, input, 'rigs-add-' + control.id));

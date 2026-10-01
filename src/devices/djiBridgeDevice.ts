@@ -101,6 +101,7 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
   private lastPos: DevicePosition | null = null;
   private _connected = false;
   private _gimbalAttached = false;
+  private _reportedGimbalModel: string | null = null;
   /** When we last had positive evidence of a gimbal, or 0 if never. */
   private lastGimbalProofAt = 0;
   /** When the `hello` handshake last succeeded; starts the first quiet window. */
@@ -131,6 +132,11 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
    */
   get gimbalAttached(): boolean {
     return this._gimbalAttached;
+  }
+
+  /** The gimbal model the bridge named in its last `hello`; null before the first handshake. */
+  get reportedGimbalModel(): string | null {
+    return this._reportedGimbalModel;
   }
 
   setActivityLog(log: ActivityLog, label: string): void {
@@ -237,6 +243,7 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
             gimbalConnected?: boolean;
           };
           this.applyCapabilities(r.capabilities ?? []);
+          this._reportedGimbalModel = typeof r.gimbalModel === 'string' && r.gimbalModel.trim() ? r.gimbalModel.trim().slice(0, 32) : null;
           this._connected = true;
           this.connectedAt = Date.now();
           this.lastGimbalProofAt = 0;

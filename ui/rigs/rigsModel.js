@@ -9,7 +9,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  var CONTROLLER = { vbot: 'V-BOT', birddog: 'BirdDog', gimbal: 'DJI gimbal', generic: 'VISCA camera' };
+  var CONTROLLER = { vbot: 'V-BOT', birddog: 'BirdDog', gimbal: 'DJI gimbal', generic: 'Other VISCA-IP camera' };
   var SONY_STATE = {
     discovered_unapproved: 'New camera — connect to approve',
     connecting: 'Connecting',
@@ -192,7 +192,7 @@
     }
     var editable = !!rig.deviceKey;
     var controls = [ctl('label', 'Name', 'text', rigTitle(rig), 'label', { maxLength: 64, required: true }),
-      readonly('controller', 'Controller', CONTROLLER[rig.controller] || rig.controller, rig.controller === 'birddog' ? 'Has a built-in camera' : null)];
+      controllerControl(rig)];
     if (rig.visca) {
       controls.push(ctl('visca.host', 'Camera address (IP)', 'text', rig.visca.host || '', 'visca.host', { required: true, maxLength: 253 }));
       controls.push(ctl('visca.port', 'Port', 'number', rig.visca.port, 'visca.port', { min: 1, max: 65535, integer: true }));
@@ -201,7 +201,7 @@
     if (rig.gimbal) {
       controls.push(ctl('gimbal.host', 'Bridge host', 'text', rig.gimbal.host, 'gimbal.host', { required: true, maxLength: 253 }));
       controls.push(ctl('gimbal.port', 'Port', 'number', rig.gimbal.port, 'gimbal.port', { min: 1, max: 65535, integer: true }));
-      controls.push(ctl('gimbal.gimbalModel', 'Gimbal model', 'text', rig.gimbal.gimbalModel || '', 'gimbal.gimbalModel', { nullable: true, maxLength: 32 }));
+      controls.push(gimbalModelControl(rig.gimbal.gimbalModel, rig.gimbal.reportedModel, 'gimbal.gimbalModel'));
     }
     controls.push(ctl('inputId', 'ATEM input', 'number', rig.wired ? rig.inputId : '', 'inputId', { nullable: true, min: 1, max: 99, integer: true, placeholder: 'None — control only', note: 'Leave empty for control only: motion works, but this rig cannot be taken live' }));
     if (rig.builtInCamera) controls.push(readonly('camera', 'Sony camera', 'Built-in camera'));
@@ -222,6 +222,60 @@
     };
   }
 
+  /**
+   * The controller type, as a choice. Changing it rebuilds the connection on the same address, so each choice
+   * that would do more than relabel the camera asks first (see `confirm`).
+   */
+  function controllerControl(rig) {
+    var isGimbal = rig.controller === 'gimbal';
+    var confirm = {};
+    CONTROLLER_CHOICES.forEach(function (choice) {
+      if (choice.value === rig.controller) return;
+      var toGimbal = choice.value === 'gimbal';
+      // V-BOT, BirdDog and other VISCA-IP cameras share one kind of connection: switching between them only relabels.
+      if (toGimbal === isGimbal) return;
+      var lines = ['Change "' + rigTitle(rig) + '" to ' + CONTROLLER[choice.value] + '?'];
+      lines.push(toGimbal
+        ? 'It will be reached through a DJI bridge at ' + ((rig.visca && rig.visca.host) || 'the same address') + ', port 7878. Check the bridge host and port afterwards.'
+        : 'It will be controlled over VISCA at ' + ((rig.gimbal && rig.gimbal.host) || 'the same address') + ', port 52381, VISCA address 1. Check them afterwards.');
+      lines.push('Presets saved for this rig were recorded for a ' + CONTROLLER[rig.controller] + ' and will not recall until they are saved again.');
+      if (rig.usedInProfiles && rig.usedInProfiles.length > 1) lines.push('This hardware is used in ' + rig.usedInProfiles.length + ' profiles; all of them change.');
+      confirm[choice.value] = lines.join('\n\n');
+    });
+    var note = rig.controller === 'birddog' ? 'Has a built-in camera' : null;
+    if (rig.camera) note = 'A BirdDog has a built-in camera: take the Sony camera off this rig before choosing BirdDog';
+    return ctl('controller', 'Controller', 'select', rig.controller, 'controller', { options: CONTROLLER_CHOICES, confirm: confirm, note: note });
+  }
+
+  /** Gimbal models offered in the gimbal model choice. The bridge's own report is offered first when it has one. */
+  var GIMBAL_MODELS = ['RS 5', 'RS 4 Pro', 'RS 4', 'RS 3 Pro', 'RS 3'];
+  function sameModel(a, b) { return String(a || '').replace(/\s+/g, '').toLowerCase() === String(b || '').replace(/\s+/g, '').toLowerCase(); }
+
+  /**
+   * The gimbal model as a choice: what the bridge reports, the known DJI RS models, and the saved value when it
+   * is none of those. A bridge drives exactly one gimbal, so the report is the one to pick; the value is a label
+   * for the operator and does not change how the gimbal is driven.
+   */
+  function gimbalModelControl(saved, reported, path) {
+    var options = [{ value: '', label: 'Not set' }];
+    var seen = [];
+    function add(value, label) {
+      if (seen.some(function (v) { return sameModel(v, value); })) return;
+      seen.push(value);
+      options.push({ value: value, label: label || value });
+    }
+    if (reported) add(reported, reported + ' — reported by the bridge');
+    GIMBAL_MODELS.forEach(function (model) { add(model); });
+    if (saved) add(saved);
+    var value = saved ? seen.filter(function (v) { return sameModel(v, saved); })[0] : '';
+    var note;
+    if (!reported) note = 'Connect the bridge to see which gimbal it reports';
+    else if (!saved) note = 'The bridge reports ' + reported + '; choose it to label this rig';
+    else if (!sameModel(saved, reported)) note = 'The bridge reports ' + reported + ', not ' + saved;
+    else note = 'Matches what the bridge reports';
+    return ctl(path, 'Gimbal model', 'select', value, path, { nullable: true, options: options, note: note });
+  }
+
   /** The Sony camera choices for a rig: None, then every named Sony camera (taken ones shown but disabled). */
   function cameraOptions(data, rig) {
     var options = [{ value: '', label: 'None' }];
@@ -239,7 +293,7 @@
     { value: 'vbot', label: 'V-BOT' },
     { value: 'birddog', label: 'BirdDog (built-in camera)' },
     { value: 'gimbal', label: 'DJI gimbal' },
-    { value: 'generic', label: 'Other VISCA camera' },
+    { value: 'generic', label: 'Other VISCA-IP camera (e.g. Sony)' },
   ];
 
   /** The form for adding a rig. Connection fields depend on the controller type chosen. */
@@ -272,7 +326,7 @@
         gimbal: [
           ctl('host', 'Bridge host', 'text', '', 'host', { required: true, maxLength: 253 }),
           ctl('port', 'Port', 'number', 7878, 'port', { min: 1, max: 65535, integer: true }),
-          ctl('gimbalModel', 'Gimbal model', 'text', '', 'gimbalModel', { nullable: true, maxLength: 32 }),
+          gimbalModelControl(null, null, 'gimbalModel'),
         ],
       },
       cameraOptions: cameras,
