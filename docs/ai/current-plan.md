@@ -8,6 +8,8 @@ type: project
 > `docs/ai/plans/2026-08-13-sony-auto-connect.md`. Its implementation is on `main`
 > (`src/sony/`); this plan builds on it.
 
+> Also in flight: iPad gamepad remote (draft PR), plan at `docs/ai/plans/2026-10-01-ipad-gamepad-remote.md`.
+
 ## Status
 Plan only. No product code yet. Issues are drafted under `docs/ai/generated-issues/`
 (local files; no remote GitHub issues created).
