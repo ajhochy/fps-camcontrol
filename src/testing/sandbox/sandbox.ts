@@ -508,7 +508,7 @@ async function selfTest(): Promise<number> {
 
       check('remote control is off by default', (await api('/api/status')).body.remoteControl?.enabled === false);
       check('GET /remote serves the page, and it loads remote.js', await (async () => { const r = await fetch(`${base}/remote`); const t = await r.text(); return r.status === 200 && t.includes('/ui/remote/remote.js'); })());
-      check('remote.js is served', (await fetch(`${base}/ui/remote/remote.js`)).status === 200);
+      check('remote.js, remoteModel.js and remote.css are served, and the page loads the model before the script', (await fetch(`${base}/ui/remote/remote.js`)).status === 200 && (await fetch(`${base}/ui/remote/remoteModel.js`)).status === 200 && (await fetch(`${base}/ui/remote/remote.css`)).status === 200 && await (async () => { const t = await (await fetch(`${base}/remote`)).text(); return t.indexOf('remoteModel.js') > 0 && t.indexOf('remoteModel.js') < t.indexOf('/ui/remote/remote.js'); })());
       check('the remote enabled switch rejects a non-boolean (400)', (await post('/api/remote/enabled', { enabled: 'yes' })).status === 400);
 
       // disabled: a claim is refused and nothing moves
