@@ -28,6 +28,8 @@ import { loadProfiles, detectConnectionType } from '../input/profileDetector';
 import { eventBus } from '../app/eventBus';
 import { logger } from '../index';
 import { SonyManager, SonyRetryableError, SonyUpstreamError } from '../sony/sonyManager';
+import { RemoteControlHub } from '../input/remoteControl';
+import { emergencyStopAll } from '../safety/emergencyStop';
 
 export function createStatusServer(
   state: AppState,
@@ -37,6 +39,7 @@ export function createStatusServer(
   atem: AtemClient,
   devices: Map<CameraId, MotionDevice>,
   sonyManager?: SonyManager,
+  remoteHub?: RemoteControlHub,
 ): express.Express {
   const app = express();
   app.use(express.json());
@@ -899,6 +902,33 @@ export function createStatusServer(
     res.type('text/plain').sendFile(path.join(process.cwd(), 'docs/sony-sidecar-setup.md'));
   });
 
+  // ---- iPad remote control: the page is static (ui/remote/), the socket is /ws/remote-controller
+  app.get('/remote', (_req, res) => {
+    res.set('Cache-Control', 'no-cache').sendFile(path.join(__dirname, '../../ui/remote/index.html'));
+  });
+  app.post('/api/remote/enabled', (req, res) => {
+    const enabled = (req.body as { enabled?: unknown } | undefined)?.enabled;
+    if (!remoteHub) { res.status(503).json({ error: 'Remote control is not available' }); return; }
+    if (typeof enabled !== 'boolean') { res.status(400).json({ error: 'enabled must be true or false' }); return; }
+    remoteHub.setEnabled(enabled);
+    activityLog.setContext('Desk', 'Remote control', enabled ? 'Enable' : 'Disable');
+    activityLog.addSystemEntry('Remote control', enabled ? 'iPad control switched on' : 'iPad control switched off');
+    res.json({ ok: true, remoteControl: state.remoteControl });
+  });
+  app.post('/api/remote/release', (_req, res) => {
+    if (!remoteHub) { res.status(503).json({ error: 'Remote control is not available' }); return; }
+    const was = remoteHub.takeBack();
+    res.json({ ok: true, wasRemote: was, remoteControl: state.remoteControl });
+  });
+  // Stop every camera, from anywhere (the iPad's STOP button uses the socket; this is the plain HTTP twin).
+  app.post('/api/emergency-stop', (_req, res) => {
+    remoteHub?.revokeForStop();
+    activityLog.setContext('Desk page', 'STOP', 'Emergency Stop');
+    activityLog.addSystemEntry('Emergency Stop', 'All cameras stopped (STOP button)');
+    emergencyStopAll(state, config, atem, devices).catch((err) => logger.error({ err }, 'emergency stop error'));
+    res.json({ ok: true });
+  });
+
   app.get('/', (_req, res) => {
     res.send(statusHtml());
   });
@@ -911,6 +941,7 @@ export function startStatusServer(
   activityLog: ActivityLog,
   port = 8080,
   host = '127.0.0.1',
+  remoteHub?: RemoteControlHub,
 ): http.Server {
   const server = http.createServer(app);
   // Use noServer mode and route upgrades by path manually. Attaching two
@@ -965,6 +996,10 @@ export function startStatusServer(
     }
   });
 
+  // The iPad remote: input comes IN on this socket, so it has its own hub (never the outbound-only controller-input one).
+  const wssRemote = new WebSocketServer({ noServer: true, maxPayload: 512 });
+  wssRemote.on('connection', (ws, request) => remoteHub?.handleConnection(ws, request));
+
   server.on('upgrade', (request, socket, head) => {
     const url = request.url ?? '';
     const pathname = url.split('?')[0];
@@ -972,6 +1007,8 @@ export function startStatusServer(
       wss.handleUpgrade(request, socket, head, (ws) => wss.emit('connection', ws, request));
     } else if (pathname === '/ws/activity') {
       wssActivity.handleUpgrade(request, socket, head, (ws) => wssActivity.emit('connection', ws, request));
+    } else if (pathname === '/ws/remote-controller' && remoteHub) {
+      wssRemote.handleUpgrade(request, socket, head, (ws) => wssRemote.emit('connection', ws, request));
     } else {
       socket.destroy();
     }

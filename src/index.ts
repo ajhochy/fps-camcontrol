@@ -17,6 +17,8 @@ import { throttledLog } from './app/logThrottle';
 import { normalizeHIDReport } from './input/normalizers';
 import { ControlStateMachine } from './model/controlStateMachine';
 import { InputArbiter } from './input/inputArbiter';
+import { RemoteControlHub } from './input/remoteControl';
+import { emergencyStopAll } from './safety/emergencyStop';
 import { PresetManager } from './model/presetManager';
 import { startControllerLoop } from './app/controllerLoop';
 import { eventBus } from './app/eventBus';
@@ -155,9 +157,17 @@ async function main() {
   startWatchdog(state, atem, devices);
 
   // Step 10: Status UI
-  const app = createStatusServer(state, config, presetManager, activityLog, atem, devices, sonyManager);
+  // iPad remote control (off unless config remoteControl.enabled or the desk page switches it on).
+  const remoteHub = new RemoteControlHub({
+    state, config, arbiter, activityLog,
+    emergencyStop: () => emergencyStopAll(state, config, atem, devices),
+  });
+  remoteHub.setEnabled(config.remoteControl?.enabled ?? false);
+  remoteHub.start();
+
+  const app = createStatusServer(state, config, presetManager, activityLog, atem, devices, sonyManager, remoteHub);
   const port = parseInt(process.env.STATUS_PORT ?? '8080', 10);
-  startStatusServer(app, activityLog, port, config.serverHost ?? '127.0.0.1');
+  startStatusServer(app, activityLog, port, config.serverHost ?? '127.0.0.1', remoteHub);
 
   logger.info({ controlledCamera: state.controlledCamera }, 'FPS CamControl running');
 
@@ -168,6 +178,7 @@ async function main() {
     shuttingDown = true;
     logger.info('shutting down');
     supervisor.stop();
+    remoteHub.stop();
     atem.disconnect();
     for (const [, device] of devices) device.close();
     await sonyManager.stop();
