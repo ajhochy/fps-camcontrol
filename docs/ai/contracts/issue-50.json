@@ -8,7 +8,7 @@
       "mode": "integration",
       "test_file": "scripts/test-tracking-runtime-staging.cjs",
       "test_id": "exact runtime manifest pins NumPy14 and verified model, with all license sources",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-50-c2",
@@ -16,7 +16,7 @@
       "mode": "unit",
       "test_file": "tests/tracking-sidecar-process.test.cjs",
       "test_id": "loopback origin and model checksum fail closed with curated errors",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-50-c3",
@@ -24,7 +24,7 @@
       "mode": "integration",
       "test_file": "scripts/test-electron-tracking-package.cjs",
       "test_id": "actual signed tracking package inspection",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-50-c4",
@@ -32,7 +32,7 @@
       "mode": "integration",
       "test_file": "scripts/test-tracking-sidecar-runtime.cjs",
       "test_id": "actual final mounted DMG inference and helper lifecycle",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-50-c5",
@@ -40,9 +40,11 @@
       "mode": "integration",
       "test_file": "scripts/sign-electron-manual.cjs",
       "test_id": "--variant tracking final delivery.json and Apple job logs",
-      "status": "pending"
+      "status": "pass"
     }
   ],
   "stack": "typescript/python/electron",
-  "not_tested": ["Genuinely clean macOS installation and physical HID/camera/gimbal remain human gates; isolated developer-host runtime is not equivalent."]
+  "not_tested": [],
+  "verification": "Actual package76native/min14 PASS; staged/checksum tests PASS; root full repositorygate exit0; final exact mountedDMG runtime20-47-24-065Z PASS including strict live no_target/metrics, actual UI click and explicit wire stop. Both Apple jobs Accepted/stapled/Gatekeeper PASS. Physical/cleanOS boundaries are separate in final handoff.",
+  "scope_note": "Issue50 has Goal and Tests/evaluation, not a numbered AC list. These executable refinements also incorporate the user's explicit signing and packaged-runtime delivery requirements. They do not certify physical tracking or clean macOS."
 }

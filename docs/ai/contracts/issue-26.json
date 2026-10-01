@@ -77,14 +77,13 @@
     {
       "criterion_id": "issue-26-c10",
       "text": "All state transitions emit an event and are reflected in `AppState` for the status API.",
-      "mode": "integration",
-      "test_file": "tests/tracking/manager.spec.cjs",
-      "test_id": "issue-26-c10: each public transition emits status and AppState projection without mutable session references",
-      "status": "pass"
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Acceptance-storage review pending: manager events and real status API projection are implemented and tested, but tracking is projected from the authoritative manager rather than duplicated in an AppState field. No closing keyword for #26."
     }
   ],
   "stack": "typescript",
-  "not_tested": [],
+  "not_tested": ["issue-26-c10"],
   "test_command": "node --test -r ts-node/register/transpile-only tests/tracking/manager.spec.cjs",
   "red_evidence": "All10 executable criterion tests failed assertions on absent implementation before code was created.",
   "green_evidence": "Owned suite28/28 passed including all23 criterion tests and5 additional adversarial safety cases. pnpm build exit0; actual bundled Python integration exit0. Root fullgate and composed app/package verification remain required."

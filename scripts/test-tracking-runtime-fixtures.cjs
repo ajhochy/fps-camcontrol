@@ -5,11 +5,38 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { fixtureConfig, sonyFixture } = require('./test-electron-tracking-runtime.cjs');
+const { fixtureConfig, sonyFixture, findPythonChildren, isExpectedRecoveryBackpressure, isExpectedInjectedDisconnect } = require('./test-electron-tracking-runtime.cjs');
 const { validateImportedDevicesConfig, resolveProfile } = require('../src/config/configLoader');
 const { resolveTrackingSources } = require('../src/tracking/sourceResolver');
 const { SonyManager } = require('../src/sony/sonyManager');
 const { SonyStateStore } = require('../src/sony/sonyStateStore');
+
+test('injected transport failures require the exact terminated backend, GET poll and fault window', () => {
+  const item = { phase: 'injected-backend-crash', method: 'GET', url: 'http://127.0.0.1:12345/api/sony/cameras/AA:BB/live-view/frame', error: 'net::ERR_CONNECTION_REFUSED' };
+  const origins = new Set(['injected-backend-crash http://127.0.0.1:12345']);
+  assert.equal(isExpectedInjectedDisconnect(item, origins), true);
+  for (const change of [{ phase: 'configured-first-launch' }, { phase: 'injected-helper-crash' }, { method: 'POST' }, { error: 'net::ERR_FAILED' }, { url: 'http://127.0.0.1:54321/api/status' }, { url: 'http://127.0.0.1:12345/api/tracking/select' }]) assert.equal(isExpectedInjectedDisconnect({ ...item, ...change }, origins), false);
+});
+
+test('only identified Sony busy responses during explicit recovery are expected', () => {
+  const item = { phase: 'restart-after-backend-crash', status: 503, url: 'http://127.0.0.1:12345/api/sony/cameras/AA:BB/live-view/start', retryAfter: '1', error: 'Sony camera is busy; retry shortly' };
+  assert.equal(isExpectedRecoveryBackpressure(item), true);
+  for (const change of [{ phase: 'configured-first-launch' }, { status: 500 }, { retryAfter: undefined }, { error: 'Sony service is not configured' }, { url: 'http://127.0.0.1:12345/api/tracking/select' }, { url: 'http://example.com/api/sony/cameras/AA:BB/live-view/start' }]) assert.equal(isExpectedRecoveryBackpressure({ ...item, ...change }), false);
+});
+
+test('owned Python discovery canonicalizes mount aliases but rejects other parents and runtimes', t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'fps process alias '));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const resources = path.join(directory, 'resources');
+  fs.mkdirSync(path.join(resources, 'python/bin'), { recursive: true });
+  const interpreter = path.join(resources, 'python/bin/python3');
+  fs.writeFileSync(interpreter, 'fixture');
+  fs.symlinkSync(resources, path.join(directory, 'alias'));
+  const actual = fs.realpathSync(interpreter);
+  const snapshot = `42 41 ${actual}\n43 99 ${actual}\n44 41 /usr/bin/python3\n45 41 ${actual}-missing\n`;
+  assert.deepEqual(findPythonChildren(41, path.join(directory, 'alias'), snapshot), [42]);
+  assert.deepEqual(findPythonChildren(99, resources, snapshot), [43]);
+});
 
 test('mounted runtime fixture uses valid production rig and tracking configuration', () => {
   const config = validateImportedDevicesConfig(fixtureConfig(12345, 12346));

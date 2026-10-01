@@ -27,10 +27,36 @@ async function gone(pid, timeout = 12000) {
 }
 function pythonChildren(backend, resources) {
   // Read process names, never argument lists or environments carrying secrets.
-  return execFileSync('/bin/ps', ['-ww', '-axo', 'pid=,ppid=,comm='], { encoding: 'utf8' })
+  return findPythonChildren(backend, resources,
+    execFileSync('/bin/ps', ['-ww', '-axo', 'pid=,ppid=,comm='], { encoding: 'utf8' }));
+}
+function findPythonChildren(backend, resources, snapshot) {
+  const interpreter = fs.realpathSync(path.join(resources, 'python/bin/python3'));
+  return snapshot
     .split('\n').map(line => line.trim().match(/^(\d+)\s+(\d+)\s+(.+)$/)).filter(Boolean)
-    .filter(row => Number(row[2]) === backend && row[3].startsWith(path.join(resources, 'python') + path.sep))
+    .filter(row => {
+      if (Number(row[2]) !== backend) return false;
+      try { return fs.realpathSync(row[3]) === interpreter; } catch { return false; }
+    })
     .map(row => Number(row[1]));
+}
+function isExpectedRecoveryBackpressure(item) {
+  if (!['restart-after-backend-crash', 'restart-after-sleep', 'relaunch-after-helper-crash', 'relaunch-after-parent-crash'].includes(item.phase) ||
+    item.status !== 503 || !/^[1-9]\d*$/.test(item.retryAfter || '') || item.error !== 'Sony camera is busy; retry shortly') return false;
+  try {
+    const url = new URL(item.url);
+    return url.protocol === 'http:' && url.hostname === '127.0.0.1' && !!url.port && !url.username && !url.password &&
+      ['/api/sony/cameras/AA:BB/properties', '/api/sony/cameras/AA:BB/live-view/start', '/api/sony/cameras/AA:BB/live-view/frame'].includes(decodeURIComponent(url.pathname));
+  } catch { return false; }
+}
+function isExpectedInjectedDisconnect(item, origins) {
+  if (item.method !== 'GET' || !['injected-backend-crash', 'injected-sleep', 'injected-parent-crash', 'normal-quit'].includes(item.phase) ||
+    !/^net::ERR_(?:CONNECTION_REFUSED|CONNECTION_RESET|CONNECTION_CLOSED|ABORTED)$/.test(item.error || '')) return false;
+  try {
+    const url = new URL(item.url);
+    return url.protocol === 'http:' && url.hostname === '127.0.0.1' && origins.has(item.phase + ' ' + url.origin) &&
+      ['/api/status', '/api/controllers', '/api/sony/status', '/api/tracking/status', '/api/sony/cameras/AA:BB/live-view/frame'].includes(decodeURIComponent(url.pathname));
+  } catch { return false; }
 }
 function fixtureConfig(bridgePort, sonyPort) {
   return {
@@ -99,9 +125,16 @@ async function main() {
   const executable = path.join(app, 'Contents/MacOS/FPS CamControl Tracking');
   const env = { HOME: home, TMPDIR: temporary, PATH: '/usr/bin:/bin', CAMCONTROL_NO_CONTROLLER: '1' };
   const report = { testedAt: new Date().toISOString(), status: 'RUNNING', dmg: { path: dmg, bytes: fs.statSync(dmg).size, sha256: hash(dmg) },
-    criteria: {}, screenshots: [], appErrors: [], networkErrors: [],
+    criteria: {}, screenshots: [], appErrors: [], consoleErrors: [], consoleErrorDetails: [], httpErrors: [], networkErrors: [],
     boundary: 'Exact mounted DMG on developer host, fresh HOME/minimal PATH, real packaged live helper and generated image loopback fixtures. Not clean OS/TCC, camera accuracy, physical hardware or soak acceptance.' };
-  let mounted = false, desktop, bridge, sony, currentBackend, currentHelper;
+  let mounted = false, desktop, bridge, sony, currentBackend, currentHelper, currentPage;
+  let phase = 'offline-first-launch';
+  const responseCaptures = [];
+  const disconnectedOrigins = new Set();
+  function recordBackendExit(page, nextPhase) {
+    phase = nextPhase;
+    if (page?.url().startsWith('http://127.0.0.1:')) disconnectedOrigins.add(phase + ' ' + new URL(page.url()).origin);
+  }
   const observedPids = new Set();
   const api = (page, route, method = 'GET', body) => page.evaluate(async ({ route, method, body }) => {
     const response = await fetch(route, { method, ...(body ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}) });
@@ -110,9 +143,18 @@ async function main() {
   const backendPid = () => desktop.evaluate(({ app: electronApp }) => electronApp.getAppMetrics().find(metric => metric.type === 'Utility' && metric.name === 'FPS CamControl Backend')?.pid);
   async function launch() {
     desktop = await _electron.launch({ executablePath: executable, cwd, env, timeout: 30000 });
-    const page = await desktop.firstWindow();
+    const page = await desktop.firstWindow(); currentPage = page;
     page.on('pageerror', error => report.appErrors.push(error.message));
-    page.on('requestfailed', request => report.networkErrors.push({ url: request.url().replace(/\?.*$/, ''), error: request.failure()?.errorText }));
+    page.on('console', message => { if (message.type() === 'error') {
+      report.consoleErrors.push(message.text());
+      report.consoleErrorDetails.push({ phase, text: message.text(), location: { ...message.location(), url: message.location().url.replace(/\?.*$/, '') } });
+    } });
+    page.on('response', response => { if (response.status() >= 400) {
+      const item = { phase, status: response.status(), url: response.url().replace(/\?.*$/, ''), retryAfter: response.headers()['retry-after'] };
+      report.httpErrors.push(item);
+      responseCaptures.push(response.json().then(body => { item.error = typeof body.error === 'string' ? body.error.slice(0, 256) : null; }).catch(() => { item.error = null; }));
+    } });
+    page.on('requestfailed', request => report.networkErrors.push({ phase, method: request.method(), url: request.url().replace(/\?.*$/, ''), error: request.failure()?.errorText }));
     if (page.url().startsWith('file:') && await page.getByRole('button', { name: 'Open dashboard' }).count()) {
       await until(() => page.evaluate(() => window.fpsShell.status().then(value => value === 'ready')), 'setup ready');
       await page.getByRole('button', { name: 'Open dashboard' }).click();
@@ -126,9 +168,14 @@ async function main() {
     const children = pythonChildren(currentBackend, resources); assert.equal(children.length, 1, 'Exactly one Python belongs to the actual backend');
     currentHelper = children[0]; observedPids.add(currentHelper); return currentHelper;
   }
+  async function awaitPreview(page) {
+    const preview = page.locator('.sony-widget[data-camera-id="AA:BB"] .sony-preview img');
+    await preview.waitFor({ timeout: 15000 });
+    await until(() => preview.evaluate(image => image.naturalWidth === 640 && !image.parentElement.classList.contains('sony-preview-stale') && !image.parentElement.classList.contains('sony-preview-loading')), 'actual preview recovers after explicit restart', 20000);
+  }
   async function close() {
     const backend = currentBackend, helper = currentHelper;
-    if (desktop) { await desktop.close(); desktop = null; }
+    if (desktop) { recordBackendExit(currentPage, 'normal-quit'); await desktop.close(); desktop = null; }
     if (backend) await gone(backend);
     if (helper) await gone(helper);
     currentBackend = currentHelper = undefined;
@@ -166,13 +213,25 @@ async function main() {
     const saved = path.join(runtime.userData, 'config/devices.yaml');
     assert.ok(saved.startsWith(home + path.sep));
     fs.writeFileSync(saved, require('yaml').stringify(fixtureConfig(bridgePort, sony.port)));
-    page = await launch(); await awaitHelper(page);
+    phase = 'configured-first-launch'; page = await launch(); await awaitHelper(page);
     assert.equal((await api(page, '/api/sony/cameras/discover', 'POST')).status, 200);
     assert.equal((await api(page, '/api/sony/cameras/AA%3ABB/connect', 'POST')).status, 200);
     await until(() => bridge.log.some(line => line.startsWith('hello ')), 'real backend connected to virtual gimbal');
+    const widget = page.locator('.sony-widget[data-camera-id="AA:BB"]');
+    await widget.waitFor({ timeout: 15000 });
+    const preview = widget.locator('.sony-preview img');
+    await until(() => preview.evaluate(image => image.naturalWidth === 640), 'actual packaged preview decoded generated JPEG');
+    assert.equal(await widget.getByRole('button', { name: 'Focus (touch)', exact: true }).getAttribute('aria-pressed'), 'true');
+    await widget.getByRole('button', { name: 'Track', exact: true }).click();
+    const bounds = await preview.boundingBox(); assert.ok(bounds);
     const beforeFrames = sony.frames();
-    const selected = await api(page, '/api/tracking/select', 'POST', { sourceId: 'rig', x: .5, y: .5 });
-    assert.equal(selected.status, 200, 'Actual installed live tracker accepts a fresh selection');
+    const selectedResponse = page.waitForResponse(response => new URL(response.url()).pathname === '/api/tracking/select' && response.request().method() === 'POST');
+    await preview.click({ position: { x: bounds.width / 2, y: bounds.height / 2 } });
+    const selected = await selectedResponse;
+    assert.equal(selected.status(), 200, 'Actual installed Track click reaches the real authenticated backend');
+    const point = selected.request().postDataJSON();
+    assert.equal(point.sourceId, 'rig'); assert.ok(Math.abs(point.x - .5) < .01 && Math.abs(point.y - .5) < .01);
+    report.criteria.packagedClickToTrack = 'PASS';
     await until(() => sony.frames() > beforeFrames, 'live helper consumes synthetic Sony frame');
     await until(async () => {
       const source = (await api(page, '/api/tracking/status')).body.sources[0];
@@ -183,43 +242,70 @@ async function main() {
       if (!line.startsWith('moveVelocity ')) return false;
       const value = JSON.parse(line.slice('moveVelocity '.length)); return value.pan !== 0 || value.tilt !== 0;
     }), 'Generated no-person frames must not drive gimbal motion');
-    report.criteria.configuredLiveFrameNoTargetSafe = 'PASS'; report.syntheticFrameRequests = sony.frames();
+    // This full-app path proves safe idle, not a particular detector outcome.
+    // The separate real live-helper protocol proof must distinguish no_target
+    // from source_unavailable using the helper's actual messages and metrics.
+    report.criteria.configuredLiveFrameIdleSafe = 'PASS'; report.syntheticFrameRequests = sony.frames();
     assert.deepEqual(report.appErrors, [], 'No page JS errors before fault injection');
+    assert.deepEqual(report.consoleErrors, [], 'No console errors before fault injection');
+    assert.deepEqual(report.networkErrors, [], 'No failed UI requests before fault injection');
     const screenshot = path.join(evidence, 'mounted-tracking-dashboard.png'); await page.screenshot({ path: screenshot, fullPage: true });
     report.screenshots.push({ path: screenshot, sha256: hash(screenshot) });
+    phase = 'injected-helper-crash';
     const killedHelper = currentHelper; process.kill(killedHelper, 'SIGKILL'); await gone(killedHelper); currentHelper = undefined;
     await until(async () => (await api(page, '/api/tracking/status')).body.sidecar.state === 'offline', 'helper crash invalidates connection');
     await delay(1200); assert.deepEqual(pythonChildren(currentBackend, resources), [], 'No automatic helper restart'); stoppedMotion('helper crash');
     assert.equal((await api(page, '/api/tracking/status')).body.sources[0].sessionId, null);
     report.criteria.helperCrashNoReplay = 'PASS';
-    await close(); page = await launch(); await awaitHelper(page);
+    await close(); phase = 'relaunch-after-helper-crash'; page = await launch(); await awaitHelper(page);
     const backendBeforeCrash = currentBackend, helperBeforeCrash = currentHelper;
+    recordBackendExit(page, 'injected-backend-crash');
     process.kill(backendBeforeCrash, 'SIGKILL');
     await page.getByRole('alert').filter({ hasText: 'service recovered with controls paused' }).waitFor({ timeout: 20000 });
     await gone(helperBeforeCrash); await gone(backendBeforeCrash); currentHelper = undefined;
     currentBackend = await backendPid(); assert.ok(currentBackend && currentBackend !== backendBeforeCrash); observedPids.add(currentBackend);
     await delay(1200); assert.deepEqual(pythonChildren(currentBackend, resources), [], 'Paused recovery cannot launch a new tracking helper'); stoppedMotion('backend crash');
     report.criteria.backendCrashStopsHelperPausedRecovery = 'PASS';
+    phase = 'restart-after-backend-crash';
     await page.getByRole('button', { name: 'Restart controls' }).click(); await page.waitForURL(/^http:\/\/127\.0\.0\.1:\d+\/$/);
     currentBackend = await backendPid(); observedPids.add(currentBackend); await awaitHelper(page);
     assert.equal((await api(page, '/api/tracking/status')).body.sources[0].sessionId, null, 'Explicit restart never replays target');
+    await awaitPreview(page);
     const sleepBackend = currentBackend, sleepHelper = currentHelper;
+    recordBackendExit(page, 'injected-sleep');
     await desktop.evaluate(({ powerMonitor }) => powerMonitor.emit('suspend'));
     await page.getByRole('alert').filter({ hasText: 'stopped for sleep' }).waitFor({ timeout: 16000 });
     await gone(sleepBackend); await gone(sleepHelper); currentBackend = currentHelper = undefined;
     await desktop.evaluate(({ powerMonitor }) => powerMonitor.emit('resume')); await delay(1200);
     assert.equal(await backendPid(), undefined, 'Wake never resumes tracking automatically'); stoppedMotion('sleep');
     report.criteria.sleepStopsHelperWakeInert = 'PASS';
+    phase = 'restart-after-sleep';
     await page.getByRole('button', { name: 'Restart controls' }).click(); await page.waitForURL(/^http:\/\/127\.0\.0\.1:\d+\/$/);
     currentBackend = await backendPid(); observedPids.add(currentBackend); await awaitHelper(page);
+    await awaitPreview(page);
     const parentBackend = currentBackend, parentHelper = currentHelper;
+    recordBackendExit(page, 'injected-parent-crash');
     desktop.process().kill('SIGKILL'); desktop = null;
     await gone(parentBackend); await gone(parentHelper); currentBackend = currentHelper = undefined; stoppedMotion('parent crash');
     report.criteria.parentCrashNoOrphans = 'PASS';
-    page = await launch(); await awaitHelper(page);
+    phase = 'relaunch-after-parent-crash'; page = await launch(); await awaitHelper(page);
+    await awaitPreview(page);
     assert.equal((await api(page, '/api/tracking/status')).body.sources[0].sessionId, null, 'Full relaunch requires a fresh target');
-    await close(); stoppedMotion('normal quit'); report.criteria.normalQuitStopsOwnedHelper = 'PASS';
-    report.injectedFaultObservations = { appErrors: report.appErrors.splice(0), networkErrors: report.networkErrors.splice(0) };
+    phase = 'normal-quit'; await close(); stoppedMotion('normal quit'); report.criteria.normalQuitStopsOwnedHelper = 'PASS';
+    report.injectedFaultObservations = { appErrors: [...report.appErrors], consoleErrors: [...report.consoleErrors], networkErrors: [...report.networkErrors] };
+    await Promise.all(responseCaptures);
+    assert.deepEqual(report.appErrors, [], 'No page JS errors after recovery and relaunch');
+    report.expectedRecoveryResponses = report.httpErrors.filter(isExpectedRecoveryBackpressure);
+    assert.deepEqual(report.httpErrors.filter(item => !isExpectedRecoveryBackpressure(item)), [], 'No unexpected HTTP errors after recovery and relaunch');
+    report.expectedDisconnectOrigins = [...disconnectedOrigins];
+    report.expectedInjectedDisconnects = report.networkErrors.filter(item => isExpectedInjectedDisconnect(item, disconnectedOrigins));
+    report.unexpectedNetworkErrors = report.networkErrors.filter(item => !isExpectedInjectedDisconnect(item, disconnectedOrigins));
+    report.unexpectedConsoleErrors = report.consoleErrorDetails.filter(item => !(item.text === 'Failed to load resource: the server responded with a status of 503 (Service Unavailable)' &&
+      report.expectedRecoveryResponses.some(response => response.phase === item.phase && response.url === item.location.url)) &&
+      !report.expectedInjectedDisconnects.some(request => request.phase === item.phase && request.url === item.location.url && item.text === 'Failed to load resource: ' + request.error));
+    assert.deepEqual(report.unexpectedConsoleErrors, [], 'No unexpected console errors after recovery and relaunch');
+    assert.deepEqual(report.unexpectedNetworkErrors, [], 'No unexpected failed UI requests after recovery and relaunch');
+    report.criteria.uiErrorChecks = 'PASS: no JS or unexpected HTTP/console/transport errors; identified Sony busy retries and injected disconnects recover';
     for (const pid of observedPids) await gone(pid, 3000);
     report.status = 'PASS';
   } catch (error) {
@@ -238,5 +324,5 @@ async function main() {
     console.log(JSON.stringify({ evidence, status: report.status, criteria: report.criteria }));
   }
 }
-module.exports = { fixtureConfig, sonyFixture, pythonChildren };
+module.exports = { fixtureConfig, sonyFixture, pythonChildren, findPythonChildren, isExpectedRecoveryBackpressure, isExpectedInjectedDisconnect };
 if (require.main === module) main().catch(error => { console.error(error.message); process.exitCode = 1; });

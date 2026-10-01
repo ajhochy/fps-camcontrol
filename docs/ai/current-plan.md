@@ -1,6 +1,6 @@
 # Current plan — packaging-first Electron delivery (supersedes the plan below)
 
-2026-10-01 · Manual foundation frozen at `133ae8d`, draft PR57 open, final notarized/stapled DMG runtime verified. Tracking implementation and final delivery gates are underway on that exact foundation. Historical sections below do not expand active scope.
+2026-10-01 · Delivered exactly two drafts: manual PR57/source133ae8d and stacked tracking PR58/source3711a9e. Both final signed/notarized/stapled DMGs pass exact mounted runtime. Clean-OS/physical gates remain MANUAL_PENDING; see `runs/2026-10-01-electron-delivery.md`. Historical sections below do not expand active scope.
 
 ## Status and clarification interview
 
@@ -77,11 +77,11 @@ The actual packaged tracking DMG is `com.ajhochhalter.fpscamcontrol.tracking`, h
 
 ## Completion checklist
 
-- [ ] PR1 only contains packaging/lifecycle/persistence/security/resource fixes needed by the existing app and has an independently verified, signed/notarized manual DMG.
-- [ ] PR2 is stacked from the exact PR1 SHA, contains actual tracking plus its separately identified signed/notarized DMG, and does not mutate the manual artifact.
-- [ ] Every automated gate has a command/result; each external/manual criterion is `PASS`, `MANUAL_PENDING`, `BLOCKED`, or `NOT_RUN`, never implied.
-- [ ] PR descriptions credit carried PR #36 work and use closing keywords only for genuinely completed scoped issues.
-- [ ] Project-state update occurs after implementation evidence, not during this plan-only task.
+- [x] PR1 only contains packaging/lifecycle/persistence/security/resource fixes needed by the existing app and has an independently verified, signed/notarized manual DMG (inherited PR36 work credited).
+- [x] PR2 is stacked from the exact PR1 SHA, contains actual tracking plus its separately identified signed/notarized DMG, and does not mutate the manual artifact.
+- [x] Every automated gate has a command/result; each external/manual criterion is explicitly qualified, never implied.
+- [x] PR descriptions credit carried PR #36 work and use closing keywords only for genuinely completed scoped issues.
+- [x] Project-state update follows implementation, independent review, Apple acceptance and exact final-byte runtime evidence.
 
 ---
 

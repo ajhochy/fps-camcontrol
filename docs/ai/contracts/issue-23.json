@@ -53,13 +53,12 @@
     {
       "criterion_id": "issue-23-c7",
       "text": "Comments in `devices.yaml` document the block and stay intact across a UI save (see `writeDevicesYaml`).",
-      "mode": "unit",
-      "test_file": "tests/contract/issue-23.spec.ts",
-      "test_id": "issue-23-c7",
-      "status": "pass"
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Acceptance-placement review pending: shipped generic resources/defaults/devices.yaml documents tracking and the UI-save comment-preservation test passes, but the protected operator config/devices.yaml was not edited. No closing keyword for #23."
     }
   ],
   "stack": "typescript",
-  "not_tested": [],
+  "not_tested": ["issue-23-c7"],
   "verification": "Root ai-workflow checks --level pr exit0 (2026-10-01, tracking changes atop133ae8d); physical/finalDMG gates separate."
 }
