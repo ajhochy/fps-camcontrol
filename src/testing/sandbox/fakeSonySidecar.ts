@@ -14,7 +14,8 @@ import http from 'http';
  *    pairing is opened;
  *  - a read-only property (aperture on a lens with its own ring) reports
  *    writable:false and no options;
- *  - a camera that loses power stops being connected on its own.
+ *  - a camera that loses power stops being connected on its own;
+ *  - battery-remain is a read-only percent ("82%"), 0xFFFF when the SDK has no reading.
  */
 
 interface Option { value: number; hex: string; formatted: string }
@@ -53,6 +54,8 @@ export interface FakeSonyCameraSpec {
   needsPairing?: boolean;
   /** Report aperture as read-only with no options, like a lens with its own aperture ring. */
   readOnlyAperture?: boolean;
+  /** battery-remain percent (0-100); 0xFFFF for "not taken". Defaults to 82. */
+  battery?: number;
 }
 
 interface FakeCamera extends Required<FakeSonyCameraSpec> {
@@ -77,7 +80,7 @@ export class FakeSonySidecar {
     this.connectDelayMs = options.connectDelayMs ?? 0;
     for (const spec of specs) {
       this.cameras.set(spec.id.toUpperCase(), {
-        powered: true, needsPairing: false, readOnlyAperture: false, ...spec, id: spec.id.toUpperCase(),
+        powered: true, needsPairing: false, readOnlyAperture: false, battery: 82, ...spec, id: spec.id.toUpperCase(),
         connected: false, pairingOpen: false, props: makeProps(!!spec.readOnlyAperture), frames: 0,
       });
     }
@@ -107,8 +110,13 @@ export class FakeSonySidecar {
     if (!camera) throw new Error(`unknown camera ${id}`);
     camera.pairingOpen = open;
   }
+  setBattery(id: string, percent: number): void {
+    const camera = this.cameras.get(id.toUpperCase());
+    if (!camera) throw new Error(`unknown camera ${id}`);
+    camera.battery = percent;
+  }
   snapshot(): unknown {
-    return [...this.cameras.values()].map(({ id, model, powered, connected, needsPairing, pairingOpen }) => ({ id, model, powered, connected, needsPairing, pairingOpen }));
+    return [...this.cameras.values()].map(({ id, model, powered, connected, needsPairing, pairingOpen, battery }) => ({ id, model, powered, connected, needsPairing, pairingOpen, battery }));
   }
 
   private json(res: http.ServerResponse, status: number, body: unknown): void {
@@ -154,6 +162,7 @@ export class FakeSonySidecar {
         try {
           if (parts[3] === 'power') this.power(parts[2], !!body.on);
           else if (parts[3] === 'pairing') this.pairing(parts[2], !!body.open);
+          else if (parts[3] === 'battery') this.setBattery(parts[2], Number(body.percent));
           else return this.json(res, 404, { success: false, message: 'Not found' });
         } catch (error) { return this.json(res, 404, { success: false, message: String(error) }); }
         return this.json(res, 200, { success: true, cameras: this.snapshot() });
@@ -228,7 +237,17 @@ export class FakeSonySidecar {
             available_values: prop.options.map((o) => ({ value: o.value, hex_value: o.hex, formatted: o.formatted })),
           };
         }
+        properties['battery-remain'] = {
+          current_value: camera.battery, current_hex_value: hex(camera.battery), current_formatted: `${camera.battery}%`, writable: false, available_values: [],
+        };
         return this.json(res, 200, { success: true, message: 'Retrieved all camera properties', camera: this.info(camera), data: { total_properties: camera.props.length, properties } });
+      }
+      // Single-property read, in the real service's shape (buildPropertyResponse): data.value is hex, data.formatted is "NN%".
+      if (sub === 'properties/battery-remain' && method === 'GET') {
+        return this.json(res, 200, {
+          success: true, message: 'Property retrieved successfully', camera: this.info(camera),
+          data: { available_values: [], formatted: `${camera.battery}%`, property: 'battery-remain', value: hex(camera.battery), writable: false },
+        });
       }
       const propMatch = sub.match(/^properties\/([a-z-]+)$/);
       if (propMatch && method === 'PUT') {

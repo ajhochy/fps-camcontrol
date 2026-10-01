@@ -1338,6 +1338,7 @@ function statusHtml(): string {
   .sony-widget { border:1px solid var(--border-strong); background:var(--surface-2); padding:8px; min-width:0; }
   .sony-widget__head { display:flex; justify-content:space-between; gap:8px; margin-bottom:6px; }
   .sony-widget__id { overflow-wrap:anywhere; }
+  .sony-widget__battery { font-size:12px; font-variant-numeric:tabular-nums; white-space:nowrap; }
   .sony-preview { position:relative; aspect-ratio:16 / 9; background:#000; overflow:hidden; }
   .sony-preview img { width:100%; height:100%; object-fit:contain; display:block; }
   .sony-widget--placeholder { opacity:.6; border-style:dashed; }
@@ -2028,10 +2029,21 @@ function updateSonyWidget(camera) {
   article.querySelector('.sony-widget__title').textContent = camera.name || camera.model || 'Sony camera';
   article.querySelector('.sony-widget__transport').textContent = camera.connectionType || 'Unknown transport';
   article.querySelector('.sony-widget__connection').textContent = camera.status || 'Connected';
+  var battery = article.querySelector('.sony-widget__battery');
+  if (battery) { var info = sonyBatteryInfo(camera); battery.textContent = info.text; battery.style.color = info.color; battery.title = info.title; }
   article.querySelector('.sony-preview img').alt = 'Live preview from ' + (camera.name || camera.model || camera.id);
   // Show or hide the roll controls as the camera is mounted on or taken off a gimbal rig (never mid-action).
   var roll = article.querySelector('.sony-roll'), rig = camera.gimbalRig && camera.gimbalRig.rollAdjustable ? camera.gimbalRig.id + '|' + camera.gimbalRig.label : '';
   if (roll && roll.dataset.rig !== rig && !roll.querySelector('button:disabled')) { roll.innerHTML = sonyRollHtml(camera); roll.dataset.rig = rig; }
+}
+
+// Battery level from the Sony service (read about once a minute). Unknown shows a dash; an old reading is greyed.
+function sonyBatteryInfo(camera) {
+  var reading = camera && camera.battery, percent = reading && typeof reading.percent === 'number' ? reading.percent : null;
+  if (percent === null) return { text: 'Battery —', color: 'var(--text-2)', title: 'Battery level not known yet' };
+  if (reading.stale) return { text: '🔋 ' + percent + '%', color: 'var(--text-2)', title: 'Battery ' + percent + '% (last reading is more than 3 minutes old)' };
+  var color = percent >= 40 ? 'var(--ok-text)' : percent >= 20 ? 'var(--warn-text)' : 'var(--err-text)';
+  return { text: '🔋 ' + percent + '%', color: color, title: 'Battery ' + percent + '%' };
 }
 
 // Side-to-side tilt (roll) for a camera mounted on a gimbal rig; nothing for any other camera.
@@ -2064,13 +2076,18 @@ async function sonyRoll(button) {
   }
 }
 
+function sonyBatteryHtml(camera) {
+  var info = sonyBatteryInfo(camera);
+  return '<br><span class="sony-widget__battery" style="color:' + info.color + '" title="' + esc(info.title) + '">' + esc(info.text) + '</span>';
+}
+
 function sonyWidgetHtml(camera) {
   var key = camera.id.replace(/:/g, '-');
   var controls = SONY_PROPERTIES.map(function(name) {
     return '<label>' + esc(name.replace(/-/g, ' ')) + '<select class="cfg-input" id="sony-' + esc(key) + '-' + name + '" data-id="' + esc(camera.id) + '" data-property="' + name + '" disabled onchange="saveSonyProperty(this)"><option>Unavailable</option></select></label>';
   }).join('');
   return '<article class="sony-widget" data-camera-id="' + esc(camera.id) + '" aria-labelledby="sony-heading-' + esc(key) + '">' +
-    '<div class="sony-widget__head"><div><h3 class="sony-widget__title" id="sony-heading-' + esc(key) + '">' + esc(camera.name || camera.model || 'Sony camera') + '</h3><small class="sony-widget__id">' + esc(camera.id) + '</small></div><div><span class="sony-widget__transport">' + esc(camera.connectionType || 'Unknown transport') + '</span><br><span class="sony-widget__connection" style="color:var(--ok-text)">' + esc(camera.status || 'Connected') + '</span></div></div>' +
+    '<div class="sony-widget__head"><div><h3 class="sony-widget__title" id="sony-heading-' + esc(key) + '">' + esc(camera.name || camera.model || 'Sony camera') + '</h3><small class="sony-widget__id">' + esc(camera.id) + '</small></div><div><span class="sony-widget__transport">' + esc(camera.connectionType || 'Unknown transport') + '</span><br><span class="sony-widget__connection" style="color:var(--ok-text)">' + esc(camera.status || 'Connected') + '</span>' + sonyBatteryHtml(camera) + '</div></div>' +
     '<div class="sony-preview sony-preview-loading" id="sony-preview-' + esc(key) + '" role="region" aria-labelledby="sony-heading-' + esc(key) + '"><img alt="Live preview from ' + esc(camera.model || camera.id) + '" data-id="' + esc(camera.id) + '"><span class="sony-crosshair" aria-hidden="true"></span></div>' +
     '<div class="sony-roll" id="sony-roll-' + esc(key) + '" data-rig="' + esc(camera.gimbalRig && camera.gimbalRig.rollAdjustable ? camera.gimbalRig.id + '|' + camera.gimbalRig.label : '') + '">' + sonyRollHtml(camera) + '</div>' +
     '<div class="sony-controls">' + controls + '</div>' +

@@ -20,7 +20,7 @@ const criteria = new Set<string>();
 
 function record(name: string): void {
   const criterion = name.split(':')[0];
-  assert.ok(/^c(?:[1-9]|1[0-6])$/.test(criterion), `check name must start with a criterion id: ${name}`);
+  assert.ok(/^c(?:[1-9]|1[0-7])$/.test(criterion), `check name must start with a criterion id: ${name}`);
   assert.ok(!checks.includes(name), `duplicate check name: ${name}`);
   checks.push(name);
   criteria.add(criterion);
@@ -636,8 +636,114 @@ async function main(): Promise<void> {
   await restarted.manager.stop();
   checkEqual('c15: stop cancels every timer', restarted.clock.pending(), 0);
 
+  // -- c17: battery level is read slowly, one camera at a time, and quietly ---------
+  const batteryCams = [camA, camB];
+  const batPowered = new Set<string>(batteryCams);
+  const batLinked = new Set<string>();
+  const batteryValue = new Map<string, string>([[camA, '0x52'], [camB, '0x28']]);
+  let batteryFails = false;
+  let batteryHold: Promise<void> | null = null;
+  let batteryInFlight = 0;
+  let batteryMaxInFlight = 0;
+  const batteryUpstream = async (url: string, init?: RequestInit): Promise<Response> => {
+    if (url.endsWith('/api/server/status')) return healthy();
+    if (url.endsWith('/api/cameras')) {
+      return json(200, { cameras: batteryCams.filter((id) => batPowered.has(id)).map((id) => ({ id, model: 'ILCE-7SM3', connectionType: 'Network', connected: batLinked.has(id) })) });
+    }
+    const connection = url.match(/\/api\/cameras\/([^/]+)\/connection$/);
+    if (connection) {
+      const id = decodeURIComponent(connection[1]);
+      if (init?.method === 'POST') {
+        if (!batPowered.has(id)) return json(404, { success: false, message: 'Camera not found' });
+        batLinked.add(id);
+        return json(200, { success: true, camera: { connected: true, model: 'ILCE-7SM3', id } });
+      }
+      return json(200, { success: true, camera: { connected: batLinked.has(id) && batPowered.has(id), id } });
+    }
+    const battery = url.match(/\/api\/cameras\/([^/]+)\/properties\/battery-remain$/);
+    if (battery) {
+      batteryInFlight++;
+      batteryMaxInFlight = Math.max(batteryMaxInFlight, batteryInFlight);
+      try {
+        if (batteryHold) await batteryHold;
+        if (batteryFails) return json(500, { success: false, message: 'Service busy' });
+        // The real sidecar's single-property shape: data.value is hex, data.formatted is "NN%" (65535% when not taken).
+        const value = batteryValue.get(decodeURIComponent(battery[1])) ?? '0xffff';
+        return json(200, { success: true, message: 'Property retrieved successfully', data: { property: 'battery-remain', value, formatted: `${parseInt(value, 16)}%`, writable: false, available_values: [] } });
+      } finally { batteryInFlight--; }
+    }
+    return json(200, {});
+  };
+  const batteryReads = (calls: string[], id: string): number => calls.filter((call) => call === `GET http://127.0.0.1:8181/api/cameras/${id}/properties/battery-remain`).length;
+
+  const bat = build({ stateFile: file('battery.json') }, batteryUpstream);
+  const batteryOf = (id: string) => bat.manager.getStatus().cameras.find((camera) => camera.id === id);
+  bat.manager.start();
+  await bat.manager.whenIdle();
+  await bat.manager.connect(camA);
+  await bat.manager.whenIdle();
+  checkEqual('c17: a camera has no battery reading until it is read', batteryOf(camA)?.battery, null);
+  await bat.clock.run(bat.manager, 1000);
+  checkEqual('c17: the battery is read once right after connect', batteryReads(bat.calls, camA), 1);
+  checkEqual('c17: the reading is the percent the camera reports', batteryOf(camA)?.battery?.percent, 82);
+  check('c17: a fresh reading carries its time and is not stale', typeof batteryOf(camA)?.battery?.at === 'string' && batteryOf(camA)?.battery?.stale === false);
+  check('c17: a battery read uses the normal 5 s read budget', bat.timeouts.includes(5000));
+  await bat.clock.run(bat.manager, 59000);
+  checkEqual('c17: no second battery read before 60 s', batteryReads(bat.calls, camA), 1);
+  await bat.clock.run(bat.manager, 1000);
+  checkEqual('c17: the battery is re-read every 60 s', batteryReads(bat.calls, camA), 2);
+  batteryFails = true;
+  await bat.clock.run(bat.manager, 60000);
+  checkEqual('c17: a failed read is still on the 60 s cadence', batteryReads(bat.calls, camA), 3);
+  check('c17: a failed read keeps the last value and changes nothing else about the camera',
+    batteryOf(camA)?.battery?.percent === 82 && batteryOf(camA)?.state === 'connected' && batteryOf(camA)?.message === null);
+  await bat.clock.run(bat.manager, 125000);
+  check('c17: a reading not refreshed for over 3 minutes is marked stale, keeping its value', batteryOf(camA)?.battery?.stale === true && batteryOf(camA)?.battery?.percent === 82);
+  batteryFails = false;
+  batteryValue.set(camA, '0xffff');
+  await bat.clock.run(bat.manager, 60000);
+  check('c17: the SDK not-taken value 0xFFFF is an unknown level (null), not 65535%', batteryOf(camA)?.battery?.percent === null && batteryOf(camA)?.battery?.stale === false);
+  checkEqual('c17: a camera that is not connected is never read', batteryReads(bat.calls, camB), 0);
+  batPowered.delete(camA);
+  batLinked.delete(camA);
+  await bat.clock.run(bat.manager, 5000);
+  checkEqual('c17: (setup) the powered-off camera shows disconnected', batteryOf(camA)?.state, 'disconnected');
+  const readsWhileOff = batteryReads(bat.calls, camA);
+  await bat.clock.run(bat.manager, 180000);
+  checkEqual('c17: a disconnected camera gets no battery reads', batteryReads(bat.calls, camA), readsWhileOff);
+  await bat.manager.stop();
+  checkEqual('c17: stop cancels the battery timer', bat.clock.pending(), 0);
+
+  batPowered.add(camA);
+  batLinked.clear();
+  batteryValue.set(camA, '0x52');
+  batteryMaxInFlight = 0;
+  let releaseBattery!: () => void;
+  batteryHold = new Promise<void>((resolve) => { releaseBattery = resolve; });
+  const lap = build({ stateFile: file('battery-lap.json') }, batteryUpstream);
+  lap.manager.start();
+  await lap.manager.whenIdle();
+  await lap.manager.connect(camA);
+  await lap.manager.connect(camB);
+  await lap.manager.whenIdle();
+  await lap.clock.run(lap.manager, 1000);
+  checkEqual('c17: cameras are read one at a time, not together', [batteryReads(lap.calls, camA), batteryReads(lap.calls, camB)], [1, 0]);
+  const pageRead = lap.manager.property(camA, 'battery-remain');
+  checkEqual('c17: a page read of the battery during the poll joins it (no second request)', batteryReads(lap.calls, camA), 1);
+  await lap.clock.run(lap.manager, 120000);
+  checkEqual('c17: a slow battery read is never overlapped by the next poll', [batteryReads(lap.calls, camA), batteryReads(lap.calls, camB)], [1, 0]);
+  releaseBattery();
+  batteryHold = null;
+  await pageRead;
+  await lap.clock.run(lap.manager, 0);
+  checkEqual('c17: the next camera is read once the previous read finishes', batteryReads(lap.calls, camB), 1);
+  checkEqual('c17: the second camera reports its own level', lap.manager.getStatus().cameras.find((camera) => camera.id === camB)?.battery?.percent, 40);
+  checkEqual('c17: never more than one battery read in flight', batteryMaxInFlight, 1);
+  await lap.manager.stop();
+  checkEqual('c17: stop leaves no battery timer behind', lap.clock.pending(), 0);
+
   const covered = [...criteria].sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
-  assert.strictEqual(covered.length, 16, `every criterion needs a check; covered: ${covered.join(',')}`);
+  assert.strictEqual(covered.length, 17, `every criterion needs a check; covered: ${covered.join(',')}`);
   assert.strictEqual(new Set(checks).size, checks.length, 'check names must be unique');
   console.log(`sony manager: ${checks.length} checks passed across ${covered.length} criteria (${covered.join(' ')})`);
 }

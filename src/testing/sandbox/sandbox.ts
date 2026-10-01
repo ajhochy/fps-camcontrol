@@ -27,7 +27,7 @@ const DJI_PORTS = [17878, 17879, 17880];
 const CAMERAS = [
   { id: 'AA:00:00:00:00:01', model: 'ILCE-7SM3', powered: true },
   // Like the real FX3A over Wi-Fi: refuses to connect until pairing mode is opened, aperture set by the lens.
-  { id: 'AA:00:00:00:00:02', model: 'ILME-FX3A', powered: true, needsPairing: true, readOnlyAperture: true },
+  { id: 'AA:00:00:00:00:02', model: 'ILME-FX3A', powered: true, needsPairing: true, readOnlyAperture: true, battery: 0xffff },
   { id: 'AA:00:00:00:00:03', model: 'ILCE-7SM3', powered: false },
   { id: 'AA:00:00:00:00:04', model: 'ILCE-7M4', powered: false },
 ];
@@ -243,6 +243,7 @@ async function selfTest(): Promise<number> {
       check('a weak Bluetooth link is reported to the operator, not left to fail silently', sig.rating === 'weak' && /2 Bluetooth drops/.test(sig.summary) && (await api('/api/rigs')).body.rigs.find((r: any) => r.id === gimbalRig.id)?.live?.signal?.rating === 'weak');
       check('the camera tiles say Weak Signal / Poor Signal / Signal Lost, and always show signal bars on gimbal tiles', pageHtml.includes("'Weak Signal'") && pageHtml.includes("'Poor Signal'") && pageHtml.includes("'Signal Lost'") && pageHtml.includes('function signalBadge') && pageHtml.includes('BT signal: '));
       bridge.link = { drops10m: 0, framesLastMin: 80, corruptLastMin: 0, linkedForS: 300 };
+      check('the Status page Sony cards show a battery level, toned by charge, with a dash when unknown', pageHtml.includes('function sonyBatteryInfo') && pageHtml.includes('sony-widget__battery') && pageHtml.includes("'Battery —'") && pageHtml.includes('var(--err-text)'));
       check('the Status page draws roll buttons next to the preview', pageHtml.includes('function sonyRollHtml') && pageHtml.includes('Level horizon') && pageHtml.includes("'/roll'"));
     }
 
@@ -272,6 +273,9 @@ async function selfTest(): Promise<number> {
     // --- connect the a7S III through the app
     check('connecting the a7S III through the app succeeds', (await post(`/api/sony/cameras/${A}/connect`)).status === 200);
     check('the a7S III shows connected', (await cameraState(A)) === 'connected');
+    const batteryOf = async (id: string): Promise<any> => (await api('/api/sony/status')).body.cameras?.find((c: any) => c.id === id)?.battery;
+    const firstBattery = await waitFor('the a7S III battery to be read after connect', async () => { const b = await batteryOf(A); return b && typeof b.percent === 'number' && b; }, 10000, 250).catch(() => null);
+    check('a connected camera reports its battery level in /api/sony/status', firstBattery?.percent === 82 && typeof firstBattery?.at === 'string' && firstBattery?.stale === false);
     const props = await api(`/api/sony/cameras/${A}/properties`);
     const aperture = props.body?.data?.properties?.aperture;
     check('the a7S III reports a writable aperture with 23 options', aperture?.writable === true && aperture?.available_values?.length === 23);
@@ -290,6 +294,8 @@ async function selfTest(): Promise<number> {
     await post(`/api/sony/cameras/${B}/retry`);
     await waitFor('the FX3A to connect after pairing', async () => (await cameraState(B)) === 'connected', 20000);
     check('the FX3A connects once pairing mode is open', true);
+    const fxBattery = await waitFor('the FX3A battery to be read', async () => { const b = await batteryOf(B); return b && typeof b.at === 'string' && b; }, 10000, 250).catch(() => null);
+    check('a camera that has no battery reading (0xFFFF) reports an unknown level, not 65535%', !!fxBattery && fxBattery.percent === null);
     const fxAperture = (await api(`/api/sony/cameras/${B}/properties`)).body?.data?.properties?.aperture;
     check('the FX3A aperture is read-only with no options', fxAperture?.writable === false && fxAperture?.available_values?.length === 0);
 
