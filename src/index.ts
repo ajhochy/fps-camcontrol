@@ -16,6 +16,7 @@ import { ControllerSupervisor } from './input/controllerSupervisor';
 import { throttledLog } from './app/logThrottle';
 import { normalizeHIDReport } from './input/normalizers';
 import { ControlStateMachine } from './model/controlStateMachine';
+import { InputArbiter } from './input/inputArbiter';
 import { PresetManager } from './model/presetManager';
 import { startControllerLoop } from './app/controllerLoop';
 import { eventBus } from './app/eventBus';
@@ -66,6 +67,11 @@ async function main() {
   const presetManager = new PresetManager(state, config, devices);
   const machine = new ControlStateMachine(state, config, atem, devices, activityLog);
 
+  // The desk controller and (once the remote hub is wired) an iPad both feed the machine through the arbiter:
+  // one owner at a time, the desk always wins, and every handover stops the camera first.
+  const arbiter = new InputArbiter(machine);
+  machine.setSourceConnected(() => arbiter.sourceConnected(state.controllerConnected));
+
   const supervisor = new ControllerSupervisor(profiles);
 
   supervisor.on('attached', (info: { profile: { name: string }; connectionType: 'usb' | 'bluetooth' }) => {
@@ -97,7 +103,7 @@ async function main() {
     const profile = supervisor.activeProfile;
     if (!profile) return;
     const input = normalizeHIDReport(data, profile);
-    machine.updateInput(input);
+    arbiter.fromLocal(input);
     eventBus.emit('controllerData', { type: 'rawHidData', raw: data, normalized: input });
   });
 

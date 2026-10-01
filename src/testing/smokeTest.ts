@@ -550,6 +550,62 @@ async function runTests(): Promise<void> {
   assert('LT sends a zoom command', outCmd !== null);
   assert('LT zooms OUT (wide, 0x3X)', outCmd !== null && (outCmd & 0xF0) === 0x30);
 
+  // Test 12b: input-source handover (desk <-> iPad). Real machine, spying on the camera's stop/zoom calls.
+  console.log('\nTest 12b: switching the input source stops the camera and seeds held buttons');
+  {
+    state.controlledCamera = 'cam2';
+    state.cameraIndex = 1;
+    state.controllerConnected = true;
+    const cam2 = devices.get('cam2')!;
+    const calls: string[] = [];
+    const realStop = cam2.stop.bind(cam2);
+    const realZoom = cam2.setZoom.bind(cam2);
+    cam2.stop = () => { calls.push('stop'); realStop(); };
+    cam2.setZoom = (s: number) => { calls.push(`zoom:${s}`); realZoom(s); };
+    const csm4 = new ControlStateMachine(state, config, atemProxy, devices, null);
+    let remoteUp = true;
+    csm4.setSourceConnected(() => remoteUp);
+    const { standardFrameToInput } = require('../input/browserGamepad');
+    const rightX = standardFrameToInput({ a: [0, 0, 0.8, 0], tr: [0, 0], b: 0 });
+
+    csm4.updateInput(rightX, 'iPad: Test');
+    csm4.tick();
+    calls.length = 0;
+    csm4.switchSource(null);
+    assert('switchSource while panning stops the camera immediately', calls.includes('stop') && calls.includes('zoom:0'));
+    calls.length = 0;
+    csm4.tick();
+    assert('after a switch there is no input until the new source sends one (nothing resumes)', calls.length === 0);
+
+    // a held button on the new source must not read as a rising edge
+    const heldA = standardFrameToInput({ a: [0, 0, 0, 0], tr: [0, 0], b: 1 });
+    state.controlledCamera = 'cam1';
+    state.cameraIndex = 0;
+    csm4.switchSource(heldA);
+    csm4.updateInput(heldA);
+    csm4.tick();
+    assert('a button held across the handover does not fire (A would select cam2)', state.controlledCamera === 'cam1');
+    csm4.updateInput(standardFrameToInput({ a: [0, 0, 0, 0], tr: [0, 0], b: 0 }));
+    csm4.tick();
+    csm4.updateInput(heldA);
+    csm4.tick();
+    assert('but a fresh press afterwards does fire', state.controlledCamera === 'cam2');
+
+    // the connectivity gate is the injected provider
+    state.controlledCamera = 'cam2';
+    state.cameraIndex = 1;
+    csm4.updateInput(rightX, 'iPad: Test');
+    csm4.tick();
+    calls.length = 0;
+    remoteUp = false;
+    csm4.tick();
+    assert('the tick guard uses the source provider: source gone -> stop + zoom 0', calls.includes('stop') && calls.includes('zoom:0'));
+    remoteUp = true;
+    cam2.stop = realStop;
+    cam2.setZoom = realZoom;
+    state.controllerConnected = true;
+  }
+
   // ===== Switch Pro Controller regression =====
   console.log('\nTest 13: Switch Pro Bluetooth profile and packed axes');
   // eslint-disable-next-line @typescript-eslint/no-var-requires
