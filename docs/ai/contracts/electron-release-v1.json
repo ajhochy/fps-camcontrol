@@ -71,8 +71,8 @@
       "criterion_id": "release-c9",
       "text": "Downloaded public asset bytes match their published receipts.",
       "mode": "manual",
-      "status": "UNVERIFIED",
-      "reason": "Requires publication to GitHub followed by downloading both public assets and comparing their bytes and SHA-256 values with the published receipt."
+      "status": "pass",
+      "reason": "Published electron-local-testing-2026.10.01 at 23:07:04Z. Authenticated draft readback and fresh unauthenticated public downloads both match original DMG SHA-256 hashes, byte counts, manifest and checksum file. See docs/ai/runs/2026-10-01-github-release.md."
     },
     {
       "criterion_id": "release-c10",
@@ -84,7 +84,6 @@
   ],
   "stack": "typescript",
   "not_tested": [
-    "release-c9",
     "release-c10"
   ]
 }

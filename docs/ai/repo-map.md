@@ -47,6 +47,9 @@ fps-camcontrol/
 - Packaging/runtime: `scripts/package-electron-manual.cjs`,
   `scripts/test-electron-manual-package.cjs`, `scripts/test-electron-manual-runtime.cjs`.
 - Workflow/checks: `scripts/run_ai_workflow.py`, `scripts/checks.cjs`.
+- GitHub testing releases: `.github/workflows/electron_release.yml`, exact app
+  sources in `.github/electron-release-sources.json`, public receipt validation
+  in `scripts/electron-release.cjs`; operator instructions: `docs/releasing.md`.
 
 ## Dependencies
 

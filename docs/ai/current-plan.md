@@ -62,8 +62,16 @@ physical camera/gimbal smoke remain NOT TESTED until witnessed.
   plus actionlint pass; no remaining blocking review finding).
 - [x] Run full repository and release-specific verification (PR gate exit0,
   smoke268/sandbox104; exact final DMGs rechecked and mounted runtimes pass).
-- [ ] Publish and verify both testing downloads; record hosted versus local proof.
-- [ ] Update project state and hand off release links, without merging.
+- [x] Publish and verify both testing downloads; record hosted versus local proof.
+  `electron-local-testing-2026.10.01` is public; both unauthenticated downloads
+  match original sizes/hashes. These are locally built, not hosted-built DMGs.
+- [x] Update project state and hand off release links, without merging.
+
+Release: https://github.com/ajhochy/fps-camcontrol/releases/tag/electron-local-testing-2026.10.01
+Hosted PR validation: https://github.com/ajhochy/fps-camcontrol/actions/runs/36938086068
+Full hosted signing still awaits authorized GitHub secret setup. Clean-Mac and
+real-person/physical-rig acceptance remain unverified; publication does not close
+those gates or either draft PR.
 
 No TodoWrite/update_plan tool is exposed in this session; this durable checklist
 is the workflow tracking fallback.
