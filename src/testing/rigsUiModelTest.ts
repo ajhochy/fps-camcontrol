@@ -130,6 +130,12 @@ check('with no bridges answering the note says what to check', /No gimbal bridge
 check('a failed scan says so', /Could not look for gimbals: boom/.test(choice({ at: 1, gimbals: [], error: 'boom' }).note));
 gc = choice({ at: 1, gimbals: [{ host: 'dji-bridge.local', port: 7879, reachable: true, model: 'RS3', gimbalConnected: true, instance: 'rs3pro-a', gimbalAddress: '48:1C:B9:54:C6:BC', usedBy: [] }] });
 check('a gimbal from a current bridge is named by its instance, model and Bluetooth address', /^rs3pro-a \(RS3 · BT …C6:BC\) — port 7879/.test(gc.options[1].label));
+{
+  const d = JSON.parse(JSON.stringify(data));
+  d.rigs.find((r: any) => r.deviceKey === 'rs3').gimbal.host = '192.168.50.150';
+  const aliased = control(model.inspectorFor({ ...d, gimbalScan: { at: 1, gimbals: [{ host: 'dji-bridge.local', port: 7878, aliases: ['dji-bridge.local:7878', '192.168.50.150:7878'], reachable: true, model: 'RS3', gimbalConnected: true, usedBy: [] }] } }, 'rig:rs3'), 'gimbal.bridge');
+  check('a rig saved with another of the Pi\'s addresses shows as that gimbal, not as not found', aliased.value === 'dji-bridge.local:7878' && aliased.options.length === 1 && /saved as 192\.168\.50\.150/.test(aliased.note));
+}
 check('the old typed gimbal model is gone from the inspector', control(gimbal, 'gimbal.gimbalModel') === undefined);
 check('a V-BOT has IP, port and VISCA address controls with their limits', control(rig, 'visca.host').path === 'visca.host' && control(rig, 'visca.port').min === 1 && control(rig, 'visca.port').max === 65535 && control(rig, 'visca.address').max === 7 && control(rig, 'visca.address').integer === true && control(rig, 'gimbal.host') === undefined);
 check('a gimbal has bridge host, port and model controls and no VISCA controls', control(gimbal, 'gimbal.host').value === 'dji-bridge.local' && control(gimbal, 'gimbal.port').value === 7878 && control(gimbal, 'visca.host') === undefined);

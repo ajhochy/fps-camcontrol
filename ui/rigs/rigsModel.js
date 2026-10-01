@@ -257,6 +257,8 @@
     var current = rig.gimbal.host + ':' + rig.gimbal.port;
     var options = [], patches = {};
     var found = scan && scan.gimbals ? scan.gimbals : [];
+    // A rig saved with another of the Pi's addresses (Wi-Fi vs Ethernet) is on that same gimbal.
+    found.forEach(function (g) { if ((g.aliases || []).indexOf(current) >= 0) current = g.host + ':' + g.port; });
     function describe(g) {
       var model = g.model || (g.host + ':' + g.port === current ? rig.gimbal.reportedModel || rig.gimbal.gimbalModel : null);
       var known = (g.usedBy || []).filter(function (u) { return u.deviceKey !== rig.deviceKey; }).map(function (u) { return u.label; });
@@ -289,6 +291,7 @@
     else if (!found.some(function (g) { return g.reachable; })) note = 'No gimbal bridges answered. Check that the Pi is on and its bridges are running.';
     else if (!sawCurrent) note = 'This rig points at a bridge that did not answer. Choose a gimbal from the list.';
     else note = 'Choose which gimbal this rig drives';
+    if (current !== rig.gimbal.host + ':' + rig.gimbal.port && sawCurrent) note += ' (saved as ' + rig.gimbal.host + ', the same Pi on another network)';
     return ctl('gimbal.bridge', 'Gimbal', 'select', current, null, { options: options, patches: patches, note: note, rescan: true });
   }
 
