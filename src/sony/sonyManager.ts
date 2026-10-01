@@ -66,6 +66,8 @@ export interface SonyCameraStatus {
   message: string | null;
   /** Last battery reading (percent 0-100, null when the camera did not report one); null until first read. */
   battery?: SonyBattery | null;
+  /** Last overheating reading (the SDK's DeviceOverheatingState), read with the battery; kept after a drop. */
+  overheat?: { state: 'normal' | 'pre' | 'over' | null; at: string } | null;
 }
 
 export interface SonyBattery { percent: number | null; at: string; stale?: boolean }
@@ -451,6 +453,7 @@ export class SonyManager {
         missing: false,
         sdkGraceUntil,
         battery: previous?.battery ?? null,
+        overheat: previous?.overheat ?? null,
       });
       // Only remembered cameras get background work; unknown IDs wait for an explicit Connect. A camera that
       // just dropped is left to the SDK's own reconnect first (see SDK_RECONNECT_GRACE_MS).
@@ -578,6 +581,13 @@ export class SonyManager {
           const current = this.cameras.get(camera.id);
           if (current) current.battery = { percent: batteryPercent(body), at: this.now().toISOString() };
         } catch (_) { /* quiet: a busy lane or slow sidecar keeps the last reading */ }
+        // Overheating is one of the things that shuts a camera down: read it in the same slow pass.
+        try {
+          const body = await this.property(camera.id, 'overheating-state');
+          if (this.isStale(epoch)) return;
+          const current = this.cameras.get(camera.id);
+          if (current) current.overheat = { state: overheatState(body), at: this.now().toISOString() };
+        } catch (_) { /* quiet, as above */ }
       }
     } finally {
       this.batteryReading = false;
@@ -869,6 +879,18 @@ export class SonyManager {
     if (typeof name !== 'string' || !SAFE_PROPERTY.test(name)) throw new Error('Sony property name must be a safe identifier');
     return name;
   }
+}
+
+/** The sidecar formats DeviceOverheatingState as "Normal" / "Pre-Overheating" / "Overheating". */
+export function overheatState(body: unknown): 'normal' | 'pre' | 'over' | null {
+  const data: any = (body as any)?.data ?? body;
+  const formatted = String(data?.formatted ?? data?.current_formatted ?? '').toLowerCase();
+  if (formatted === 'normal') return 'normal';
+  if (formatted.startsWith('pre')) return 'pre';
+  if (formatted === 'overheating') return 'over';
+  const raw = data?.value ?? data?.current_value;
+  const n = typeof raw === 'number' ? raw : typeof raw === 'string' && /^0x[0-9a-f]+$/i.test(raw) ? parseInt(raw, 16) : NaN;
+  return n === 0 ? 'normal' : n === 1 ? 'pre' : n === 2 ? 'over' : null;
 }
 
 /**

@@ -21,6 +21,7 @@ import { ActivityLog } from '../app/activityLog';
 import { ViscaDevice } from '../devices/viscaDevice';
 import { MotionDevice } from '../devices/motionDevice';
 import { createMotionDevice } from '../devices/deviceFactory';
+import { HealthTracker, rigHealth, sonyHealth, HealthItem } from '../app/health';
 import { probeBridge, fetchBridgeInfo, mergeBridges, DEFAULT_BRIDGE_PORTS, tcpOpen, localSubnetHosts, inBatches, resolveHost, nameOf, BridgeProbe, FoundBridge } from '../devices/gimbalScan';
 import { AtemClient } from '../atem/atemClient';
 import { loadProfiles, detectConnectionType } from '../input/profileDetector';
@@ -176,6 +177,45 @@ export function createStatusServer(
   app.get('/api/status', (_req, res) => {
     res.json(state);
   });
+
+  // ---- health: one verdict per rig (motion) and per rig's Sony camera, every second, with a change log
+  const healthTracker = new HealthTracker(process.env.HEALTH_LOG_FILE ?? path.join(__dirname, '../../logs/health-events.jsonl'));
+  const updateHealth = (): void => {
+    try {
+      const sonyStatus = sonyManager ? sonyManager.getStatus() : null;
+      const serviceUp = !!sonyStatus && sonyStatus.sidecar.state === 'healthy';
+      const view = buildRigs(config, state, '', []);
+      const inventory = (config.devices ?? {}) as Record<string, { label?: string; sonyCameraId?: string }>;
+      const items: HealthItem[] = [];
+      const cameraKeys: Record<string, string> = {};
+      for (const cam of config.cameras) {
+        items.push({ key: `rig:${cam.id}`, label: cam.label, health: rigHealth(state, { id: cam.id, label: cam.label, protocol: cam.protocol }) });
+        const rig = view.rigs.find((r) => r.id === cam.id);
+        if (rig && rig.camera && sonyManager) {
+          const device = inventory[rig.camera];
+          const sonyId = device?.sonyCameraId?.toUpperCase();
+          const sonyCam = sonyId ? sonyStatus?.cameras.find((c) => c.id.toUpperCase() === sonyId) : undefined;
+          const key = `camera:${cam.id}`;
+          cameraKeys[cam.id] = key;
+          items.push({ key, label: `${cam.label} camera (${device?.label ?? rig.camera})`, health: sonyHealth(sonyCam as never, serviceUp, !!sonyId) });
+        }
+      }
+      for (const event of healthTracker.update(items)) {
+        if (event.to !== 'ready') logger.warn({ device: event.label, status: event.text, why: event.hint }, 'device health changed');
+        else logger.info({ device: event.label, status: event.text }, 'device health changed');
+      }
+      const snap = healthTracker.snapshot();
+      state.health = {
+        rigs: Object.fromEntries(config.cameras.map((cam) => [cam.id, snap[`rig:${cam.id}`]]).filter(([, v]) => v)),
+        cameras: Object.fromEntries(Object.entries(cameraKeys).map(([id, key]) => [id, snap[key]]).filter(([, v]) => v)),
+      };
+    } catch (err) {
+      logger.warn({ err: String(err) }, 'health update failed');
+    }
+  };
+  setInterval(updateHealth, 1000).unref();
+  updateHealth();
+  app.get('/api/health/events', (_req, res) => { res.json({ events: healthTracker.recent(50) }); });
 
   // The version of devices.yaml the page was looking at when it saved. Absent for older clients: no check.
   const expectedVersionOf = (body: unknown): string | undefined => {
@@ -1344,6 +1384,20 @@ function statusHtml(): string {
   .sony-widget--placeholder { opacity:.6; border-style:dashed; }
   .sony-placeholder__why { color:var(--text-2); font-size:13px; }
   .sony-placeholder__note { color:var(--text-3, var(--text-2)); font-size:12px; }
+  .cam-card__line--ok { color:var(--ok-text); } .cam-card__line--warn { color:var(--warn-text); } .cam-card__line--err { color:var(--err-text); }
+  .health-alerts { display:flex; flex-direction:column; gap:6px; margin:0 0 12px; }
+  .health-alert { border:1px solid var(--border); border-left-width:4px; border-radius:4px; padding:8px 10px; background:var(--surface-2, transparent); font-size:13px; }
+  .health-alert--warn { border-left-color:var(--warn-text); } .health-alert--err { border-left-color:var(--err-text); }
+  .health-alert strong { color:var(--text-1, inherit); }
+  .health-alert__since { color:var(--text-2); font-size:12px; margin-left:6px; }
+  .health-alert__hint { display:block; color:var(--text-2); font-size:12px; margin-top:2px; }
+  .health-log { margin-top:16px; font-size:13px; }
+  .health-log summary { cursor:pointer; color:var(--text-2); min-height:32px; }
+  .health-log ol { list-style:none; padding:0; margin:6px 0 0; max-height:260px; overflow:auto; }
+  .health-log__item { padding:4px 0; border-bottom:1px solid var(--border); }
+  .health-log__item time { color:var(--text-2); font-variant-numeric:tabular-nums; }
+  .health-log__item--warn strong { color:var(--warn-text); } .health-log__item--err strong { color:var(--err-text); } .health-log__item--ok strong { color:var(--ok-text); }
+  .health-log__hint { color:var(--text-2); }
   .cam-card__signal { display:inline-flex; align-items:center; gap:6px; font-size:11px; letter-spacing:.04em; text-transform:uppercase; color:var(--ok-text); margin-top:2px; }
   .cam-card__signal--weak { color:var(--warn-text); }
   .cam-card__signal--poor { color:var(--err-text, #f87171); }
@@ -1674,6 +1728,7 @@ function statusHtml(): string {
 <div class="panel tab-panel active" id="tab-status" role="tabpanel" aria-labelledby="tab-btn-status">
   <div class="panel-heading"><div><h2>Camera Network</h2><span class="panel-kicker">Signal roles and device health</span></div></div>
   <div id="status-content"><div class="loading-state">Reading production state…</div></div>
+  <details class="health-log" id="health-log"><summary>Health log</summary><ol id="health-log-list"><li>Loading…</li></ol></details>
   <section id="sony-cameras" aria-label="Connected Sony cameras"><div class="section-header">Sony Cameras</div><div id="sony-dashboard-status" aria-live="polite"></div><div class="sony-grid" id="sony-grid-root"></div></section>
 </div>
 
@@ -1888,10 +1943,20 @@ function renderStatus(s, c) {
   const speed = c.speeds && c.speeds.presets && c.speeds.presets[s.speedPreset]
     ? c.speeds.presets[s.speedPreset].name : 'Unknown';
 
+  // The server's health verdicts (app/health.ts) are the source of truth; cameraLinkState is the fallback for an
+  // older server. Each rig also shows the Sony camera on it, and anything not ready goes in the alert banner.
+  const healthOf = function(h) { return h ? { cls: h.level === 'ready' ? 'ok' : h.level === 'check' ? 'warn' : 'err', text: h.text, hint: h.hint || '', since: h.since } : null; };
+  const worse = function(a, b) { var rank = { ok: 0, warn: 1, err: 2 }; return !b || rank[a.cls] >= rank[b.cls] ? a : b; };
+  const alerts = [];
   let camGrid = '<div class="cam-grid">';
   for (var i = 0; i < cams.length; i++) {
     const cam = cams[i];
-    const link = cameraLinkState(s, cam.id);
+    const motion = healthOf(s.health && s.health.rigs && s.health.rigs[cam.id]) || cameraLinkState(s, cam.id);
+    const camera = healthOf(s.health && s.health.cameras && s.health.cameras[cam.id]);
+    const link = worse(motion, camera);
+    const camName = 'CAM ' + String(i + 1).padStart(2, '0') + ' ' + cam.label;
+    if (motion.cls !== 'ok') alerts.push({ cls: motion.cls, what: camName + (cam.protocol === 'dji-bridge' ? ' gimbal' : ' control'), text: motion.text, hint: motion.hint, since: motion.since });
+    if (camera && camera.cls !== 'ok') alerts.push({ cls: camera.cls, what: camName + ' camera', text: camera.text, hint: camera.hint, since: camera.since });
     const isProgram = s.programCamera === cam.id;
     const isPreview = s.previewCamera === cam.id;
     const isControlled = s.controlledCamera === cam.id;
@@ -1911,9 +1976,11 @@ function renderStatus(s, c) {
         '<div class="cam-card__meta"><span class="cam-card__index">CAM ' + String(i + 1).padStart(2, '0') + '</span>' +
         '<span class="cam-card__status" title="' + esc(link.text + (link.hint ? ' \u2014 ' + link.hint : '')) + '">' + verdictText(link.cls) + '</span></div>' +
         '<span class="cam-card__name">' + esc(cam.label) + '</span>' +
-        '<span class="cam-card__status">' + esc(link.text) + '</span>' +
-        (link.hint ? '<span class="cam-card__hint">' + esc(link.hint) + '</span>' : '') +
+        '<span class="cam-card__status cam-card__line--' + motion.cls + '">' + esc(motion.text) + '</span>' +
+        (motion.hint && motion.cls !== 'ok' ? '<span class="cam-card__hint">' + esc(motion.hint) + '</span>' : '') +
         signalBadge(s.cameraGimbalSignal && s.cameraGimbalSignal[cam.id]) +
+        (camera ? '<span class="cam-card__status cam-card__line--' + camera.cls + '" title="' + esc(camera.hint) + '">Camera: ' + esc(camera.text) + '</span>' +
+          (camera.hint && camera.cls !== 'ok' ? '<span class="cam-card__hint">' + esc(camera.hint) + '</span>' : '') : '') +
         '<div class="cam-card__roles">' + roles + '</div>' +
       '</div>';
   }
@@ -1928,8 +1995,27 @@ function renderStatus(s, c) {
     s.lastPresetNotification ? '<span class="mode-chip mode-chip--on">Preset: ' + esc(s.lastPresetNotification) + '</span>' : '',
   ].filter(Boolean).join('');
 
-  document.getElementById('status-content').innerHTML = camGrid + '<div class="mode-row">' + modes + '</div>';
+  const banner = alerts.length ? '<div class="health-alerts" role="alert">' + alerts.map(function(a) {
+    var since = a.since ? ' <span class="health-alert__since">since ' + esc(new Date(a.since).toLocaleTimeString()) + '</span>' : '';
+    return '<div class="health-alert health-alert--' + a.cls + '"><strong>' + esc(a.what) + ': ' + esc(a.text) + '</strong>' + since + (a.hint ? '<span class="health-alert__hint">' + esc(a.hint) + '</span>' : '') + '</div>';
+  }).join('') + '</div>' : '';
+  document.getElementById('status-content').innerHTML = banner + camGrid + '<div class="mode-row">' + modes + '</div>';
 }
+
+// ---- Health log: every change in a device's state, newest first (kept on the server across restarts) ----
+async function refreshHealthLog() {
+  var list = document.getElementById('health-log-list'); if (!list) return;
+  try {
+    var body = await fetch('/api/health/events', { cache: 'no-store' }).then(function(r) { if (!r.ok) throw new Error(); return r.json(); });
+    var events = body.events || [];
+    list.innerHTML = events.length ? events.map(function(e) {
+      var cls = e.to === 'ready' ? 'ok' : e.to === 'check' ? 'warn' : 'err';
+      var when = new Date(e.at);
+      return '<li class="health-log__item health-log__item--' + cls + '"><time>' + esc(when.toLocaleDateString() === new Date().toLocaleDateString() ? when.toLocaleTimeString() : when.toLocaleString()) + '</time> <strong>' + esc(e.label) + '</strong>: ' + esc(e.text) + (e.hint ? ' <span class="health-log__hint">' + esc(e.hint) + '</span>' : '') + '</li>';
+    }).join('') : '<li>No changes recorded yet.</li>';
+  } catch (_) { list.innerHTML = '<li>Health log unavailable.</li>'; }
+}
+setInterval(refreshHealthLog, 5000); refreshHealthLog();
 
 // ---- Sony dashboard (all browser traffic remains on /api/sony/*) ----
 var SONY_PROPERTIES = ['aperture','shutter-speed','iso','white-balance','focus-mode','focus-area'];

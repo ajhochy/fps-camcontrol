@@ -53,6 +53,7 @@ function sandboxEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
     CAMCONTROL_NO_CONTROLLER: '1',
     CAMCONTROL_GIMBAL_SWEEP: '0', // never sweep the real network: probing a live bridge makes it stop its gimbal
     VISCA_LOCAL_PORT: '0', // never take port 52381 from the live app (it would get the live V-BOT's replies)
+    HEALTH_LOG_FILE: path.join(runDir, 'health-events.jsonl'),
     LOG_LEVEL: process.env.LOG_LEVEL ?? 'info',
     ...extra,
   };
@@ -252,6 +253,19 @@ async function selfTest(): Promise<number> {
     check('VISCA cameras are reported as answering from their actual replies', Object.values(answering).every((v) => v === true) && Object.keys((await api('/api/status')).body.cameraLastReplyAt ?? {}).length >= 1);
     check('the sandbox does not take port 52381 from the live app', (await api('/api/status')).body.viscaRepliesHeard === false);
     check('tiles show a Ready / Check / Down verdict from the real state', pageHtml.includes('function verdictText') && pageHtml.includes("'Not Answering'") && !pageHtml.includes("(ok ? 'Online' : 'Offline')"));
+
+    // Health: every rig and its Sony camera gets a verdict; changes are logged with a time.
+    const health = (await api('/api/status')).body.health;
+    check('every rig has a health verdict, and rigs with a Sony camera have one for the camera too', !!health && Object.keys(health.rigs).length === 4 && Object.keys(health.cameras).length >= 1);
+    check('the Status page shows an alert banner and a health log', pageHtml.includes('health-alerts') && pageHtml.includes('id="health-log"') && pageHtml.includes("'/api/health/events'"));
+    const rigsForHealth = (await api('/api/rigs')).body;
+    const mountedOnVbot = rigsForHealth.sonyDevices.find((d: any) => d.key === rigsForHealth.rigs[0].camera);
+    if (mountedOnVbot?.sonyCameraId) {
+      await fetch(`http://127.0.0.1:${SONY_PORT}/__sandbox/cameras/${mountedOnVbot.sonyCameraId}/power`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: false }) });
+      const offEvent = await waitFor('a camera switched off to show in the health log', async () => ((await api('/api/health/events')).body.events ?? []).find((e: any) => e.key === 'camera:cam1' && e.to === 'down'), 60000);
+      check('a camera that switches off is logged with a time and why', !!offEvent && !!offEvent.at && /Off or Asleep|Disconnected|Refused/.test(offEvent.text));
+      await fetch(`http://127.0.0.1:${SONY_PORT}/__sandbox/cameras/${mountedOnVbot.sonyCameraId}/power`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: true }) });
+    }
 
     const atemBefore = (await api('/api/rigs')).body.atem;
     const atemEdit = await patch('/api/atem', { defaultTransition: 'auto', graphics: { fadeFrames: 25 } });

@@ -3,7 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { SonyStateStore, SonyCameraApproval } from '../sony/sonyStateStore';
-import { SonyManager, SonyManagerDependencies, SonyChildProcess } from '../sony/sonyManager';
+import { SonyManager, SonyManagerDependencies, SonyChildProcess, overheatState } from '../sony/sonyManager';
 
 /**
  * Deterministic lifecycle checks. Every timer, process, clock, and HTTP call is
@@ -741,6 +741,10 @@ async function main(): Promise<void> {
   checkEqual('c17: never more than one battery read in flight', batteryMaxInFlight, 1);
   await lap.manager.stop();
   checkEqual('c17: stop leaves no battery timer behind', lap.clock.pending(), 0);
+  checkEqual('c17: the overheating reading is understood (Normal / Pre-Overheating / Overheating)', [
+    overheatState({ data: { formatted: 'Normal' } }), overheatState({ data: { formatted: 'Pre-Overheating' } }),
+    overheatState({ data: { formatted: 'Overheating' } }), overheatState({ data: { value: '0x2' } }), overheatState({ data: { formatted: '' } }),
+  ], ['normal', 'pre', 'over', 'over', null]);
 
   const covered = [...criteria].sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
   assert.strictEqual(covered.length, 17, `every criterion needs a check; covered: ${covered.join(',')}`);

@@ -47,6 +47,8 @@ export interface AppState {
   cameraLastReplyAt: Record<string, number>;
   /** Whether VISCA replies sent to port 52381 can be heard (the app holds that port); null before it binds. */
   viscaRepliesHeard: boolean | null;
+  /** Per-rig health (motion side, and the Sony camera on it), recomputed every second; see app/health.ts. */
+  health: { rigs: Record<string, unknown>; cameras: Record<string, unknown> } | null;
   controllerConnected: boolean;
   activeControllerProfile: string | null;
   activeConnectionType: 'usb' | 'bluetooth' | null;
@@ -75,6 +77,7 @@ export const defaultState: AppState = {
   cameraAnswering: {},
   cameraLastReplyAt: {},
   viscaRepliesHeard: null,
+  health: null,
   controllerConnected: false,
   activeControllerProfile: null,
   activeConnectionType: null,
@@ -102,6 +105,7 @@ export function createInitialState(overrides: Partial<AppState> = {}): AppState 
     cameraAnswering: {},
     cameraLastReplyAt: {},
     viscaRepliesHeard: null,
+    health: null,
     ...overrides,
   };
 }
