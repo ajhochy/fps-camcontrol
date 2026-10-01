@@ -1,0 +1,13 @@
+/* Local extension of the existing operator dashboard; no visual redesign. */
+.tracking-controls { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin:8px 0; color:var(--text); }
+.tracking-controls [hidden] { display:none; }
+.tracking-controls button { min-height:44px; padding:8px 12px; }
+.tracking-controls button[aria-pressed="true"] { color:var(--text); border-color:var(--blue); background:var(--surface-3); }
+.tracking-controls button:focus-visible, .sony-preview:focus-visible { outline:2px solid var(--blue); outline-offset:3px; }
+.tracking-controls .tracking-state { flex-basis:100%; color:var(--text); min-height:1.5em; }
+.tracking-controls[data-state="tracking"] .tracking-state { color:var(--ok-text); }
+.tracking-controls[data-state="operator_override"] .tracking-state,
+.tracking-controls[data-state="stale"] .tracking-state,
+.tracking-controls[data-state="lost"] .tracking-state { color:var(--warn-text); }
+.tracking-controls .tracking-stop { color:var(--err-text); border-color:currentColor; }
+.tracking-box { position:absolute; pointer-events:none; border:2px solid #fff; outline:1px solid #000; box-sizing:border-box; }

@@ -9,6 +9,7 @@ const env = { ...process.env, CAMCONTROL_NO_CONTROLLER: '1' };
 // Never inherit an installed app's state/resource overrides into repository tests.
 for (const key of ['CAMCONTROL_HOME', 'CAMCONTROL_RESOURCES', 'CAMCONTROL_EMBEDDED', 'CAMCONTROL_SESSION',
   'DEVICES_CONFIG', 'MAPPINGS_FILE', 'SPEEDS_FILE', 'PRESETS_FILE', 'SONY_STATE_FILE', 'SONY_SERVER_EXECUTABLE']) delete env[key];
+for (const key of ['TRACKING_ENABLED', 'TRACKING_SIDECAR_URL', 'TRACKING_ALLOW_REMOTE', 'TRACKER_WS_TOKEN', 'TRACKER_FRAME_TOKEN', 'CAMCONTROL_TRACKING_AVAILABLE']) delete env[key];
 function run(command, args) {
   console.log(`\n$ ${command} ${args.join(' ')}`);
   const result = spawnSync(command, args, { cwd: root, env, stdio: 'inherit' });
@@ -26,7 +27,9 @@ if (level !== 'smoke') {
       : /\.(?:spec|test)\.(?:ts|cjs|js)$/.test(entry.name) ? [path.join(directory, entry.name)] : []) : [];
   const focused = files(path.join(root, 'tests')).sort();
   if (focused.length) run(process.execPath, ['--test', '--test-concurrency=1', '-r', 'ts-node/register/transpile-only', ...focused]);
+  run(process.execPath, ['--test', 'scripts/test-electron-release.cjs']);
   run('python3', ['-m', 'unittest', 'discover', '-s', 'pi-bridge/tests', '-v']);
+  run(process.execPath, ['scripts/check-tracking.cjs']);
 }
 run(process.execPath, ['dist/testing/sandbox/sandbox.js', '--smoke']);
 if (level !== 'issue') run(process.execPath, ['dist/testing/sandbox/sandbox.js', '--selftest']);

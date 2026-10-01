@@ -1,0 +1,227 @@
+{
+  "testedAt": "2026-10-01T20:42:03.563Z",
+  "status": "FAIL",
+  "dmg": {
+    "path": "/Users/ajhochhalter/.local/share/opencode/worktree/ec2e0fe3fdd54c2e9ab53bfa4cc75c91e40568ed/fps-electron-two-pr-plan/release/tracking-delivery-3711a9e/2026-10-01-final/FPS CamControl Tracking-0.1.0-arm64-notarized.dmg",
+    "bytes": 288543586,
+    "sha256": "5c021b66d2433df630677c4cab95fc3019e5617e134afc5dd094f967e4c81652"
+  },
+  "criteria": {
+    "defaultDisabledNoHelper": "PASS",
+    "packagedNetworkDeniedModelAndProtocol": "PASS",
+    "packagedClickToTrack": "PASS",
+    "configuredLiveFrameIdleSafe": "PASS",
+    "helperCrashNoReplay": "PASS",
+    "backendCrashStopsHelperPausedRecovery": "PASS",
+    "sleepStopsHelperWakeInert": "PASS",
+    "parentCrashNoOrphans": "PASS",
+    "normalQuitStopsOwnedHelper": "PASS"
+  },
+  "screenshots": [
+    {
+      "path": "/Users/ajhochhalter/.local/share/opencode/worktree/ec2e0fe3fdd54c2e9ab53bfa4cc75c91e40568ed/fps-electron-two-pr-plan/docs/ai/runs/electron-tracking-evidence/runtime-2026-10-01T20-42-03-562Z/mounted-tracking-dashboard.png",
+      "sha256": "01d20d9c9896bfaeafcfaa42712a11016a39a8dcd22bf5414140cc66c1d0df5a"
+    }
+  ],
+  "appErrors": [],
+  "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+    "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+  ],
+  "networkErrors": [],
+  "boundary": "Exact mounted DMG on developer host, fresh HOME/minimal PATH, real packaged live helper and generated image loopback fixtures. Not clean OS/TCC, camera accuracy, physical hardware or soak acceptance.",
+  "appAsarSha256": "12d6fbb8c529c39a1ddf7c8f87f85c45fb3bd01b5c82e5990ebcb444d47fe6b9",
+  "startupMs": 6228,
+  "runtime": {
+    "versions": {
+      "node": "24.21.0",
+      "acorn": "8.18.0",
+      "ada": "4.0.0",
+      "amaro": "1.1.11",
+      "ares": "1.34.8",
+      "brotli": "1.2.0",
+      "cldr": "48.0",
+      "icu": "78.2",
+      "llhttp": "9.4.3",
+      "merve": "1.2.2",
+      "modules": "149",
+      "napi": "10",
+      "nbytes": "0.1.4",
+      "ncrypto": "0.0.1",
+      "nghttp2": "1.70.0",
+      "nghttp3": "",
+      "ngtcp2": "",
+      "openssl": "0.0.0",
+      "simdjson": "4.6.7",
+      "simdutf": "7.7.0",
+      "sqlite": "3.53.4",
+      "tz": "2025c",
+      "undici": "7.29.1",
+      "unicode": "17.0",
+      "uv": "1.52.1",
+      "uvwasi": "0.0.23",
+      "v8": "15.2.124.28-electron.0",
+      "zlib": "1.3.2.1-motley",
+      "zstd": "1.6.0",
+      "electron": "44.5.1",
+      "chrome": "152.0.7977.130"
+    },
+    "separateUserData": true,
+    "sandbox": true,
+    "contextIsolation": true,
+    "nodeIntegration": false
+  },
+  "packagedPython": {
+    "testedAt": "2026-10-01T20:42:16.754Z",
+    "scope": "packaged-runtime",
+    "app": "/var/folders/f0/kwf9lqtx57qgt3j4rbtvg1ym0000gn/T/fps tracking mounted runtime pejBzZ/Mounted DMG/FPS CamControl Tracking.app",
+    "model": {
+      "path": "/var/folders/f0/kwf9lqtx57qgt3j4rbtvg1ym0000gn/T/fps tracking mounted runtime pejBzZ/Mounted DMG/FPS CamControl Tracking.app/Contents/Resources/models/object_detection_yolox_2022nov.onnx",
+      "bytes": 35858002,
+      "sha256": "c5c2d13e59ae883e6af3b45daea64af4833a4951c92d116ec270d9ddbe998063"
+    },
+    "hostArchitecture": "arm64",
+    "cleanOS": "NOT_TESTED",
+    "physicalHID": "NOT_TESTED",
+    "inference": {
+      "modelSha256": "c5c2d13e59ae883e6af3b45daea64af4833a4951c92d116ec270d9ddbe998063",
+      "provider": "CoreMLExecutionProvider",
+      "inferenceCount": 2,
+      "shape": [
+        1,
+        8400,
+        85
+      ],
+      "finite": true,
+      "inputDependent": true,
+      "detectP50Ms": 15.943500213325024,
+      "detectP95Ms": 19.116000272333622,
+      "fps": 57.045878358082,
+      "frameAgeMs": 19.116000272333622,
+      "personCounts": [
+        0,
+        0
+      ],
+      "fixture": "generated RGB only; not accuracy proof",
+      "timingScope": "inference only; not source transport or camera exposure latency"
+    },
+    "networkDeniedInference": "PASS",
+    "helper": {
+      "handshake": "PASS",
+      "selectTrackingCancelIdle": "PASS",
+      "heartbeat": "PASS",
+      "ownedStopAwaited": "PASS",
+      "shutdownMs": 14
+    },
+    "liveFrame": {
+      "scope": "actual packaged live Python and model",
+      "anonymousWebSocketStatus": 401,
+      "anonymousFrameStatus": 403,
+      "deniedFrames": 1,
+      "frames": [
+        {
+          "capturedAt": 1790887343108,
+          "bytes": 6860,
+          "jpegAccepted": true
+        }
+      ],
+      "invalidMessages": 0,
+      "hello": {
+        "protocol": 1,
+        "type": "hello",
+        "version": "1.0.0",
+        "capabilities": [
+          "person"
+        ],
+        "detector": "yolox-s-opencv-zoo-2022nov",
+        "provider": "CoreMLExecutionProvider",
+        "degradedTiming": true
+      },
+      "metrics": [
+        {
+          "protocol": 1,
+          "type": "status",
+          "sourceId": "fixture",
+          "fps": 1,
+          "dropped": 0,
+          "busy": 0,
+          "detectP50Ms": 19.771500024944544,
+          "detectP95Ms": 19.771500024944544,
+          "frameAgeMs": 52,
+          "degradedTiming": false
+        }
+      ],
+      "tracks": [
+        {
+          "protocol": 1,
+          "type": "track",
+          "sourceId": "fixture",
+          "sessionId": "8af62ce9-c837-45d6-a04b-1b173d38e2af",
+          "seq": 0,
+          "state": "locking",
+          "cx": 0,
+          "cy": 0,
+          "w": 0,
+          "h": 0,
+          "conf": 0,
+          "frameTs": 0,
+          "processedAt": 1790887342968
+        },
+        {
+          "protocol": 1,
+          "type": "track",
+          "sourceId": "fixture",
+          "sessionId": "8af62ce9-c837-45d6-a04b-1b173d38e2af",
+          "seq": 1,
+          "state": "idle",
+          "cx": 0,
+          "cy": 0,
+          "w": 0,
+          "h": 0,
+          "conf": 0,
+          "frameTs": 0,
+          "processedAt": 1790887343160
+        }
+      ],
+      "errors": [
+        {
+          "code": "no_target",
+          "sourceId": "fixture",
+          "sessionId": "8af62ce9-c837-45d6-a04b-1b173d38e2af"
+        }
+      ],
+      "imageRetention": "generated geometric JPEG only, memory-only; no identifiable footage or persisted frame"
+    },
+    "motionIntegration": {
+      "scope": "actual packaged Python + packaged TS control + virtual gimbal",
+      "motion": "PASS",
+      "manualOverrideResume": "PASS",
+      "helperCrashStopNoReplay": "PASS",
+      "manualStop": {
+        "explicitStopReceived": true,
+        "stopMs": 0.8165409999992335,
+        "watchdogMs": 250,
+        "handledStopCommands": 1,
+        "watchdogFired": false
+      },
+      "crashStop": {
+        "explicitStopReceived": true,
+        "stopMs": 5.218417000000045,
+        "watchdogMs": 250,
+        "handledStopCommands": 1,
+        "watchdogFired": false
+      },
+      "physicalHardware": "NOT_TESTED"
+    }
+  },
+  "syntheticFrameRequests": 6,
+  "injectedFaultObservations": {
+    "appErrors": [],
+    "consoleErrors": [
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ],
+    "networkErrors": []
+  },
+  "failure": "No console errors after recovery and relaunch\n+ actual - expected\n\n+ [\n+   'Failed to load resource: the server responded with a status of 503 (Service Unavailable)',\n+   'Failed to load resource: the server responded with a status of 503 (Service Unavailable)'\n+ ]\n- []\n"
+}

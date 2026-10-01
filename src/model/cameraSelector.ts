@@ -3,6 +3,7 @@ import { CameraConfig } from '../config/configLoader';
 import { AtemClient } from '../atem/atemClient';
 import { MotionDevice } from '../devices/motionDevice';
 import { logger } from '../index';
+import { trackingFor } from '../app/trackingHooks';
 
 const FLICK_THRESHOLD = 0.75;
 const FLICK_NEUTRAL = 0.25;
@@ -48,7 +49,17 @@ export class CameraSelector {
 
     // Stop old camera
     const oldDevice = this.devices.get(this.state.controlledCamera);
-    if (oldDevice) oldDevice.stop();
+    if (oldDevice) {
+      const tracking = trackingFor(this.state);
+      const autonomous = tracking && Object.values(tracking.manager.getStatus()).some(source =>
+        source.cameraId === this.state.controlledCamera && source.sessionId && source.state !== 'operator_override');
+      // Selecting a different manual camera does not revoke the other rig's
+      // autonomous session. Manual outgoing motion retains its normal stop.
+      if (!autonomous) {
+        tracking?.manager.operatorOverride(this.state.controlledCamera);
+        if (tracking) tracking.ledger.stop(oldDevice); else oldDevice.stop();
+      }
+    }
 
     const cam = this.cameras[clamped];
     this.state.cameraIndex = clamped;

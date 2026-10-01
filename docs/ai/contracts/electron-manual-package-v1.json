@@ -11,7 +11,7 @@
       "test": "scripts/test-electron-manual-package.cjs",
       "status": "passing",
       "reason": "Full ARM64 app and DMG pass actual identity, minimum macOS13 and local-network purpose metadata assertions.",
-      "automated_status": "passing_current_candidate"
+      "automated_status": "passing_final_notarized_artifact"
     },
     {
       "criterion_id": "c2",
@@ -20,7 +20,7 @@
       "test": "scripts/test-electron-manual-package.cjs",
       "status": "UNVERIFIED",
       "reason": "Actual mounted app loads backend/UI/docs/controller definitions and native HID with minimal PATH and fresh HOME. Genuine clean-OS installation remains human pending.",
-      "automated_status": "passing_current_candidate"
+      "automated_status": "passing_final_notarized_artifact"
     },
     {
       "criterion_id": "c3",
@@ -29,7 +29,7 @@
       "test": "scripts/test-electron-manual-package.cjs",
       "status": "passing",
       "reason": "Actual resource/ASAR exclusion scan passes; full dashboard verified, not a native-only probe.",
-      "automated_status": "passing_current_candidate"
+      "automated_status": "passing_final_notarized_artifact"
     },
     {
       "criterion_id": "c4",
@@ -38,7 +38,7 @@
       "test": "scripts/test-electron-manual-runtime.cjs",
       "status": "UNVERIFIED",
       "reason": "Actual second executable exits without replacing backend; kernel shell/backend/Sony leases tested across processes. Physical production HID remains human pending.",
-      "automated_status": "passing_current_candidate"
+      "automated_status": "passing_final_notarized_artifact"
     },
     {
       "criterion_id": "c5",
@@ -47,7 +47,7 @@
       "test": "scripts/test-electron-manual-runtime.cjs",
       "status": "passing",
       "reason": "Actual mounted app reaches offline dashboard via authenticated ephemeral loopback readiness in under10s; crash/failure status tested.",
-      "automated_status": "passing_current_candidate"
+      "automated_status": "passing_final_notarized_artifact"
     },
     {
       "criterion_id": "c6",
@@ -56,7 +56,7 @@
       "test": "scripts/test-electron-manual-runtime.cjs",
       "status": "passing",
       "reason": "Actual renderer sandbox/contextIsolation/noNode, popup/navigation, HttpOnly session, cross-origin denial and setup-only IPC assertions pass; independent HTTP/WS tests included.",
-      "automated_status": "passing_current_candidate"
+      "automated_status": "passing_final_notarized_artifact"
     },
     {
       "criterion_id": "c7",
@@ -65,7 +65,7 @@
       "test": "scripts/test-electron-manual-runtime.cjs",
       "status": "passing",
       "reason": "Fresh temporary HOME verified; generic configuration/API save/relaunch/import persistence pass. Source routes mutable state to app home and resources separately.",
-      "automated_status": "passing_current_candidate"
+      "automated_status": "passing_final_notarized_artifact"
     },
     {
       "criterion_id": "c8",
@@ -74,7 +74,7 @@
       "test": "scripts/test-electron-manual-runtime.cjs",
       "status": "passing",
       "reason": "Actual setup/import tests cover cancellation, whole-document rejection, explicit consent, backups, sanitized Sony executable/approvals and next consumer; native chooser responses injected.",
-      "automated_status": "passing_current_candidate"
+      "automated_status": "passing_final_notarized_artifact"
     },
     {
       "criterion_id": "c9",
@@ -83,7 +83,7 @@
       "test": "scripts/test-electron-manual-runtime.cjs",
       "status": "UNVERIFIED",
       "reason": "Actual normal quit, hung utility force-kill and exit wait, child/main SIGKILL, bounded paused recovery, managed Sony loopback guardian cleanup and external fixture survival pass. Power events simulated; physical no-motion/deadman/real sleep remain human pending.",
-      "automated_status": "passing_current_candidate"
+      "automated_status": "passing_final_notarized_artifact"
     },
     {
       "criterion_id": "c10",
@@ -92,44 +92,42 @@
       "test": "scripts/test-electron-manual-runtime.cjs",
       "status": "passing",
       "reason": "Actual mounted app with random cwd spaces/tempHOME/minimalPATH reaches dashboard/assets/API and persistence; screenshots/keyboard/no normal console or network errors recorded. Core app is real; optional ownership tests deliberately use disposable Sony sidecar fixtures.",
-      "automated_status": "passing_current_candidate"
+      "automated_status": "passing_final_notarized_artifact"
     },
     {
       "criterion_id": "c11",
       "text": "Build268 baseline/isolated smoke104/sandbox/pageJS/diff retest serial FPS sandbox isolated ports and CAMCONTROL_NO_CONTROLLER=1, no live hardware/config",
       "mode": "manual",
       "test": "scripts/checks.cjs",
-      "status": "UNVERIFIED",
-      "reason": "Prior full serial gate passed build, all focused/custom suites, smoke268 and sandbox104; final independent rerun is required after final lifecycle edits.",
-      "automated_status": "final_run_pending"
+      "status": "passing",
+      "reason": "Independent root serial gate exit0: build/page-JS,49 focused tests, rig/profile/Sony/Pi, smoke268 and sandbox104; signing12 pass.",
+      "automated_status": "passing_final_notarized_artifact"
     },
     {
       "criterion_id": "c12",
       "text": "Inside-out Developer ID signing team56Q69NYP9H timestamp/strict verify/final notary Accepted/staple/rebuild ZIP; no release publication or credential logging",
       "mode": "manual",
       "test": "scripts/sign-electron-manual.cjs",
-      "status": "UNVERIFIED",
-      "reason": "Inside-out Developer ID strict verification passes17 ARM64 Mach-O files. Apple credentials authenticated after user agreement acceptance; final app/DMG Accepted/staple/Gatekeeper evidence pending.",
-      "automated_status": "final_run_pending"
+      "status": "passing",
+      "reason": "Final committed-source app bc481bd1-4a19-4400-a9d1-6c83e0a74d63 and DMG 4dc7579f-483f-4d66-a50f-c09345dde698 Apple Accepted, matching logs issues:null, app/DMG staple/validate, strict signatures and Gatekeeper PASS.",
+      "automated_status": "passing_final_notarized_artifact"
     },
     {
       "criterion_id": "c13",
       "text": "Independent gate before final claim; artifact absolute path/hash/bytes/versions/commands/per criterion pending; preserve baseline/probe/controller drafts",
       "mode": "manual",
       "test": "scripts/test-electron-manual-runtime.cjs",
-      "status": "UNVERIFIED",
-      "reason": "Original probe/controller evidence preserved. Final committed-source receipt, independent gate and exact notarized-DMG runtime still required.",
-      "automated_status": "final_run_pending"
+      "status": "passing",
+      "reason": "Frozen foundation133ae8d independently gated; exact final172838600-byte DMG SHA da02312a0e65e9bfd440090cf6f7cbc0b29764a5f71685182922806855c98f11 runtime PASS; draftPR57. CleanOS/hardware remain explicit human gates.",
+      "automated_status": "passing_final_notarized_artifact"
     }
   ],
   "not_tested": [
     "c4 physical HID",
     "c9 real motion/deadman/suspend",
-    "clean macOS/TCC",
-    "c12 final Apple acceptance/staples",
-    "c13 final immutable-source independent gate"
+    "clean macOS/TCC"
   ],
   "latest_prior_runtime": "docs/ai/runs/electron-manual-evidence/runtime-2026-10-01T19-35-46-006Z/runtime.json",
-  "final_candidate_status": "Corrected candidate actual mounted runtime PASS; source frozen for final independent gate/commit, followed by committed-source rebuild and final Apple notarization.",
-  "latest_runtime": "docs/ai/runs/electron-manual-evidence/runtime-2026-10-01T19-44-46-301Z/runtime.json"
+  "final_candidate_status": "Final source-committed signed/notarized/stapled DMG runtime PASS. DraftPR57. Only physical/cleanOS gates remain pending.",
+  "latest_runtime": "docs/ai/runs/electron-manual-evidence/runtime-2026-10-01T20-00-00-684Z/runtime.json"
 }

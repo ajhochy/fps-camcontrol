@@ -76,6 +76,7 @@ const config: AppConfig = {
     speedDown: 'dpadDown',
     lowerThirds: 'dpadLeft',
     emergencyStop: 'back',
+    trackingToggle: 'RS',
   },
 };
 
