@@ -240,7 +240,7 @@ async function selfTest(): Promise<number> {
       bridge.link = { drops10m: 2, framesLastMin: 80, corruptLastMin: 2, linkedForS: 30 };
       const sig = await waitFor('the weak signal to show', async () => { const v = (await api('/api/status')).body.cameraGimbalSignal?.[gimbalRig.id]; return v?.rating === 'weak' && v; });
       check('a weak Bluetooth link is reported to the operator, not left to fail silently', sig.rating === 'weak' && /2 Bluetooth drops/.test(sig.summary) && (await api('/api/rigs')).body.rigs.find((r: any) => r.id === gimbalRig.id)?.live?.signal?.rating === 'weak');
-      check('the camera tiles say Weak Signal / Poor Signal / Signal Lost', pageHtml.includes("'Weak Signal'") && pageHtml.includes("'Poor Signal'") && pageHtml.includes("'Signal Lost'"));
+      check('the camera tiles say Weak Signal / Poor Signal / Signal Lost, and always show signal bars on gimbal tiles', pageHtml.includes("'Weak Signal'") && pageHtml.includes("'Poor Signal'") && pageHtml.includes("'Signal Lost'") && pageHtml.includes('function signalBadge') && pageHtml.includes('BT signal: '));
       bridge.link = { drops10m: 0, framesLastMin: 80, corruptLastMin: 0, linkedForS: 300 };
       check('the Status page draws roll buttons next to the preview', pageHtml.includes('function sonyRollHtml') && pageHtml.includes('Level horizon') && pageHtml.includes("'/roll'"));
     }

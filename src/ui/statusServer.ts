@@ -1343,6 +1343,13 @@ function statusHtml(): string {
   .sony-widget--placeholder { opacity:.6; border-style:dashed; }
   .sony-placeholder__why { color:var(--text-2); font-size:13px; }
   .sony-placeholder__note { color:var(--text-3, var(--text-2)); font-size:12px; }
+  .cam-card__signal { display:inline-flex; align-items:center; gap:6px; font-size:11px; letter-spacing:.04em; text-transform:uppercase; color:var(--ok-text); margin-top:2px; }
+  .cam-card__signal--weak { color:var(--warn-text); }
+  .cam-card__signal--poor { color:var(--err-text, #f87171); }
+  .sig-bars { display:inline-flex; align-items:flex-end; gap:2px; height:10px; }
+  .sig-bar { display:block; width:3px; background:currentColor; opacity:.25; }
+  .sig-bar--1 { height:4px; } .sig-bar--2 { height:7px; } .sig-bar--3 { height:10px; }
+  .sig-bar--on { opacity:1; }
   .sony-roll { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:6px 0 2px; }
   .sony-roll:empty { display:none; }
   .sony-roll .btn-sm { min-height:36px; }
@@ -1804,6 +1811,16 @@ function healthItem(label, value, ok) {
   '</div>';
 }
 
+// Always-on Bluetooth signal bars for a gimbal tile (3 = good, 2 = weak, 1 = poor). Nothing for VISCA cameras or
+// a gimbal whose bridge reports no link figures (an older bridge, or no gimbal linked).
+function signalBadge(sig) {
+  if (!sig) return '';
+  var level = sig.rating === 'good' ? 3 : sig.rating === 'weak' ? 2 : 1;
+  var bars = [1, 2, 3].map(function(n) { return '<i class="sig-bar sig-bar--' + n + (n <= level ? ' sig-bar--on' : '') + '"></i>'; }).join('');
+  var word = sig.rating === 'good' ? 'Good' : sig.rating === 'weak' ? 'Weak' : 'Poor';
+  return '<span class="cam-card__signal cam-card__signal--' + esc(sig.rating) + '" title="' + esc(sig.summary) + '"><span class="sig-bars" aria-hidden="true">' + bars + '</span>BT signal: ' + word + '</span>';
+}
+
 // Turn the three camera-keyed maps in /api/status into one label per camera.
 // A camera reached through a Pi bridge has two things that can be broken and
 // they need different remedies, so "Disconnected" alone is not good enough:
@@ -1878,6 +1895,7 @@ function renderStatus(s, c) {
         '<span class="cam-card__name">' + esc(cam.label) + '</span>' +
         '<span class="cam-card__status">' + esc(link.text) + '</span>' +
         (link.hint ? '<span class="cam-card__hint">' + esc(link.hint) + '</span>' : '') +
+        signalBadge(s.cameraGimbalSignal && s.cameraGimbalSignal[cam.id]) +
         '<div class="cam-card__roles">' + roles + '</div>' +
       '</div>';
   }
