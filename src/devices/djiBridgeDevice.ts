@@ -224,15 +224,25 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
   }
 
   private openSocket(): void {
+    if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
     if (this.ws) {
-      try { this.ws.close(); } catch { /* ignore */ }
+      const old = this.ws;
+      this.ws = null;
+      try { old.close(); } catch { /* ignore */ }
+      this.markDisconnected(); // the link is down until the new socket's hello, said once here
     }
     const url = `ws://${this.bridge.host}:${this.bridge.port}`;
     logger.info({ id: this.id, url }, 'DJI bridge connecting');
     const ws = new WebSocket(url);
     this.ws = ws;
 
+    // Events from a socket this device has already replaced must not touch the current one: a replaced socket's
+    // `close` used to mark the new connection down and schedule another reconnect, which closed the new one in
+    // turn, so one overlapping reconnect became a reconnect every second for good (seen live, 2026-10-01).
+    const current = (): boolean => this.ws === ws;
+
     ws.on('open', () => {
+      if (!current()) { try { ws.close(); } catch { /* ignore */ } return; }
       this.backoffIndex = 0;
       this.lastPongAt = Date.now();
       // Capability handshake first, then mark connected.
@@ -265,14 +275,17 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
         });
     });
 
-    ws.on('message', (data) => this.handleFrame(data.toString()));
+    ws.on('message', (data) => { if (current()) this.handleFrame(data.toString()); });
 
     ws.on('close', () => {
+      if (!current()) return;
+      this.ws = null;
       this.markDisconnected();
       if (!this.closing) this.scheduleReconnect();
     });
 
     ws.on('error', (err) => {
+      if (!current()) return;
       logger.warn({ id: this.id, err: String(err) }, 'DJI bridge socket error');
     });
   }
