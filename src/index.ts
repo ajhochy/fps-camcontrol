@@ -151,7 +151,7 @@ async function main() {
   // Step 10: Status UI
   const app = createStatusServer(state, config, presetManager, activityLog, atem, devices, sonyManager);
   const port = parseInt(process.env.STATUS_PORT ?? '8080', 10);
-  startStatusServer(app, activityLog, port);
+  startStatusServer(app, activityLog, port, config.serverHost ?? '127.0.0.1');
 
   logger.info({ controlledCamera: state.controlledCamera }, 'FPS CamControl running');
 

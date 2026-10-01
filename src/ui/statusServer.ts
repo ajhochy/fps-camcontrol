@@ -134,6 +134,8 @@ export function createStatusServer(
   app.get('/api/sony/cameras', (_req, res) => { const manager = sony(res); if (manager) res.json({ cameras: cameraList(manager) }); });
   app.post('/api/sony/cameras/discover', async (_req, res) => { const manager = sony(res); if (!manager) return; try { await manager.discover(); res.json({ cameras: cameraList(manager) }); } catch (error) { sonyError(res, error); } });
   app.post('/api/sony/service/retry', (_req, res) => { const manager = sony(res); if (!manager) return; manager.retryService(); res.json({ ok: true }); });
+  app.post('/api/sony/service/stop', async (_req, res) => { const manager = sony(res); if (!manager) return; await manager.stopService(); res.json({ ok: true }); });
+  app.post('/api/sony/service/start', async (_req, res) => { const manager = sony(res); if (!manager) return; await manager.startService(); res.json({ ok: true }); });
   app.post('/api/sony/cameras/:id/connect', async (req, res) => { const manager = sony(res); const id = sonyId(req, res); if (!manager || !id) return; try { await manager.connect(id, false); res.json(cameraList(manager).find(camera => camera.id === id) ?? { id, connected: true }); } catch (error) { sonyError(res, error); } });
   app.post('/api/sony/cameras/:id/retry', async (req, res) => { const manager = sony(res); const id = sonyId(req, res); if (!manager || !id) return; try { await manager.retryCamera(id); res.json({ ok: true }); } catch (error) { sonyError(res, error); } });
   app.delete('/api/sony/cameras/:id/approval', async (req, res) => { const manager = sony(res); const id = sonyId(req, res); if (!manager || !id) return; try { await manager.forget(id); res.json({ ok: true }); } catch (error) { sonyError(res, error); } });
@@ -184,6 +186,7 @@ export function createStatusServer(
     try {
       const sonyStatus = sonyManager ? sonyManager.getStatus() : null;
       const serviceUp = !!sonyStatus && sonyStatus.sidecar.state === 'healthy';
+      const serviceStopped = !!sonyStatus && sonyStatus.sidecar.state === 'stopped';
       const view = buildRigs(config, state, '', []);
       const inventory = (config.devices ?? {}) as Record<string, { label?: string; sonyCameraId?: string }>;
       const items: HealthItem[] = [];
@@ -197,7 +200,7 @@ export function createStatusServer(
           const sonyCam = sonyId ? sonyStatus?.cameras.find((c) => c.id.toUpperCase() === sonyId) : undefined;
           const key = `camera:${cam.id}`;
           cameraKeys[cam.id] = key;
-          items.push({ key, label: `${cam.label} camera (${device?.label ?? rig.camera})`, health: sonyHealth(sonyCam as never, serviceUp, !!sonyId) });
+          items.push({ key, label: `${cam.label} camera (${device?.label ?? rig.camera})`, health: serviceStopped ? { level: 'check', text: 'Sony Service Stopped', hint: 'Stopped from the app: Device Config ▸ Sony connections ▸ Start Sony service' } : sonyHealth(sonyCam as never, serviceUp, !!sonyId) });
         }
       }
       for (const event of healthTracker.update(items)) {
@@ -856,7 +859,8 @@ export function createStatusServer(
 export function startStatusServer(
   app: express.Express,
   activityLog: ActivityLog,
-  port = 8080
+  port = 8080,
+  host = '127.0.0.1',
 ): http.Server {
   const server = http.createServer(app);
   // Use noServer mode and route upgrades by path manually. Attaching two
@@ -923,8 +927,10 @@ export function startStatusServer(
     }
   });
 
-  server.listen(port, '127.0.0.1', () => {
-    logger.info({ port }, 'status UI running');
+  // 127.0.0.1 keeps the UI on this Mac; config `server.host: 0.0.0.0` (or STATUS_HOST) opens it to the network.
+  // The Sony service stays loopback-only either way: the UI reaches it through this server.
+  server.listen(port, host, () => {
+    logger.info({ port, host }, host === '127.0.0.1' ? 'status UI running (this Mac only)' : 'status UI running (open to the network)');
   });
 
   return server;

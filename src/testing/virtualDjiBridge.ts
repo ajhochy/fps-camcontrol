@@ -74,6 +74,8 @@ export class VirtualDjiBridge {
   log: string[] = [];
   /** Linked and reporting its pose, but ignoring every move (asleep, motors off). */
   asleep = false;
+  /** Send the gimbal's sleep report (asleep: this.asleep) with each status, like a bridge >= 0.4.0. */
+  reportSleep = false;
   /** Bluetooth link figures sent with every status (like a bridge >= 0.3.0); null sends none. */
   link: { drops10m: number; framesLastMin: number; corruptLastMin: number; linkedForS: number | null } | null = { drops10m: 0, framesLastMin: 60, corruptLastMin: 0, linkedForS: 100 };
   /** GET /info requests answered (they open no session). */
@@ -149,6 +151,7 @@ export class VirtualDjiBridge {
         gimbalConnected: this.gimbalConnected,
         sdkConnected: this.gimbalConnected,
         ...(this.link ? { link: this.link } : {}),
+        ...(this.reportSleep ? { asleep: this.asleep } : {}),
         mode: 'follow',
       };
       if (this.gimbalConnected) {

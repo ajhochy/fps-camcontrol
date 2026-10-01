@@ -41,6 +41,8 @@ export interface AppState {
   cameraGimbalResponding: Record<string, boolean>;
   /** How a gimbal's Bluetooth link to its bridge is holding up (bridges >= 0.3.0); absent when not measured. */
   cameraGimbalSignal: Record<string, GimbalSignal>;
+  /** A gimbal's own sleep report (bridges >= 0.4.0): true asleep, false awake; absent when not reported. */
+  cameraGimbalAsleep: Record<string, boolean>;
   /** VISCA cameras: did the last health check get a reply (true), get none (false); absent until checked. */
   cameraAnswering: Record<string, boolean>;
   /** VISCA cameras: when the camera last sent any reply (ms since epoch). */
@@ -74,6 +76,7 @@ export const defaultState: AppState = {
   cameraGimbalModel: {},
   cameraGimbalResponding: {},
   cameraGimbalSignal: {},
+  cameraGimbalAsleep: {},
   cameraAnswering: {},
   cameraLastReplyAt: {},
   viscaRepliesHeard: null,
@@ -102,6 +105,7 @@ export function createInitialState(overrides: Partial<AppState> = {}): AppState 
     cameraGimbalModel: {},
     cameraGimbalResponding: {},
     cameraGimbalSignal: {},
+    cameraGimbalAsleep: {},
     cameraAnswering: {},
     cameraLastReplyAt: {},
     viscaRepliesHeard: null,
@@ -150,8 +154,10 @@ export function rateGimbalSignal(link: GimbalLinkHealth | null | undefined): Gim
 export function applyDeviceLinkState(
   state: AppState,
   cameraId: string,
-  link: { connected: boolean; gimbalAttached?: boolean; reportedGimbalModel?: string | null; motionResponsive?: boolean; linkHealth?: GimbalLinkHealth | null }
+  link: { connected: boolean; gimbalAttached?: boolean; reportedGimbalModel?: string | null; motionResponsive?: boolean; linkHealth?: GimbalLinkHealth | null; reportedAsleep?: boolean | null }
 ): void {
+  if (link.connected && typeof link.reportedAsleep === 'boolean') state.cameraGimbalAsleep[cameraId] = link.reportedAsleep;
+  else delete state.cameraGimbalAsleep[cameraId];
   const signal = link.connected ? rateGimbalSignal(link.linkHealth) : null;
   if (signal) state.cameraGimbalSignal[cameraId] = signal;
   else delete state.cameraGimbalSignal[cameraId];
@@ -182,6 +188,7 @@ interface LinkStateSource {
   readonly reportedGimbalModel?: string | null;
   readonly motionResponsive?: boolean;
   readonly linkHealth?: GimbalLinkHealth | null;
+  readonly reportedAsleep?: boolean | null;
   on(event: string, listener: (...args: unknown[]) => void): unknown;
 }
 
@@ -206,6 +213,7 @@ export function trackDeviceLinkState(
   device.on('gimbalResponsive', sync);
   device.on('gimbalUnresponsive', sync);
   device.on('linkHealth', sync);
+  device.on('sleepReport', sync);
   sync();
 }
 
@@ -217,6 +225,7 @@ export function clearCameraLinkState(state: AppState, cameraId: string): void {
   delete state.cameraGimbalModel[cameraId];
   delete state.cameraGimbalResponding[cameraId];
   delete state.cameraGimbalSignal[cameraId];
+  delete state.cameraGimbalAsleep[cameraId];
   delete state.cameraAnswering[cameraId];
   delete state.cameraLastReplyAt[cameraId];
 }

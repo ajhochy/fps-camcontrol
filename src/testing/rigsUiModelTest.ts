@@ -218,7 +218,11 @@ check('a rig whose camera has an error says so', rigStatus.noPreviewReason === '
 check('a rig whose camera was found but not connected says where to connect it', /found but is not connected yet \(connect it in Sony connections\)/.test(model.statusFor(waiting, 'rig:vbot').noPreviewReason));
 check('a rig whose camera device has no camera bound says so', (() => { const c = payload(); c.sonyDevices[0].sonyCameraId = null; return /not bound to a physical camera/.test(model.statusFor(c, 'rig:vbot').noPreviewReason); })());
 check('the ATEM can be reconnected', model.statusFor(data, 'atem').actions[0].url === '/api/reconnect/atem');
-check('a healthy Sony service offers Refresh cameras', model.statusFor(data, 'sony').actions.map((a: any) => a.id).join() === 'refresh');
+check('a healthy Sony service offers Refresh cameras and Stop Sony service (which asks first)', model.statusFor(data, 'sony').actions.map((a: any) => a.id).join() === 'refresh,stop-service' && /Stop the Sony service\?/.test(model.statusFor(data, 'sony').actions[1].confirm));
+{
+  const stopped = JSON.parse(JSON.stringify(data)); stopped.sony.sidecar.state = 'stopped';
+  check('a service stopped from the app offers Start Sony service', model.statusFor(stopped, 'sony').actions.map((a: any) => a.id).join() === 'start-service');
+}
 check('a Sony service that is not running offers Retry Sony service', model.statusFor(downService, 'sony').actions.map((a: any) => a.id).join() === 'retry-service');
 
 // ---- adding and removing rigs

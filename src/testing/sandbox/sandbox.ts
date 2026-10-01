@@ -50,6 +50,7 @@ function sandboxEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
     SONY_STATE_FILE: path.join(runDir, 'sony-cameras.json'),
     SONY_API_URL: `http://127.0.0.1:${SONY_PORT}`,
     STATUS_PORT: String(APP_PORT),
+    STATUS_HOST: '127.0.0.1', // the sandbox is never on the network
     CAMCONTROL_NO_CONTROLLER: '1',
     CAMCONTROL_GIMBAL_SWEEP: '0', // never sweep the real network: probing a live bridge makes it stop its gimbal
     VISCA_LOCAL_PORT: '0', // never take port 52381 from the live app (it would get the live V-BOT's replies)

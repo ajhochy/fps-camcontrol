@@ -112,6 +112,11 @@ class _BleakTransport:
         # mid-service actually reconnect. Callers serialise this (BlueZ allows
         # only one connect/scan operation at a time per adapter).
         device = await BleakScanner.find_device_by_address(self.address, timeout=SCAN_TIMEOUT_S)
+        if device is None and await _release_stale_link(self.address):
+            # BlueZ still held a link to it (from a connect that half-failed, or a link this process lost track
+            # of). A connected gimbal does not advertise, so no scan could ever find it: let go and look again.
+            await asyncio.sleep(1.5)
+            device = await BleakScanner.find_device_by_address(self.address, timeout=SCAN_TIMEOUT_S)
         if device is None:
             raise GimbalError(
                 f"gimbal {self.address} is not advertising (powered off, asleep, "
@@ -192,6 +197,41 @@ def _frame(sequence: int, cmd_set: int, cmd_id: int, payload: bytes) -> bytes:
 
 def _joystick_payload(tilt: int = 0, roll: int = 0, pan: int = 0) -> bytes:
     return b"".join((CENTER + value).to_bytes(2, "little") for value in (tilt, roll, pan)) + b"\0\0\x02"
+
+
+async def _release_stale_link(address: str) -> bool:
+    """If BlueZ reports this gimbal connected although we are not, disconnect it. True when a link was released."""
+    async def run(*args: str) -> str:
+        proc = await asyncio.create_subprocess_exec(
+            "bluetoothctl", *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL
+        )
+        try:
+            out, _ = await asyncio.wait_for(proc.communicate(), timeout=5.0)
+        except asyncio.TimeoutError:
+            with contextlib.suppress(ProcessLookupError):
+                proc.kill()
+            return ""
+        return out.decode(errors="replace")
+
+    try:
+        if "Connected: yes" not in await run("info", address):
+            return False
+        log.warning("RS3 %s: BlueZ still holds a link to it but the bridge does not; releasing it", address)
+        await run("disconnect", address)
+        return True
+    except (FileNotFoundError, OSError):
+        return False  # no bluetoothctl (a dev box): nothing to release
+
+
+# Passive frame census (DJI_RS3_FRAME_CENSUS=0 turns it off): log the first frame of each kind and every change of
+# the status frames, so what a sleeping gimbal sends can be compared with an awake one. Listen-only: nothing is
+# written to the gimbal for it.
+CENSUS_ENV = "DJI_RS3_FRAME_CENSUS"
+CENSUS_WATCH = {(0x04, 0x27), (0x0D, 0x02), (0x04, 0x10), (0x04, 0x1C)}
+CENSUS_SUMMARY_S = 60.0
+# The gimbal's own "sleep status" notification (cmd_set 0x04, cmd_id 0x27): last payload byte 1 = asleep, 0 = awake
+# (jdesbonnet/dji_rs3_control rs3_ble_protocol_spec.md 4.3 / 6.4).
+SLEEP_STATUS = (0x04, 0x27)
 
 
 def _valid_frame(candidate: bytes) -> bool:
@@ -329,6 +369,12 @@ class DjiRsDriver:
         self._drop_times: deque[float] = deque(maxlen=50)
         self._frame_events: deque[tuple[float, bool]] = deque(maxlen=4000)
         self._linked_at = 0.0
+        # The gimbal's own sleep report (0x04/0x27): True asleep, False awake, None not reported on this link yet.
+        self.asleep: Optional[bool] = None
+        self._census_on = os.environ.get(CENSUS_ENV, "1").strip() not in ("0", "false", "off", "")
+        self._census_counts: dict[tuple[int, int, int, int], int] = {}
+        self._census_last: dict[tuple[int, int], bytes] = {}
+        self._census_logged_at = monotonic()
         self._read_failures = 0
         self._closing = False
         self._had_link = False
@@ -349,6 +395,7 @@ class DjiRsDriver:
                 await self._transport.disconnect()
             raise GimbalError(f"failed to connect to RS3 at {self.address}: {exc}") from exc
         self._linked_at = monotonic()
+        self.asleep = None  # a new link has not reported its sleep state yet
         # A pose from the previous link must never be served on this one.
         self._pose = None
         self._pose_at = 0.0
@@ -554,6 +601,7 @@ class DjiRsDriver:
         if len(self._rx) > MAX_RX_BYTES:
             del self._rx[:-MAX_RX_BYTES]
         for frame in self._take_frames():
+            self._observe(frame)
             pose = _pose_from_frame(frame)
             if pose is None or not self._plausible(pose):
                 continue
@@ -561,6 +609,38 @@ class DjiRsDriver:
             self._pose_at = monotonic()
             self._pose_seq += 1
             self._wake_waiters()
+
+    def _observe(self, frame: bytes) -> None:
+        """Every valid frame: pick up the sleep report, and feed the census. Never raises."""
+        try:
+            sender, receiver, cmd_set, cmd_id = frame[4], frame[5], frame[9], frame[10]
+            payload = frame[11:-2]
+            if (cmd_set, cmd_id) == SLEEP_STATUS and payload:
+                asleep = payload[-1] == 0x01
+                if asleep != self.asleep:
+                    log.warning("RS3 %s reports it is %s", self.address, "ASLEEP" if asleep else "awake")
+                self.asleep = asleep
+            if not self._census_on:
+                return
+            key = (sender, receiver, cmd_set, cmd_id)
+            first = key not in self._census_counts
+            self._census_counts[key] = self._census_counts.get(key, 0) + 1
+            if first:
+                log.info("census RS3 %s first %02x>%02x %02x/%02x len=%d payload=%s",
+                         self.address, sender, receiver, cmd_set, cmd_id, len(payload), payload[:64].hex())
+            short = (cmd_set, cmd_id)
+            if short in CENSUS_WATCH and self._census_last.get(short) != payload:
+                if not first:
+                    log.info("census RS3 %s change %02x/%02x payload=%s", self.address, cmd_set, cmd_id, payload[:64].hex())
+                self._census_last[short] = payload
+            now = monotonic()
+            if now - self._census_logged_at >= CENSUS_SUMMARY_S:
+                self._census_logged_at = now
+                summary = " ".join(f"{k[2]:02x}/{k[3]:02x}:{v}" for k, v in sorted(self._census_counts.items()))
+                log.info("census RS3 %s last %ds asleep=%s counts %s", self.address, int(CENSUS_SUMMARY_S), self.asleep, summary)
+                self._census_counts = {k: 0 for k in self._census_counts}
+        except Exception:  # noqa: BLE001 - observation must never break the link
+            pass
 
     def _take_frames(self) -> list[bytes]:
         """Pull complete, checksum-valid frames out of the receive buffer.

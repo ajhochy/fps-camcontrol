@@ -87,6 +87,8 @@ const SonySchema = z.object({
   apiUrl: z.string().url().default('http://127.0.0.1:8181'),
   executable: z.string().optional(),
   stateFile: z.string().min(1).optional(),
+  /** launchd job label of the background Sony service (scripts/install-sony-service.sh), for the Start button. */
+  launchdLabel: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/).optional(),
 });
 
 // An entry in the device inventory: a piece of hardware that exists, described
@@ -194,6 +196,8 @@ const DevicesSchema = z.object({
   graphics: GraphicsSchema.optional(),
   lowerThirds: z.object({ type: z.string(), dskIndex: z.number() }).optional(),
   sony: SonySchema.optional(),
+  // The status UI's network address. Absent = this Mac only (127.0.0.1); "0.0.0.0" = everyone on the network.
+  server: z.object({ host: z.string().regex(/^[0-9a-fA-F.:]{2,45}$/).optional() }).optional(),
 }).superRefine((cfg, ctx) => {
   if (cfg.profiles && cfg.devices) {
     for (const issue of collectRigIssues(cfg.devices, cfg.profiles)) ctx.addIssue({ code: 'custom', ...issue });
@@ -269,6 +273,7 @@ export interface SonyRuntimeConfig {
   apiUrl: string;
   executable?: string;
   stateFile: string;
+  launchdLabel?: string;
 }
 
 export interface AppConfig {
@@ -283,6 +288,8 @@ export interface AppConfig {
   profiles?: Record<string, Profile>;
   activeProfile?: string;
   sony?: SonyRuntimeConfig;
+  /** Where the status UI listens (STATUS_HOST overrides; default 127.0.0.1, this Mac only). */
+  serverHost?: string;
   /** Unsaved rig edits of the active profile, applied on top of it (see workingProfile.ts). */
   working?: WorkingProfile;
   /** Something to tell the operator about the working copy (a draft that could not be restored, an outside edit). */
@@ -309,6 +316,7 @@ function resolveSonyConfig(raw: z.infer<typeof SonySchema> | undefined, devicesP
     apiUrl,
     executable,
     stateFile: path.isAbsolute(stateFile) ? stateFile : path.resolve(path.dirname(devicesPath), stateFile),
+    ...((process.env.SONY_LAUNCHD_LABEL ?? yaml.launchdLabel) ? { launchdLabel: process.env.SONY_LAUNCHD_LABEL ?? yaml.launchdLabel } : {}),
   };
 }
 
@@ -406,6 +414,7 @@ export function loadConfig(): AppConfig {
     profiles: devices.profiles,
     activeProfile: devices.activeProfile,
     sony: resolveSonyConfig(devices.sony, devicesPath),
+    serverHost: process.env.STATUS_HOST ?? devices.server?.host ?? '127.0.0.1',
     working,
     workingNotice,
   };

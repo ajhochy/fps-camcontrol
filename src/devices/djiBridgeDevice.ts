@@ -117,6 +117,7 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
   private _reportedGimbalModel: string | null = null;
   private _motionResponsive = true;
   private _linkHealth: GimbalLinkHealth | null = null;
+  private _reportedAsleep: boolean | null = null;
   /** While the operator pushes the stick: when the push began and the pose then. */
   private motionJudge: { since: number; from: DevicePosition | null } | null = null;
   /** When we last had positive evidence of a gimbal, or 0 if never. */
@@ -190,6 +191,11 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
     if (Date.now() - judge.since >= UNRESPONSIVE_AFTER_MS) this.setMotionResponsive(false, `no movement after ${UNRESPONSIVE_AFTER_MS} ms of stick input`);
   }
   private lastPose: DevicePosition | null = null;
+
+  /** The gimbal's own sleep report, passed on by the bridge (>= 0.4.0): true asleep, false awake, null unknown. */
+  get reportedAsleep(): boolean | null {
+    return this._reportedAsleep;
+  }
 
   /** The Bluetooth link figures from the bridge's latest status (bridges >= 0.3.0); null when not reported. */
   get linkHealth(): GimbalLinkHealth | null {
@@ -378,6 +384,7 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
     this.inFlightMethods.clear();
     this.motionJudge = null;
     this.lastPose = null;
+    this._reportedAsleep = null;
     this.setMotionResponsive(true, 'link reset');
     this.setGimbalAttached(false, 'bridge unreachable');
     if (this._connected) {
@@ -516,6 +523,14 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
           link?: unknown;
         } | undefined;
         this.takeLinkHealth(p?.link); // absent (an older bridge, or none reported) clears any earlier rating
+        const asleep = typeof (p as { asleep?: unknown } | undefined)?.asleep === 'boolean' ? (p as { asleep: boolean }).asleep : null;
+        if (asleep !== this._reportedAsleep) {
+          if (asleep === true) logger.warn({ id: this.id }, 'DJI gimbal reports it is asleep');
+          else if (asleep === false && this._reportedAsleep === true) logger.info({ id: this.id }, 'DJI gimbal reports it is awake');
+          this._reportedAsleep = asleep;
+          if (asleep === false) this.setMotionResponsive(true, 'gimbal reports awake');
+          this.emit('sleepReport');
+        }
         if (p?.position) {
           const pose: DevicePosition = { kind: 'gimbal', yaw: p.position.yaw, pitch: p.position.pitch, roll: p.position.roll };
           this.judgePose(pose);

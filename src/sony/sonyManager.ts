@@ -49,11 +49,15 @@ const SAFE_ID = /^[A-Za-z0-9:-]{1,128}$/;
 const SAFE_PROPERTY = /^[A-Za-z0-9-]{1,64}$/;
 
 export type SonySidecarMode = 'disabled' | 'external' | 'managed' | 'absent';
-export type SonySidecarState = 'disabled' | 'absent' | 'starting' | 'healthy' | 'crashed';
+export type SonySidecarState = 'disabled' | 'absent' | 'starting' | 'healthy' | 'crashed' | 'stopped';
 export type SonyCameraLifecycle =
   | 'discovered_unapproved' | 'connecting' | 'connected' | 'disconnected' | 'needs_pairing' | 'error';
 
-export interface SonyRuntimeConfig { enabled: boolean; apiUrl: string; executable?: string; stateFile: string }
+export interface SonyRuntimeConfig {
+  enabled: boolean; apiUrl: string; executable?: string; stateFile: string;
+  /** The launchd job running the service (scripts/install-sony-service.sh), so the app can start it again. */
+  launchdLabel?: string;
+}
 
 export interface SonyCameraStatus {
   id: string;
@@ -116,6 +120,8 @@ export interface SonyManagerDependencies {
   timeoutSignal?: (milliseconds: number) => AbortSignal;
   /** Empty until a real sidecar contract probe pins exact codes; never guessed from messages. */
   pairingCodes?: number[];
+  /** Runs a short command (launchctl) and resolves with its exit code; injected by tests. */
+  runCommand?: (command: string, args: string[]) => Promise<number>;
 }
 
 /**
@@ -183,6 +189,11 @@ export class SonyManager {
     this.random = dependencies.random ?? Math.random;
     this.timeoutSignal = dependencies.timeoutSignal ?? ((milliseconds) => AbortSignal.timeout(milliseconds));
     this.pairingCodes = new Set(dependencies.pairingCodes ?? []);
+    this.runCommand = dependencies.runCommand ?? ((command, args) => new Promise((resolve) => {
+      const child = nodeSpawn(command, args, { stdio: 'ignore' });
+      child.on('error', () => resolve(-1));
+      child.on('exit', (code) => resolve(code ?? -1));
+    }));
   }
 
   // ---------------------------------------------------------------- lifecycle
@@ -242,9 +253,50 @@ export class SonyManager {
     };
   }
 
+  private readonly runCommand: (command: string, args: string[]) => Promise<number>;
+  /** The operator stopped the service from the app: nothing relaunches it or retries cameras until Start. */
+  private operatorStopped = false;
+
+  /**
+   * UI "Stop Sony service": ask the service to shut down cleanly (it disconnects every camera properly and exits
+   * 0, which the launchd job treats as "stay stopped"), and stop all background work so nothing restarts it.
+   */
+  async stopService(): Promise<void> {
+    if (!this.config.enabled) return;
+    this.operatorStopped = true;
+    this.epoch++;
+    this.cancelAllTimers();
+    try {
+      await this.request('/api/server/shutdown', { method: 'POST' }, SHUTDOWN_REQUEST_TIMEOUT_MS);
+    } catch (_) { /* already gone, or it closed the connection while shutting down */ }
+    this.state = 'stopped';
+    this.sidecarMessage = 'Stopped from the app';
+    this.markCamerasOffline();
+    for (const camera of this.cameras.values()) { camera.message = 'Sony service stopped'; camera.nextRetryAt = null; }
+  }
+
+  /** UI "Start Sony service": start the launchd job (or the configured executable) and adopt it. */
+  async startService(): Promise<void> {
+    if (!this.config.enabled) return;
+    this.operatorStopped = false;
+    this.state = 'starting';
+    this.sidecarMessage = 'Starting the Sony service…';
+    if (this.config.launchdLabel) {
+      const uid = typeof process.getuid === 'function' ? process.getuid() : 501;
+      const code = await this.runCommand('launchctl', ['kickstart', `gui/${uid}/${this.config.launchdLabel}`]);
+      if (code !== 0) this.sidecarMessage = `Could not start the Sony service (launchctl exit ${code})`;
+      // Give it a moment to listen before the first probe; retryService then adopts it as usual.
+      await new Promise<void>((resolve) => { this.setTimer(() => resolve(), 1500); });
+    }
+    this.retryService();
+  }
+
+  get stoppedByOperator(): boolean { return this.operatorStopped; }
+
   /** UI "Retry Sony service": clears the crash budget and boots again. */
   retryService(): void {
     if (!this.config.enabled) return;
+    this.operatorStopped = false;
     this.epoch++;
     this.stopped = false;
     this.stopping = undefined;
@@ -258,6 +310,7 @@ export class SonyManager {
 
   private async boot(): Promise<void> {
     const epoch = this.epoch;
+    if (this.operatorStopped) return;
     this.approved = new Map((await this.store.load()).map((camera) => [camera.id, camera]));
     this.seedApprovedCameras();
     if (this.isStale(epoch)) return;
@@ -393,7 +446,7 @@ export class SonyManager {
   }
 
   private scheduleHealthProbe(): void {
-    if (this.stopped || this.healthTimer) return;
+    if (this.stopped || this.operatorStopped || this.healthTimer) return;
     const epoch = this.epoch;
     this.healthTimer = this.setTimer(() => {
       this.healthTimer = undefined;

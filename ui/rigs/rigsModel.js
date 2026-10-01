@@ -72,8 +72,8 @@
     };
   }
 
-  var SERVICE_TEXT = { healthy: 'Running', absent: 'Not running', starting: 'Starting', crashed: 'Stopped after repeated failures', disabled: 'Turned off' };
-  var SERVICE_TONE = { healthy: 'ok', absent: 'bad', starting: 'warn', crashed: 'bad', disabled: 'idle' };
+  var SERVICE_TEXT = { healthy: 'Running', absent: 'Not running', starting: 'Starting', crashed: 'Stopped after repeated failures', disabled: 'Turned off', stopped: 'Stopped from the app (cameras disconnected)' };
+  var SERVICE_TONE = { healthy: 'ok', absent: 'bad', starting: 'warn', crashed: 'bad', disabled: 'idle', stopped: 'warn' };
   function serviceState(sidecar) {
     var state = sidecar && sidecar.state;
     return { state: state || 'disabled', text: SERVICE_TEXT[state] || (state ? String(state) : 'Not configured'), tone: SERVICE_TONE[state] || 'idle' };
@@ -648,8 +648,10 @@
         rows.push({ label: (camera.model || 'Sony camera') + ' (new)', value: sonyStateText(camera.state), tone: sonyTone(camera.state) });
       });
       var sonyActions = [];
-      if (overview.service.state === 'absent' || overview.service.state === 'crashed') sonyActions.push({ id: 'retry-service', label: 'Retry Sony service', method: 'POST', url: '/api/sony/service/retry', progress: 'Retrying…', done: 'Retry requested' });
+      if (overview.service.state === 'stopped') sonyActions.push({ id: 'start-service', label: 'Start Sony service', method: 'POST', url: '/api/sony/service/start', progress: 'Starting…', done: 'Start requested; cameras reconnect by themselves' });
+      else if (overview.service.state === 'absent' || overview.service.state === 'crashed') sonyActions.push({ id: 'retry-service', label: 'Retry Sony service', method: 'POST', url: '/api/sony/service/retry', progress: 'Retrying…', done: 'Retry requested' });
       if (overview.service.state === 'healthy') sonyActions.push({ id: 'refresh', label: 'Refresh cameras', method: 'POST', url: '/api/sony/cameras/discover', progress: 'Scanning…', done: 'Scan finished' });
+      if (overview.service.state === 'healthy' || overview.service.state === 'starting') sonyActions.push({ id: 'stop-service', label: 'Stop Sony service', method: 'POST', url: '/api/sony/service/stop', progress: 'Stopping…', done: 'Sony service stopped; all Sony cameras disconnected', confirm: 'Stop the Sony service? Every Sony camera is disconnected (cleanly) until you press Start Sony service. Video through the ATEM and gimbal/VISCA control are not affected.' });
       return { headline: 'Sony connections', lines: rows, actions: sonyActions, previewCameraId: null };
     }
     return null;

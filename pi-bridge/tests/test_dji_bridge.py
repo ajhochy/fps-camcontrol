@@ -224,6 +224,7 @@ class BridgeInfoTests(unittest.TestCase):
         self.assertEqual(info["clients"], 1)
         self.assertIs(info["gimbalConnected"], True)
         self.assertIsNone(info["link"])  # this driver measures no link health
+        self.assertIsNone(info["asleep"])  # nor reports sleep
 
     def test_info_carries_link_health_when_the_driver_measures_it(self):
         class Measured(self.BleDriver):

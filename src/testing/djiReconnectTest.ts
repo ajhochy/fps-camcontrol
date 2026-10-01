@@ -108,6 +108,12 @@ async function main(): Promise<void> {
     noisy.link = null;
     await wait(500);
     check('a bridge that stops reporting it leaves no stale rating', !('cam7' in s2.cameraGimbalSignal));
+    noisy.reportSleep = true; noisy.asleep = true;
+    await wait(500);
+    check('a gimbal that reports it is asleep is shown asleep at once, without stick input', s2.cameraGimbalAsleep.cam7 === true);
+    noisy.asleep = false;
+    await wait(500);
+    check('and awake again when it says so', s2.cameraGimbalAsleep.cam7 === false);
   } finally {
     g2.close();
     await noisy.stop();

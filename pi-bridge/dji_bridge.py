@@ -43,7 +43,7 @@ GIMBAL_POLL_S = 2.0
 
 log = logging.getLogger("dji-bridge")
 
-BRIDGE_VERSION = "0.3.0"
+BRIDGE_VERSION = "0.4.0"
 INFO_PATH = "/info"
 
 
@@ -66,6 +66,7 @@ def bridge_info(driver: GimbalDriver, port: int, clients: int) -> Dict[str, Any]
         # Control sessions open right now (normally the app's one).
         "clients": clients,
         "link": link_health(driver),
+        "asleep": getattr(driver, "asleep", None),
     }
 
 
@@ -245,6 +246,8 @@ class Session:
                 link = link_health(self.driver)
                 if link is not None:
                     params["link"] = link
+                # The gimbal's own sleep report (None when it has not sent one on this link).
+                params["asleep"] = getattr(self.driver, "asleep", None)
                 await self._emit("status", params)
         except asyncio.CancelledError:
             pass

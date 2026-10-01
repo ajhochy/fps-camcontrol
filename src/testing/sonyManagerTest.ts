@@ -741,6 +741,32 @@ async function main(): Promise<void> {
   checkEqual('c17: never more than one battery read in flight', batteryMaxInFlight, 1);
   await lap.manager.stop();
   checkEqual('c17: stop leaves no battery timer behind', lap.clock.pending(), 0);
+  // Stop / Start from the app: a clean shutdown, nothing relaunches it, Start kicks the launchd job and adopts it.
+  {
+    let up = true; const commands: string[] = [];
+    const svc = build({ stateFile: file('svc.json'), launchdLabel: 'com.test.sony' } as never, (url, init) => {
+      if (url.endsWith('/api/server/shutdown') && init?.method === 'POST') { up = false; return json(200, { success: true }); }
+      if (url.endsWith('/api/server/status')) return up ? healthy() : Promise.reject(new Error('ECONNREFUSED'));
+      if (url.endsWith('/api/cameras')) return json(200, { cameras: [] });
+      return json(404, {});
+    }, { runCommand: async (command: string, args: string[]) => { commands.push(`${command} ${args.join(' ')}`); up = true; return 0; } } as never);
+    svc.manager.start();
+    await svc.clock.run(svc.manager, 0);
+    checkEqual('c17: the service starts healthy', svc.manager.getStatus().sidecar.state, 'healthy');
+    await svc.manager.stopService();
+    check('c17: Stop asks the service to shut down cleanly', svc.calls.includes('POST http://127.0.0.1:8181/api/server/shutdown'));
+    checkEqual('c17: a stopped service says it was stopped from the app', [svc.manager.getStatus().sidecar.state, svc.manager.getStatus().sidecar.message], ['stopped', 'Stopped from the app']);
+    const callsAfterStop = svc.calls.length;
+    await svc.clock.advance(180000);
+    checkEqual('c17: nothing probes or relaunches a service the operator stopped', svc.calls.length, callsAfterStop);
+    const starting = svc.manager.startService();
+    await svc.clock.advance(2000);
+    await starting;
+    await svc.clock.run(svc.manager, 0);
+    check('c17: Start kicks the launchd job', commands.some((c) => c.startsWith('launchctl kickstart gui/') && c.endsWith('/com.test.sony')));
+    checkEqual('c17: and the service is adopted again', svc.manager.getStatus().sidecar.state, 'healthy');
+    await svc.manager.stop();
+  }
   checkEqual('c17: the overheating reading is understood (Normal / Pre-Overheating / Overheating)', [
     overheatState({ data: { formatted: 'Normal' } }), overheatState({ data: { formatted: 'Pre-Overheating' } }),
     overheatState({ data: { formatted: 'Overheating' } }), overheatState({ data: { value: '0x2' } }), overheatState({ data: { formatted: '' } }),

@@ -36,6 +36,9 @@ export function rigHealth(state: AppState, cam: RigCamera): Health {
     if (weak && signal.drops10m) return { level: 'down', text: 'Signal Lost', hint: `${signal.summary}; move the Pi or the gimbal closer` };
     return { level: 'down', text: 'Gimbal Off', hint: 'Bridge up, gimbal not found: powered off, asleep for a long time, or out of range' };
   }
+  if (state.cameraGimbalAsleep?.[id] === true) {
+    return { level: 'down', text: 'Asleep', hint: 'The gimbal reports it is asleep (power button pressed, or motor protection after imbalance). Press its power button once to wake it' };
+  }
   if (state.cameraGimbalResponding[id] === false) {
     return { level: 'down', text: 'Asleep / Not Moving', hint: 'Linked but ignoring moves: asleep (often from imbalance), motors off, or overloaded. Press its power button once to wake it' + (weak ? `; ${signal.summary}` : '') };
   }
