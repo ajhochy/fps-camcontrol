@@ -109,27 +109,28 @@ const control = (info: any, id: string): any => [...(info.controls ?? []), ...(i
 check('an editable rig inspector says where its changes go', rig.endpoint === '/api/rigs/vbot' && gimbal.endpoint === '/api/rigs/rs3');
 check('the name is a required text control of at most 64 characters', control(rig, 'label').type === 'text' && control(rig, 'label').path === 'label' && control(rig, 'label').maxLength === 64 && control(rig, 'label').required === true);
 check('the controller type is a choice of V-BOT, BirdDog, DJI gimbal or other VISCA-IP camera', control(rig, 'controller').type === 'select' && control(rig, 'controller').path === 'controller' && control(rig, 'controller').value === 'vbot' && control(rig, 'controller').options.map((o: any) => o.value).join() === 'vbot,birddog,gimbal,generic' && /VISCA-IP/.test(control(rig, 'controller').options[3].label));
-check('switching between VISCA kinds asks nothing; switching to or from a gimbal asks first and mentions presets', control(rig, 'controller').confirm.generic === undefined && control(rig, 'controller').confirm.birddog === undefined && /DJI bridge at 192\.168\.50\.15, port 7878/.test(control(rig, 'controller').confirm.gimbal) && /Presets/.test(control(rig, 'controller').confirm.gimbal) && /VISCA at dji-bridge\.local, port 52381/.test(control(gimbal, 'controller').confirm.vbot));
+check('switching between VISCA kinds asks nothing; switching to or from a gimbal asks first and mentions presets', control(rig, 'controller').confirm.generic === undefined && control(rig, 'controller').confirm.birddog === undefined && /choose which gimbal from the Gimbal list/.test(control(rig, 'controller').confirm.gimbal) && /Presets/.test(control(rig, 'controller').confirm.gimbal) && /VISCA at dji-bridge\.local, port 52381/.test(control(gimbal, 'controller').confirm.vbot));
 check('a rig with a Sony camera says why it cannot become a BirdDog', /take the Sony camera off/.test(control(rig, 'controller').note));
-const gimbalWith = (saved: string | null, reported: string | null): any => {
-  const d = JSON.parse(JSON.stringify(data));
-  const g = d.rigs.find((r: any) => r.deviceKey === 'rs3');
-  g.gimbal.gimbalModel = saved; g.gimbal.reportedModel = reported;
-  return control(model.inspectorFor(d, 'rig:rs3'), 'gimbal.gimbalModel');
-};
-let gm = gimbalWith(null, 'RS3');
-check('the gimbal model is a choice, with what the bridge reports offered first', gm.type === 'select' && gm.nullable === true && gm.options[0].value === '' && gm.options[1].value === 'RS3' && /reported by the bridge/.test(gm.options[1].label) && gm.value === '' && /reports RS3/.test(gm.note));
-check('the known RS models are offered, without repeating the reported one', gm.options.map((o: any) => o.value).join() === ',RS3,RS 5,RS 4 Pro,RS 4,RS 3 Pro');
-gm = gimbalWith('RS3', 'RS3');
-check('a saved model that matches the report is selected and says so', gm.value === 'RS3' && /Matches/.test(gm.note));
-gm = gimbalWith('RS 3', 'RS 4 Pro');
-check('a saved model that differs from the report is flagged', gm.value === 'RS 3' && /reports RS 4 Pro, not RS 3/.test(gm.note));
-gm = gimbalWith('RS3', null);
-check('with no report yet the saved spelling is kept selected and the note says to connect the bridge', gm.value === 'RS 3' && !gm.options.some((o: any) => o.value === 'RS3') && /Connect the bridge/.test(gm.note));
-gm = gimbalWith('Ronin 2', null);
-check('an unknown saved model stays offered so nothing is lost', gm.value === 'Ronin 2' && gm.options[gm.options.length - 1].value === 'Ronin 2');
+const choice = (scan: any): any => control(model.inspectorFor({ ...data, gimbalScan: scan }, 'rig:rs3'), 'gimbal.bridge');
+let gc = choice(null);
+check('before a scan the gimbal choice holds only the current bridge and says it is looking', gc.type === 'select' && gc.rescan === true && gc.value === 'dji-bridge.local:7878' && gc.options.length === 1 && /Looking for gimbals/.test(gc.note));
+const scan = { at: 1, gimbals: [
+  { host: 'dji-bridge.local', port: 7878, reachable: true, model: 'RS3', gimbalConnected: true, drivenBy: 'cam3', usedBy: [{ deviceKey: 'rs3', label: 'DJI RS3', rig: 3 }] },
+  { host: 'dji-bridge.local', port: 7879, reachable: true, model: 'RS3Pro', gimbalConnected: false, drivenBy: null, usedBy: [] },
+  { host: 'pi-2.local', port: 7878, reachable: true, model: 'RS 4 Pro', gimbalConnected: true, drivenBy: null, usedBy: [{ deviceKey: 'vbot', label: 'V-BOT', rig: 1 }] },
+  { host: 'pi-3.local', port: 7878, reachable: true, model: null, gimbalConnected: null, drivenBy: null, usedBy: [] },
+] };
+gc = choice(scan);
+check('every gimbal found is offered, from every Pi, with its model, port, Pi and link', gc.options.length === 4 && gc.options[0].label === 'RS3 — port 7878 on dji-bridge.local — gimbal connected' && /^V-BOT \(RS 4 Pro\) — port 7878 on pi-2/.test(gc.options[2].label) && /RS3Pro — port 7879 on dji-bridge.local — no gimbal attached/.test(gc.options[1].label) && /^Gimbal — port 7878 on pi-3\.local — no gimbal reporting/.test(gc.options[3].label));
+check('a gimbal another rig drives is shown but cannot be chosen', gc.options[2].disabled === true && /on V-BOT/.test(gc.options[2].label) && !gc.options[0].disabled && !gc.options[1].disabled);
+check('choosing a gimbal points the rig at that Pi and port and labels it with the reported model', JSON.stringify(gc.patches['pi-3.local:7878']) === JSON.stringify({ gimbal: { host: 'pi-3.local', port: 7878 } }) && JSON.stringify(gc.patches['dji-bridge.local:7879']) === JSON.stringify({ gimbal: { host: 'dji-bridge.local', port: 7879, gimbalModel: 'RS3Pro' } }));
+gc = choice({ at: 1, gimbals: [{ host: 'pi-2.local', port: 7878, reachable: true, model: 'RS 4 Pro', gimbalConnected: true, usedBy: [] }] });
+check('a rig whose bridge did not answer keeps it listed as not found and asks for a choice', gc.options[0].value === 'dji-bridge.local:7878' && /not found/.test(gc.options[0].label) && /did not answer/.test(gc.note));
+check('with no bridges answering the note says what to check', /No gimbal bridges answered/.test(choice({ at: 1, gimbals: [] }).note));
+check('a failed scan says so', /Could not look for gimbals: boom/.test(choice({ at: 1, gimbals: [], error: 'boom' }).note));
+check('the old typed gimbal model is gone from the inspector', control(gimbal, 'gimbal.gimbalModel') === undefined);
 check('a V-BOT has IP, port and VISCA address controls with their limits', control(rig, 'visca.host').path === 'visca.host' && control(rig, 'visca.port').min === 1 && control(rig, 'visca.port').max === 65535 && control(rig, 'visca.address').max === 7 && control(rig, 'visca.address').integer === true && control(rig, 'gimbal.host') === undefined);
-check('a gimbal has bridge host, port and model controls and no VISCA controls', control(gimbal, 'gimbal.host').value === 'dji-bridge.local' && control(gimbal, 'gimbal.port').value === 7878 && control(gimbal, 'gimbal.gimbalModel').nullable === true && control(gimbal, 'visca.host') === undefined);
+check('a gimbal has bridge host, port and model controls and no VISCA controls', control(gimbal, 'gimbal.host').value === 'dji-bridge.local' && control(gimbal, 'gimbal.port').value === 7878 && control(gimbal, 'visca.host') === undefined);
 check('the ATEM input control is optional, and empty means control only', control(rig, 'inputId').nullable === true && control(rig, 'inputId').value === 6 && control(gimbal, 'inputId').value === '' && /control only/.test(control(gimbal, 'inputId').note));
 check('gimbal safety timeout and roll are advanced controls with limits', control(gimbal, 'gimbal.safetyTimeoutMs').min === 50 && control(gimbal, 'gimbal.safetyTimeoutMs').max === 2000 && control(gimbal, 'gimbal.rollEnabled').type === 'toggle' && gimbal.advancedControls.includes(control(gimbal, 'gimbal.rollEnabled')));
 check('the speed multiplier is an advanced number from 0.1 to 5', control(rig, 'speedScale').min === 0.1 && control(rig, 'speedScale').max === 5 && rig.advancedControls.includes(control(rig, 'speedScale')));

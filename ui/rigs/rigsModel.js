@@ -201,7 +201,7 @@
     if (rig.gimbal) {
       controls.push(ctl('gimbal.host', 'Bridge host', 'text', rig.gimbal.host, 'gimbal.host', { required: true, maxLength: 253 }));
       controls.push(ctl('gimbal.port', 'Port', 'number', rig.gimbal.port, 'gimbal.port', { min: 1, max: 65535, integer: true }));
-      controls.push(gimbalModelControl(rig.gimbal.gimbalModel, rig.gimbal.reportedModel, 'gimbal.gimbalModel'));
+      controls.push(gimbalChoiceControl(data, rig));
     }
     controls.push(ctl('inputId', 'ATEM input', 'number', rig.wired ? rig.inputId : '', 'inputId', { nullable: true, min: 1, max: 99, integer: true, placeholder: 'None — control only', note: 'Leave empty for control only: motion works, but this rig cannot be taken live' }));
     if (rig.builtInCamera) controls.push(readonly('camera', 'Sony camera', 'Built-in camera'));
@@ -236,7 +236,7 @@
       if (toGimbal === isGimbal) return;
       var lines = ['Change "' + rigTitle(rig) + '" to ' + CONTROLLER[choice.value] + '?'];
       lines.push(toGimbal
-        ? 'It will be reached through a DJI bridge at ' + ((rig.visca && rig.visca.host) || 'the same address') + ', port 7878. Check the bridge host and port afterwards.'
+        ? 'It will be driven through the DJI bridge on the Pi. Afterwards, choose which gimbal from the Gimbal list.'
         : 'It will be controlled over VISCA at ' + ((rig.gimbal && rig.gimbal.host) || 'the same address') + ', port 52381, VISCA address 1. Check them afterwards.');
       lines.push('Presets saved for this rig were recorded for a ' + CONTROLLER[rig.controller] + ' and will not recall until they are saved again.');
       if (rig.usedInProfiles && rig.usedInProfiles.length > 1) lines.push('This hardware is used in ' + rig.usedInProfiles.length + ' profiles; all of them change.');
@@ -247,33 +247,43 @@
     return ctl('controller', 'Controller', 'select', rig.controller, 'controller', { options: CONTROLLER_CHOICES, confirm: confirm, note: note });
   }
 
-  /** Gimbal models offered in the gimbal model choice. The bridge's own report is offered first when it has one. */
-  var GIMBAL_MODELS = ['RS 5', 'RS 4 Pro', 'RS 4', 'RS 3 Pro', 'RS 3'];
-  function sameModel(a, b) { return String(a || '').replace(/\s+/g, '').toLowerCase() === String(b || '').replace(/\s+/g, '').toLowerCase(); }
-
   /**
-   * The gimbal model as a choice: what the bridge reports, the known DJI RS models, and the saved value when it
-   * is none of those. A bridge drives exactly one gimbal, so the report is the one to pick; the value is a label
-   * for the operator and does not change how the gimbal is driven.
+   * Which gimbal this rig drives, chosen from the bridges the Pi runs (one bridge instance per gimbal, each on its
+   * own port; GET /api/gimbals, kept in data.gimbalScan). Choosing one points the rig at that bridge. A gimbal that
+   * another rig of this profile drives is shown but cannot be chosen.
    */
-  function gimbalModelControl(saved, reported, path) {
-    var options = [{ value: '', label: 'Not set' }];
-    var seen = [];
-    function add(value, label) {
-      if (seen.some(function (v) { return sameModel(v, value); })) return;
-      seen.push(value);
-      options.push({ value: value, label: label || value });
+  function gimbalChoiceControl(data, rig) {
+    var scan = data && data.gimbalScan;
+    var current = rig.gimbal.host + ':' + rig.gimbal.port;
+    var options = [], patches = {};
+    var found = scan && scan.gimbals ? scan.gimbals : [];
+    function describe(g) {
+      var name = g.model || (g.host + ':' + g.port === current ? rig.gimbal.reportedModel || rig.gimbal.gimbalModel : null) || 'Gimbal';
+      var where = 'port ' + g.port + (found.some(function (o) { return o.host !== g.host; }) ? ' on ' + g.host : '');
+      var link = !g.reachable ? 'bridge not reachable' : g.gimbalConnected === true ? 'gimbal connected' : g.gimbalConnected === false ? 'no gimbal attached' : 'no gimbal reporting';
+      var known = (g.usedBy || []).filter(function (u) { return u.deviceKey !== rig.deviceKey; }).map(function (u) { return u.label; });
+      return (known.length ? known.join(' / ') + ' (' + name + ')' : name) + ' — ' + where + ' — ' + link;
     }
-    if (reported) add(reported, reported + ' — reported by the bridge');
-    GIMBAL_MODELS.forEach(function (model) { add(model); });
-    if (saved) add(saved);
-    var value = saved ? seen.filter(function (v) { return sameModel(v, saved); })[0] : '';
+    var sawCurrent = false;
+    found.forEach(function (g) {
+      var value = g.host + ':' + g.port;
+      if (value === current) sawCurrent = true;
+      var option = { value: value, label: describe(g) };
+      var others = (g.usedBy || []).filter(function (u) { return u.rig !== null && u.deviceKey !== rig.deviceKey; });
+      if (others.length && value !== current) { option.disabled = true; option.label += ' — on ' + others.map(function (u) { return u.label; }).join(', '); }
+      options.push(option);
+      var patch = { gimbal: { host: g.host, port: g.port } };
+      if (g.model) patch.gimbal.gimbalModel = g.model;
+      patches[value] = patch;
+    });
+    if (!sawCurrent) options.unshift({ value: current, label: (rig.gimbal.gimbalModel || 'Gimbal') + ' — port ' + rig.gimbal.port + ' on ' + rig.gimbal.host + (scan && !scan.pending ? ' — not found' : '') });
     var note;
-    if (!reported) note = 'Connect the bridge to see which gimbal it reports';
-    else if (!saved) note = 'The bridge reports ' + reported + '; choose it to label this rig';
-    else if (!sameModel(saved, reported)) note = 'The bridge reports ' + reported + ', not ' + saved;
-    else note = 'Matches what the bridge reports';
-    return ctl(path, 'Gimbal model', 'select', value, path, { nullable: true, options: options, note: note });
+    if (!scan || scan.pending) note = 'Looking for gimbals on the Pi…';
+    else if (scan.error) note = 'Could not look for gimbals: ' + scan.error;
+    else if (!found.some(function (g) { return g.reachable; })) note = 'No gimbal bridges answered. Check that the Pi is on and its bridges are running.';
+    else if (!sawCurrent) note = 'This rig points at a bridge that did not answer. Choose a gimbal from the list.';
+    else note = 'Choose which gimbal this rig drives';
+    return ctl('gimbal.bridge', 'Gimbal', 'select', current, null, { options: options, patches: patches, note: note, rescan: true });
   }
 
   /** The Sony camera choices for a rig: None, then every named Sony camera (taken ones shown but disabled). */
@@ -326,7 +336,6 @@
         gimbal: [
           ctl('host', 'Bridge host', 'text', '', 'host', { required: true, maxLength: 253 }),
           ctl('port', 'Port', 'number', 7878, 'port', { min: 1, max: 65535, integer: true }),
-          gimbalModelControl(null, null, 'gimbalModel'),
         ],
       },
       cameraOptions: cameras,

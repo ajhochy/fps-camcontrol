@@ -161,6 +161,25 @@
     try { json = await response.json(); } catch (e) { /* no body */ }
     return { ok: response.ok && !(json && json.ok === false), status: response.status, body: json || {} };
   }
+  // ---- which gimbals the Pi offers (one bridge per port); looked up when a gimbal rig is shown
+  function inspectorData() {
+    return app.data ? Object.assign({}, app.data, { gimbalScan: app.gimbalScan || null }) : null;
+  }
+  async function scanGimbals() {
+    if (app.gimbalScan && app.gimbalScan.pending) return;
+    app.gimbalScan = { pending: true, gimbals: app.gimbalScan ? app.gimbalScan.gimbals : [] };
+    drawInspector();
+    try {
+      var result = await call('GET', '/api/gimbals');
+      app.gimbalScan = result.ok ? { gimbals: result.body.gimbals || [], at: Date.now() } : { gimbals: [], error: failureText(result), at: Date.now() };
+    } catch (error) {
+      app.gimbalScan = { gimbals: [], error: String(error && error.message ? error.message : error), at: Date.now() };
+    }
+    // Redraw with the results unless someone is in the middle of choosing or typing in the inspector.
+    var active = document.activeElement;
+    var busy = inspectBody.contains(active) && active.tagName !== 'BUTTON';
+    drawInspector(!busy);
+  }
   function failureText(result) {
     if (result.body && result.body.conflict) return 'The config changed since this page loaded; it has been reloaded. Please redo the change.';
     return (result.body && (result.body.error || result.body.message)) || ('Failed (HTTP ' + result.status + ')');
@@ -220,6 +239,13 @@
     status.setAttribute('role', 'status');
     box.appendChild(status);
     if (control.note) box.appendChild(el('span', 'rigs-note', control.note));
+    if (control.rescan) {
+      var again = el('button', 'rigs-btn', app.gimbalScan && app.gimbalScan.pending ? 'Looking…' : 'Scan again');
+      again.type = 'button';
+      if (app.gimbalScan && app.gimbalScan.pending) again.disabled = true;
+      again.addEventListener('click', function () { again.disabled = true; again.textContent = 'Looking…'; scanGimbals(); });
+      box.appendChild(again);
+    }
     row.appendChild(box);
 
     var saved = control.value === null || control.value === undefined ? '' : (control.type === 'toggle' ? !!control.value : String(control.value));
@@ -264,12 +290,13 @@
       if (question && !window.confirm(question)) { input.value = saved === '' ? '' : String(saved); say(''); return; }
       saving = true; say('Saving…');
       try {
-        var body = patchFor(control.path, payload);
+        var body = control.patches ? JSON.parse(JSON.stringify(control.patches[payload] || {})) : patchFor(control.path, payload);
         body.expectedVersion = app.data && app.data.version;
         var result = await call('PATCH', info.endpoint, body);
         if (result.ok) {
           saved = raw; say('Saved', 'ok');
           adopt(result.body);
+          if (control.patches || control.id === 'controller') app.gimbalScan = null; // which gimbals are free has changed: look again
           if (control.type === 'select' || control.id === 'inputId') {
             // Other controls depend on this one (camera choices); redraw unless the operator has moved on.
             var stayed = document.activeElement === input || !inspectBody.contains(document.activeElement);
@@ -305,7 +332,11 @@
   }
 
   function drawInspector(force) {
-    var info = app.data ? model.inspectorFor(app.data, app.selected) : null;
+    var info = app.data ? model.inspectorFor(inspectorData(), app.selected) : null;
+    if (info && info.kind === 'rig' && (info.controls || []).some(function (c) { return c.rescan; }) && (!app.gimbalScan || app.gimbalScanFor !== app.selected)) {
+      app.gimbalScanFor = app.selected;
+      window.setTimeout(scanGimbals, 0);
+    }
     var signature = JSON.stringify(info);
     // Never redraw under someone who is using the inspector; only when something actually changed.
     if (!force && signature === app.inspectorSig) return;

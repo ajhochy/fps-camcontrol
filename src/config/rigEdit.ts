@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { validateDevicesConfig } from './configLoader';
+import { DEFAULT_BRIDGE_PORTS } from '../devices/gimbalScan';
 
 /**
  * Edits to rigs and Sony camera devices, as pure functions over the parsed
@@ -91,8 +92,8 @@ const CONTROLLERS: ControllerType[] = ['vbot', 'birddog', 'gimbal', 'generic'];
 
 /**
  * Change what kind of controller a device is. Within VISCA (V-BOT, BirdDog, other VISCA-IP camera) only the
- * camera type changes. Between VISCA and a DJI gimbal the connection is rebuilt on the same address with that
- * kind's default port, so the operator only has to check the port.
+ * camera type changes. A gimbal is pointed at the Pi bridge host on a free port (the operator then picks the
+ * gimbal); a gimbal turned back into a VISCA camera keeps the address with VISCA's default port.
  */
 function setController(raw: Raw, deviceKey: string, device: Raw, value: unknown): void {
   if (!CONTROLLERS.includes(value as ControllerType)) fail('controller must be vbot, birddog, gimbal or generic');
@@ -106,10 +107,19 @@ function setController(raw: Raw, deviceKey: string, device: Raw, value: unknown)
   const protocol = device.protocol ?? 'visca';
   if (controller === 'gimbal') {
     if (protocol === 'dji-bridge') return;
-    const host = typeof device.viscaIp === 'string' && device.viscaIp ? device.viscaIp : fail('set the camera address before changing the controller');
+    // Point it at the Pi the other gimbals use, on a bridge port no rig of the active profile is using; the
+    // operator then picks the exact gimbal from the ones the Pi offers (GET /api/gimbals).
+    const bridges = Object.entries(isObject(raw.devices) ? raw.devices : {})
+      .filter(([key, other]) => key !== deviceKey && isObject(other) && other.protocol === 'dji-bridge' && isObject(other.bridge))
+      .map(([key, other]) => ({ key, host: String((other as Raw).bridge.host), port: Number((other as Raw).bridge.port ?? 7878) }));
+    const host = bridges[0]?.host ?? (typeof device.viscaIp === 'string' && device.viscaIp ? device.viscaIp : fail('set the camera address before changing the controller'));
+    const active: string | undefined = raw.activeProfile;
+    const inRigs = new Set<string>((active && Array.isArray(raw.profiles?.[active]?.slots) ? raw.profiles[active].slots : []).map((slot: Raw) => slot.device));
+    const taken = new Set(bridges.filter((b) => b.host === host && inRigs.has(b.key)).map((b) => b.port));
+    const port = DEFAULT_BRIDGE_PORTS.find((p) => !taken.has(p)) ?? DEFAULT_BRIDGE_PORTS[0];
     delete device.viscaIp; delete device.viscaPort; delete device.cameraAddress; delete device.cameraType;
     device.protocol = 'dji-bridge';
-    device.bridge = { host, port: 7878 };
+    device.bridge = { host, port };
     return;
   }
   if (protocol === 'dji-bridge') {
@@ -158,6 +168,12 @@ export function applyRigPatch(current: Raw, deviceKey: string, patch: unknown): 
   if ('gimbal' in patch) {
     if (device.protocol !== 'dji-bridge') fail(`"${deviceKey}" is not a gimbal, so it has no bridge settings`);
     setGimbal(device, patch.gimbal);
+    // One bridge drives one gimbal: two rigs of the active profile on the same bridge would fight over it.
+    const active: string | undefined = raw.activeProfile;
+    const slots: Raw[] = active && Array.isArray(raw.profiles?.[active]?.slots) ? raw.profiles[active].slots : [];
+    const clash = slots.map((slot) => slot.device).find((key) => key !== deviceKey && isObject(raw.devices[key]) && raw.devices[key].protocol === 'dji-bridge'
+      && raw.devices[key].bridge?.host === device.bridge.host && (raw.devices[key].bridge?.port ?? 7878) === device.bridge.port);
+    if (clash) fail(`that gimbal (${device.bridge.host} port ${device.bridge.port}) is already driven by "${raw.devices[clash].label ?? clash}" in this profile`);
   }
 
   // ---- wiring in the active profile

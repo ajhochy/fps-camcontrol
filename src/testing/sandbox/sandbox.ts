@@ -51,6 +51,7 @@ function sandboxEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
     SONY_API_URL: `http://127.0.0.1:${SONY_PORT}`,
     STATUS_PORT: String(APP_PORT),
     CAMCONTROL_NO_CONTROLLER: '1',
+    CAMCONTROL_GIMBAL_SWEEP: '0', // never sweep the real network: probing a live bridge makes it stop its gimbal
     LOG_LEVEL: process.env.LOG_LEVEL ?? 'info',
     ...extra,
   };
@@ -187,9 +188,11 @@ async function selfTest(): Promise<number> {
     // Follow-up F3: the controller type and the gimbal model, live.
     const reported = (await api('/api/rigs')).body.rigs?.find((r: any) => r.deviceKey === 'rs3')?.gimbal?.reportedModel;
     check('a gimbal rig shows the model its bridge reports', typeof reported === 'string' && reported.length > 0);
-    const labelled = await patch('/api/rigs/rs3', { gimbal: { gimbalModel: reported } });
-    const afterLabel = labelled.body.rigs?.find((r: any) => r.deviceKey === 'rs3');
-    check('choosing the gimbal model saves it without dropping the bridge connection', labelled.status === 200 && afterLabel?.gimbal?.gimbalModel === reported && afterLabel?.gimbal?.reportedModel === reported && afterLabel?.live?.bridgeReachable === true);
+    const scanned = (await api('/api/gimbals')).body.gimbals ?? [];
+    const onPort = (port: number) => scanned.find((g: any) => g.host === '127.0.0.1' && g.port === port);
+    check('GET /api/gimbals finds every fake bridge with its model and gimbal link', DJI_PORTS.every((port) => onPort(port)?.reachable === true && onPort(port)?.model === reported && onPort(port)?.gimbalConnected === true));
+    check('the gimbal the app drives is reported from its live connection, not probed', onPort(17878)?.drivenBy === 'cam4' && onPort(17878)?.usedBy?.[0]?.deviceKey === 'rs3' && onPort(17879)?.drivenBy === null);
+    check('the scan is safe for the driven gimbal: it stays connected', (await api('/api/rigs')).body.rigs?.find((r: any) => r.deviceKey === 'rs3')?.live?.connected === true);
     const toGeneric = await patch('/api/rigs/birddog2', { controller: 'generic' });
     check('a BirdDog can be changed to another VISCA-IP camera and stays connected', toGeneric.status === 200 && toGeneric.body.rigs?.find((r: any) => r.deviceKey === 'birddog2')?.controller === 'generic'
       && !!(await waitFor('the changed camera to reconnect', async () => (await api('/api/rigs')).body.rigs?.find((r: any) => r.deviceKey === 'birddog2')?.live?.connected === true)));
@@ -197,7 +200,11 @@ async function selfTest(): Promise<number> {
     check('a rig with a Sony camera cannot become a BirdDog (400, says why)', await patch('/api/rigs/vbot', { controller: 'birddog' }).then((r) => r.status === 400 && /built-in camera/.test(r.body.error)));
     const toGimbal = await patch('/api/rigs/vbot', { controller: 'gimbal' });
     const asGimbal = toGimbal.body.rigs?.find((r: any) => r.deviceKey === 'vbot');
-    check('a V-BOT can become a gimbal: bridge on the same address, port 7878, live at once', toGimbal.status === 200 && asGimbal?.protocol === 'dji-bridge' && asGimbal?.gimbal?.port === 7878 && (await api('/api/config')).body.cameras?.[0]?.protocol === 'dji-bridge');
+    check('a V-BOT can become a gimbal: pointed at the gimbals\' Pi on a port no rig drives, live at once', toGimbal.status === 200 && asGimbal?.protocol === 'dji-bridge' && asGimbal?.gimbal?.host === '127.0.0.1' && asGimbal?.gimbal?.port === 7878 && (await api('/api/config')).body.cameras?.[0]?.protocol === 'dji-bridge');
+    check('choosing a gimbal another rig drives is refused', (await patch('/api/rigs/vbot', { gimbal: { host: '127.0.0.1', port: 17878 } })).status === 400);
+    const chosen = await patch('/api/rigs/vbot', { gimbal: { host: '127.0.0.1', port: 17879, gimbalModel: reported } });
+    check('choosing a free gimbal from the scan connects the rig to it', chosen.status === 200
+      && !!(await waitFor('the rig to reach its gimbal', async () => (await api('/api/rigs')).body.rigs?.[0]?.live?.connected === true)));
     const backToVbot = await patch('/api/rigs/vbot', { controller: 'vbot', visca: { port: rigs.rigs[0].visca.port } });
     check('and back to a V-BOT on its VISCA port, reconnecting to the camera', backToVbot.status === 200 && backToVbot.body.rigs?.[0]?.protocol === 'visca' && backToVbot.body.rigs?.[0]?.visca?.port === rigs.rigs[0].visca.port
       && !!(await waitFor('the V-BOT to reconnect', async () => (await api('/api/rigs')).body.rigs?.[0]?.live?.connected === true)));

@@ -86,7 +86,7 @@ refused('the controller type cannot be changed from here', () => applyRigPatch(c
 raw = applyRigPatch(current(), 'vbot', { controller: 'generic' });
 check('a V-BOT can become another VISCA-IP camera: only the camera type changes', raw.devices.vbot.cameraType === 'generic' && raw.devices.vbot.protocol === 'visca' && raw.devices.vbot.viscaIp === '192.168.50.15' && raw.devices.vbot.viscaPort === 52381 && raw.devices.vbot.speedScale === 2);
 raw = applyRigPatch(current(), 'vbot', { controller: 'gimbal' });
-check('a VISCA camera can become a gimbal on the same address, bridge port 7878', raw.devices.vbot.protocol === 'dji-bridge' && raw.devices.vbot.bridge.host === '192.168.50.15' && raw.devices.vbot.bridge.port === 7878);
+check('a VISCA camera becomes a gimbal on the Pi the other gimbals use, on a bridge port no active rig drives', raw.devices.vbot.protocol === 'dji-bridge' && raw.devices.vbot.bridge.host === 'dji-bridge.local' && raw.devices.vbot.bridge.port === 7879);
 check('becoming a gimbal drops the VISCA-only fields and keeps the name and speed', ['viscaIp', 'viscaPort', 'cameraAddress', 'cameraType'].every((k) => !(k in raw.devices.vbot)) && raw.devices.vbot.label === 'V-BOT' && raw.devices.vbot.speedScale === 2);
 check('the gimbal keeps its Sony camera', raw.profiles.production.slots[0].camera === 'a7s3');
 raw = applyRigPatch(current(), 'rs3pro', { controller: 'vbot' });
@@ -103,6 +103,8 @@ reset();
 writeDevicesFile(applyRigPatch(current(), 'rs3pro', { controller: 'vbot' }));
 check('a controller change survives the comment-preserving writer and reloads', onDisk().devices.rs3pro.cameraType === 'vbot' && onDisk().devices.rs3pro.viscaIp === 'dji-bridge.local' && onDisk().devices.rs3pro.bridge === undefined && comments(fs.readFileSync(file, 'utf8')) === comments(fixture));
 reset();
+refused('two rigs of the active profile cannot drive the same gimbal bridge', () => applyRigPatch(applyRigPatch(current(), 'vbot', { controller: 'gimbal' }), 'vbot', { gimbal: { port: 7878 } }), /already driven by "DJI RS3"/);
+check('a bridge used only by a rig of another profile can be chosen', applyRigPatch(applyRigPatch(current(), 'vbot', { controller: 'gimbal' }), 'vbot', { gimbal: { host: 'dji-bridge.local', port: 7879 } }).devices.vbot.bridge.port === 7879);
 refused('an unknown field is refused rather than ignored', () => applyRigPatch(current(), 'vbot', { colour: 'red' }), /"colour" cannot be changed here/);
 refused('an empty VISCA address (IP) is refused', () => applyRigPatch(current(), 'vbot', { visca: { host: '' } }), /camera address \(IP\) must be/);
 

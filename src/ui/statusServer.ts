@@ -21,6 +21,7 @@ import { ActivityLog } from '../app/activityLog';
 import { ViscaDevice } from '../devices/viscaDevice';
 import { MotionDevice } from '../devices/motionDevice';
 import { createMotionDevice } from '../devices/deviceFactory';
+import { probeBridge, DEFAULT_BRIDGE_PORTS, tcpOpen, localSubnetHosts, inBatches, resolveHost, nameOf } from '../devices/gimbalScan';
 import { AtemClient } from '../atem/atemClient';
 import { loadProfiles, detectConnectionType } from '../input/profileDetector';
 import { eventBus } from '../app/eventBus';
@@ -155,6 +156,62 @@ export function createStatusServer(
     return { ...buildRigs(config, state, devicesFileVersion(), sony ? sony.cameras : []), profile: profileBody(), atemConnected: atem ? atem.connected : null, programInput: atem && atem.connected ? atem.getProgramInput() ?? null : null, sony };
   };
   app.get('/api/rigs', (_req, res) => { res.json(rigsBody()); });
+  // The gimbals on offer: every DJI bridge the app can find, on the Pi hosts already in the inventory and, by a
+  // sweep of this machine's local /24 networks, on any other Pi (one Pi may run a bridge per gimbal on several
+  // ports, or several Pis may run one each). A port the app already drives is reported from its live connection
+  // and never probed, matched by address as well as by name: a probe's disconnect makes that bridge stop its gimbal.
+  // CAMCONTROL_GIMBAL_SWEEP=0 turns the network sweep off (the sandbox does, so it never touches real bridges).
+  app.get('/api/gimbals', async (_req, res) => {
+    try {
+      const inventory = (config.devices ?? {}) as Record<string, any>;
+      const view = buildRigs(config, state, '', []);
+      const bridgeDevices = Object.entries(inventory).filter(([, d]) => d?.protocol === 'dji-bridge' && d.bridge?.host);
+      const knownHosts = [...new Set(bridgeDevices.map(([, d]) => String(d.bridge.host)))];
+      if (!knownHosts.length) knownHosts.push('dji-bridge.local');
+      const ipOf = new Map<string, string | null>();
+      await Promise.all(knownHosts.map(async (host) => { ipOf.set(host, await resolveHost(host)); }));
+      const nameOfIp = new Map<string, string>();
+      for (const host of knownHosts) { const ip = ipOf.get(host); if (ip && !nameOfIp.has(ip)) nameOfIp.set(ip, host); }
+
+      const driven = new Map<string, { id: string }>(); // keyed by host:port and by ip:port
+      for (const cam of config.cameras) {
+        if (cam.protocol !== 'dji-bridge' || !cam.bridge || !devices.has(cam.id as CameraId)) continue;
+        driven.set(`${cam.bridge.host}:${cam.bridge.port}`, { id: cam.id });
+        const ip = ipOf.has(cam.bridge.host) ? ipOf.get(cam.bridge.host) : await resolveHost(cam.bridge.host);
+        if (ip) driven.set(`${ip}:${cam.bridge.port}`, { id: cam.id });
+      }
+
+      const candidates = new Map<string, { host: string; port: number; ip: string | null }>(); // keyed by ip:port when known
+      const addCandidate = (host: string, port: number, ip: string | null): void => {
+        const key = `${ip ?? host}:${port}`;
+        if (!candidates.has(key)) candidates.set(key, { host, port, ip });
+      };
+      for (const host of knownHosts) for (const port of DEFAULT_BRIDGE_PORTS) addCandidate(host, port, ipOf.get(host) ?? null);
+      for (const [, d] of bridgeDevices) addCandidate(String(d.bridge.host), Number(d.bridge.port ?? 7878), ipOf.get(String(d.bridge.host)) ?? null);
+      if (process.env.CAMCONTROL_GIMBAL_SWEEP !== '0') {
+        const targets = localSubnetHosts().filter((ip) => !nameOfIp.has(ip)).flatMap((ip) => DEFAULT_BRIDGE_PORTS.map((port) => ({ ip, port })));
+        const open = (await inBatches(targets, 200, async (t) => ((await tcpOpen(t.ip, t.port)) ? t : null))).filter((t): t is { ip: string; port: number } => !!t);
+        const names = new Map<string, string | null>();
+        for (const ip of new Set(open.map((t) => t.ip))) names.set(ip, await nameOf(ip));
+        for (const t of open) addCandidate(names.get(t.ip) ?? t.ip, t.port, t.ip);
+      }
+
+      const gimbals = await Promise.all([...candidates.values()].map(async ({ host, port, ip }) => {
+        const live = driven.get(`${host}:${port}`) ?? (ip ? driven.get(`${ip}:${port}`) : undefined);
+        const probe = live
+          ? { reachable: state.cameraBridgeReachable[live.id] === true, model: state.cameraGimbalModel[live.id] ?? null, gimbalConnected: state.cameraGimbalAttached[live.id] ?? null }
+          : await probeBridge(host, port);
+        const usedBy = bridgeDevices
+          .filter(([, d]) => (d.bridge.port ?? 7878) === port && (d.bridge.host === host || (ip !== null && ipOf.get(String(d.bridge.host)) === ip)))
+          .map(([deviceKey, d]) => ({ deviceKey, label: String(d.label ?? deviceKey), rig: view.rigs.find((rig) => rig.deviceKey === deviceKey)?.position ?? null }));
+        return { host, port, address: ip, reachable: probe.reachable, model: probe.model, gimbalConnected: probe.gimbalConnected, drivenBy: live ? live.id : null, usedBy };
+      }));
+      res.json({ gimbals: gimbals.filter((g) => g.reachable || g.usedBy.length).sort((x, y) => x.host.localeCompare(y.host) || x.port - y.port) });
+    } catch (err) {
+      logger.error({ err }, 'gimbal scan failed');
+      res.status(500).json({ error: 'the gimbal scan failed' });
+    }
+  });
 
   // ---- rig edits. Hardware records (name, addresses, bound Sony camera) are shared by every profile and
   // are saved immediately. Each edit is validated as a whole file first, written through the
