@@ -1,6 +1,6 @@
 # Current plan — packaging-first Electron delivery (supersedes the plan below)
 
-2026-10-01 · Implementation resumed; manual packaging and real runtime verification are underway.
+2026-10-01 · Manual foundation frozen at `133ae8d`, draft PR57 open, final notarized/stapled DMG runtime verified. Tracking implementation and final delivery gates are underway on that exact foundation. Historical sections below do not expand active scope.
 
 ## Status and clarification interview
 

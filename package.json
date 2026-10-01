@@ -21,7 +21,12 @@
     "test:electron:probe": "node scripts/run-electron-probe.cjs",
     "electron:package": "node scripts/package-electron-manual.cjs",
     "test:electron:manual": "node scripts/test-electron-manual-package.cjs",
-    "test:electron:runtime": "node scripts/test-electron-manual-runtime.cjs"
+    "test:electron:runtime": "node scripts/test-electron-manual-runtime.cjs",
+    "test:tracking": "pnpm build && node scripts/check-tracking.cjs",
+    "tracking:calibrate": "ts-node scripts/tracking-calibrate.ts",
+    "electron:package:tracking": "node scripts/package-electron-tracking.cjs",
+    "test:electron:tracking": "node scripts/test-electron-tracking-package.cjs",
+    "test:electron:tracking:runtime": "node scripts/test-electron-tracking-runtime.cjs"
   },
   "dependencies": {
     "@types/ws": "^8.18.1",

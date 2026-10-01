@@ -1,0 +1,91 @@
+{
+  "issue": 26,
+  "generated": "2026-10-01",
+  "criteria": [
+    {
+      "criterion_id": "issue-26-c1",
+      "text": "A session binds a source to its active slot via #23's resolver; unresolvable source ⇒ status `unavailable`, no error.",
+      "mode": "integration",
+      "test_file": "tests/tracking/manager.spec.cjs",
+      "test_id": "issue-26-c1: unresolvable source is unavailable and rebinding invalidates target before old device replacement",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-26-c2",
+      "text": "Output goes through `shouldSendMotion`; with `virtualDjiBridge` the observed command rate never exceeds 20/s and heartbeats keep it inside the 250 ms bridge watchdog.",
+      "mode": "integration",
+      "test_file": "tests/tracking/manager.spec.cjs",
+      "test_id": "issue-26-c2: actual virtual DJI stream stays <=20Hz with heartbeat and shared manual handoff budget",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-26-c3",
+      "text": "**Operator override:** stick motion on the camera that is both *controlled* and *tracked* ⇒ session suspended (`operator_override`), one `stop()`, no tracking motion afterward until an explicit `resume`. Stick motion on a *different* camera does not affect tracking.",
+      "mode": "integration",
+      "test_file": "tests/tracking/manager.spec.cjs",
+      "test_id": "issue-26-c3: same-camera override stops exactly once; different camera unaffected; explicit fresh resume only",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-26-c4",
+      "text": "**Emergency stop** ⇒ every session cancelled and `stop()` sent (manager is notified from `emergencyStopAll` or the machine's back-button path).",
+      "mode": "integration",
+      "test_file": "tests/tracking/manager.spec.cjs",
+      "test_id": "issue-26-c4: emergency stop invalidates every session before further observations can move",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-26-c5",
+      "text": "**Stale data:** no fresh observation for 500 ms ⇒ `stop()`, state `stale`; fresh data does not auto-resume a suspended session but does resume a merely stale one.",
+      "mode": "integration",
+      "test_file": "tests/tracking/manager.spec.cjs",
+      "test_id": "issue-26-c5: genuinely fresh frame deadline500ms stops; prediction cannot refresh; stale alone recovers",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-26-c6",
+      "text": "**Device loss:** `connected` or `gimbalAttached` false ⇒ `stop()` and session ends with reason.",
+      "mode": "integration",
+      "test_file": "tests/tracking/manager.spec.cjs",
+      "test_id": "issue-26-c6: bridge or gimbal loss invalidates session; reconnect never replays old selection",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-26-c7",
+      "text": "**Shutdown:** SIGINT/SIGTERM path stops all sessions before exit.",
+      "mode": "integration",
+      "test_file": "tests/tracking/manager.spec.cjs",
+      "test_id": "issue-26-c7: shutdown stops motion before client teardown and never restarts automatically",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-26-c8",
+      "text": "`lost` ⇒ immediate `stop()`, hold `lostHoldMs`, then `idle`.",
+      "mode": "integration",
+      "test_file": "tests/tracking/manager.spec.cjs",
+      "test_id": "issue-26-c8: target lost stops immediately then holds before idle",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-26-c9",
+      "text": "Disabled config ⇒ manager is inert (no timers, no sockets).",
+      "mode": "integration",
+      "test_file": "tests/tracking/manager.spec.cjs",
+      "test_id": "issue-26-c9: disabled config creates no timers or client connections",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-26-c10",
+      "text": "All state transitions emit an event and are reflected in `AppState` for the status API.",
+      "mode": "integration",
+      "test_file": "tests/tracking/manager.spec.cjs",
+      "test_id": "issue-26-c10: each public transition emits status and AppState projection without mutable session references",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [],
+  "test_command": "node --test -r ts-node/register/transpile-only tests/tracking/manager.spec.cjs",
+  "red_evidence": "All10 executable criterion tests failed assertions on absent implementation before code was created.",
+  "green_evidence": "Owned suite28/28 passed including all23 criterion tests and5 additional adversarial safety cases. pnpm build exit0; actual bundled Python integration exit0. Root fullgate and composed app/package verification remain required."
+}

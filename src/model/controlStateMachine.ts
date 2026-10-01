@@ -12,6 +12,7 @@ import { applyCurve, applyDeadzone, clamp } from '../visca/speedCurves';
 import { emergencyStopAll } from '../safety/emergencyStop';
 import { ActivityLog } from '../app/activityLog';
 import { logger } from '../index';
+import { trackingFor } from '../app/trackingHooks';
 
 const TRIGGER_DEADZONE = 0.05;
 const FACE_CAMERA_BUTTONS = ['X', 'A', 'B', 'Y'] as const;
@@ -114,7 +115,8 @@ export class ControlStateMachine {
     const currentDevice = this.devices.get(this.state.controlledCamera);
     if (!this.state.controllerConnected || Date.now() - this.lastInputTs > INPUT_STALE_MS) {
       if (currentDevice && (this.wasMovingPT || this.wasMovingZoom)) {
-        currentDevice.stop();
+        const tracking = trackingFor(this.state);
+        if (tracking) tracking.ledger.stop(currentDevice); else currentDevice.stop();
         currentDevice.setZoom(0);
       }
       this.wasMovingPT = false;
@@ -155,17 +157,22 @@ export class ControlStateMachine {
         this.activityLog?.setContext(controller, INPUT_LABELS.rightStick, 'Pan/Tilt Start');
       } else if (!movingPT && this.wasMovingPT) {
         this.activityLog?.setContext(controller, INPUT_LABELS.rightStick, 'Pan/Tilt Stop');
-        device.stop();
+        const tracking = trackingFor(this.state);
+        const autonomous = tracking && Object.values(tracking.manager.getStatus()).some(source =>
+          source.cameraId === cameraId && source.sessionId && source.state !== 'operator_override');
+        if (!autonomous) { if (tracking) tracking.ledger.stop(device); else device.stop(); }
         this.lastPanTilt.delete(cameraId);
       }
       if (movingPT) {
+        trackingFor(this.state)?.manager.operatorOverride(cameraId);
         const pan = this.getEffectiveSpeed(rightX);
         const tilt = this.getEffectiveSpeed(-rightY);
         const last = this.lastPanTilt.get(cameraId);
         const changed = !last || Math.abs(pan - last.pan) > 0.05 || Math.abs(tilt - last.tilt) > 0.05
           || Math.sign(pan) !== Math.sign(last.pan) || Math.sign(tilt) !== Math.sign(last.tilt);
-        if (shouldSendMotion(device.protocol, changed, last?.ts, now)) {
-          device.setPanTilt(pan, tilt);
+        const tracking = trackingFor(this.state);
+        if (tracking ? tracking.ledger.send(device, pan, tilt, now, changed) : shouldSendMotion(device.protocol, changed, last?.ts, now)) {
+          if (!tracking) device.setPanTilt(pan, tilt);
           this.lastPanTilt.set(cameraId, { pan, tilt, ts: now });
         }
       }
@@ -194,6 +201,7 @@ export class ControlStateMachine {
     if (risingEdge('RB', input.buttons.RB ?? false, this.edgeState)) {
       const recenterDevice = this.devices.get(this.state.controlledCamera);
       if (input.buttons.LB && recenterDevice?.recenter) {
+        trackingFor(this.state)?.manager.operatorOverride(this.state.controlledCamera);
         this.activityLog?.setContext(controller, 'LB + RB', 'Recenter');
         recenterDevice.recenter().catch(err => logger.error({ err }, 'recenter error'));
       } else {
@@ -241,6 +249,19 @@ export class ControlStateMachine {
       this.activityLog?.setContext(controller, 'D-pad Left/Right', `Lower Thirds ${this.state.lowerThirdsActive ? 'OFF' : 'ON'}`);
       toggleLowerThirds(this.atem, this.state, this.config)
         .catch(err => logger.error({ err }, 'lower thirds toggle error'));
+    }
+
+    const trackingToggle = this.config.mappings.trackingToggle ?? 'RS';
+    if (risingEdge(trackingToggle, input.buttons[trackingToggle] ?? false, this.edgeState)) {
+      const manager = trackingFor(this.state)?.manager;
+      const session = manager && Object.values(manager.getStatus()).find(source => source.cameraId === this.state.controlledCamera && source.sessionId);
+      if (manager && session) {
+        this.activityLog?.setContext(controller, trackingToggle, 'Tracking');
+        if (session.state === 'operator_override') {
+          try { manager.resume(session.sourceId); this.activityLog?.addSystemEntry('Tracking resumed', 'Explicit controller action'); }
+          catch { this.activityLog?.addSystemEntry('Tracking unavailable', 'Select a fresh target'); }
+        } else { manager.cancel(session.sourceId); this.activityLog?.addSystemEntry('Tracking canceled', 'Gimbal stopped'); }
+      }
     }
 
     if (risingEdge('back', input.buttons.back ?? false, this.edgeState)) {

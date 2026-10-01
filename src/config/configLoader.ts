@@ -8,6 +8,7 @@ import * as YAML from 'yaml';
 import { z } from 'zod';
 import { writeFileAtomic } from './atomicWrite';
 import { getUserPath } from './paths';
+import { TrackingSchema, TrackingConfig, collectTrackingIssues, resolveTrackingConfig } from '../tracking/configSchema';
 import { loadWorkingProfile, setAside as setAsideWorking, workingProfilePath, WorkingProfile } from './workingProfile';
 
 // The string forms of JavaScript's nullish values. A UI that interpolates an
@@ -42,6 +43,7 @@ const BridgeSchema = z.object({
 
 const CameraSchema = z.object({
   id: z.string(),
+  deviceKey: z.string().optional(),
   label: z.string(),
   protocol: z.enum(['visca', 'dji-bridge']).default('visca'),
   cameraType: z.enum(['vbot', 'birddog', 'generic']).default('generic'),
@@ -195,7 +197,9 @@ const DevicesSchema = z.object({
   graphics: GraphicsSchema.optional(),
   lowerThirds: z.object({ type: z.string(), dskIndex: z.number() }).optional(),
   sony: SonySchema.optional(),
+  tracking: TrackingSchema.optional(),
 }).superRefine((cfg, ctx) => {
+  for (const issue of collectTrackingIssues(cfg.tracking, cfg.devices)) ctx.addIssue({ code:'custom', ...issue });
   if (cfg.profiles && cfg.devices) {
     for (const issue of collectRigIssues(cfg.devices, cfg.profiles)) ctx.addIssue({ code: 'custom', ...issue });
   }
@@ -256,6 +260,7 @@ const MappingSchema = z.object({
   speedDown: z.string().default('dpadDown'),
   lowerThirds: z.string().default('dpadLeft'),
   emergencyStop: z.string().default('back'),
+  trackingToggle: z.string().default('RS'),
 });
 
 export type CameraConfig = z.infer<typeof CameraSchema>;
@@ -284,6 +289,7 @@ export interface AppConfig {
   profiles?: Record<string, Profile>;
   activeProfile?: string;
   sony?: SonyRuntimeConfig;
+  tracking?: TrackingConfig;
   /** Unsaved rig edits of the active profile, applied on top of it (see workingProfile.ts). */
   working?: WorkingProfile;
   /** Something to tell the operator about the working copy (a draft that could not be restored, an outside edit). */
@@ -331,6 +337,7 @@ export function resolveProfile(
     if (dev.protocol === 'sony') throw new Error(`device "${slot.device}" in profile slot ${i + 1} is a Sony camera, not a controller`);
     return CameraSchema.parse({
       id: `cam${i + 1}`,
+      deviceKey: slot.device,
       label: dev.label,
       protocol: dev.protocol,
       cameraType: dev.cameraType,
@@ -407,6 +414,7 @@ export function loadConfig(): AppConfig {
     profiles: devices.profiles,
     activeProfile: devices.activeProfile,
     sony: resolveSonyConfig(devices.sony, devicesPath),
+    tracking: resolveTrackingConfig(devices.tracking),
     working,
     workingNotice,
   };

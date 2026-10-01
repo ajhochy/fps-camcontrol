@@ -51,6 +51,20 @@ replays motion. Sony SDK/CameraWebApp is user-supplied, not redistributed.
 | Pi bridge | `pi-bridge/dji_bridge.py` + `drivers/` | Async websockets server translating app commands to RS3 Bluetooth LE; 250ms safety watchdog; pluggable driver |
 
 ## Key flow
+
+Tracking is optional and disabled by default. `src/tracking/` owns the strict
+protocol/client, pure controller, manager and shared `MotionLedger` keyed by
+physical device. The tracking-only Electron entry launches `tracker-sidecar/`
+with bundled isolated Python and an allowlisted environment. Private WS and
+frame-only credentials are separate from the operator API session. Frames flow
+Sony → backend receipt timestamp → authorized memory-only frame pull → pinned
+ONNX detector → conservative identity association → WS observation → manager →
+capped/paced MotionDevice commands. No frames or appearance data are persisted.
+Source rebinding clears targets before device mutation. Same-camera manual
+motion/recenter/preset takes ownership first; all motion stops are enqueued before
+awaiting helper teardown. Calibration uses the same backend-owned device/ledger,
+never a competing CLI hardware connection. See `docs/tracking.md` for limits.
+
 ```
 Gamepad ──node-hid──▶ controllerLoop ──▶ controlStateMachine ──▶ Map<CameraId, MotionDevice>
                                               │                         ├─ ViscaDevice ──UDP/VISCA-IP──▶ BirdDog / V-BOT

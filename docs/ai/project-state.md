@@ -5,50 +5,48 @@ type: project
 # Project State — fps-camcontrol
 
 ## Current focus
-Packaging-first Electron delivery is underway on `feat/electron-foundation`.
-The production shell and explicit backend lifecycle are integrated. Independent
-review repairs and the actual mounted manual candidate runtime now pass. The
-foundation is ready to freeze; committed-source rebuilding and Apple notarization
-are separate remaining gates before final installer delivery.
+The manual Electron installer is complete as a signed/notarized/stapled artifact
+from frozen foundation commit `133ae8d9620665b1e87b799a765a619ccae06ebc`.
+Tracking implementation and independent integration verification are underway;
+its final committed-source installer/signing/runtime gates remain pending.
 
 ## Active branch / PR
-Branch: `feat/electron-foundation`, based on inherited PR36 HEAD
-`763122d5ef27097661773ccc16d4f704f950ea81`. This foundation checkpoint records
-independently verified production inputs before the final committed-source build.
-No new draft PR or Apple artifact acceptance has been recorded yet.
+Current: `codex/electron-tracking`, branched from the exact foundation above.
+Foundation draft: https://github.com/ajhochy/fps-camcontrol/pull/57, targeting main.
+Tracking will target `feat/electron-foundation`. PR36 and its inherited rigs/Sony
+work remain unchanged and credited. No merge, release, deployment or cleanup.
 
 ## In progress
-- One shared production/development shell, private HTTP/WS sessions, real port IPC,
-  immutable resources, generic userData setup and consented whole-file import.
-- Actual mounted-DMG runtime and owned helper/blocked-event-loop fault tests.
-- Apple Developer ID signing and app/DMG notarization tooling. After account-holder
-  acceptance and propagation of the required agreement, read-only authentication
-  succeeds; actual artifact submission/Accepted results remain pending.
-- Tracking remains preparation only. Current issue bodies, frozen protocol,
-  permissive model and audited macOS-14-compatible runtime pins are in
-  `docs/ai/runs/2026-10-01-tracking-implementation-handoff.md`.
+- Tracking #23–35/#50: strict config/protocol, shared motion arbitration,
+  real Python detector/association, API/UI/RS toggle, bounded calibration,
+  pinned runtime/model delivery. Contracts and negative tests precede code.
+- Independent safety review repaired shutdown stop ordering, UTF-8 credential
+  rejection, actual-manager route errors and source reconfiguration.
+- Final tracking build must follow source freeze, then Apple acceptance/staples
+  and exact mounted-DMG runtime. The manual artifact is immutable.
 
 ## Risks / known issues
-- No final notarized-DMG runtime, notary Accepted/staples, genuine clean OS/TCC, or
-  physical controller/camera/gimbal acceptance yet. Developer-host isolated HOME
-  testing must not be reported as clean-Mac proof.
-- Historical probe soak failures are unchanged, not production-loop results and
-  not a blocker to implementing packaging. Unrelated controller #3–6 drafts are
-  preserved but excluded from packaging implementation.
+- MANUAL_PENDING: clean macOS/TCC/download quarantine, physical HID/camera/gimbal,
+  real sleep/wake, calibrated gain/latency and both 30-minute tracking soaks.
+- Developer-host fresh HOME/minimal PATH is not clean-OS proof. Synthetic model
+  inference is not person-detection accuracy or physical stability evidence.
+- Packaged APIs use private authenticated loopback; developer CLI endpoints must
+  not be exposed on a LAN. Remote control/security work is excluded.
+- Historical probe timing failures and unrelated controller #3–6 drafts are
+  preserved. Local exclusions: `docs/ai/issues/tracking-v1-exclusions.md`.
 
 ## Test status
-- `ai-workflow` now routes to the repository adapter and serial checks runner;
-  no nonexistent `npm run typecheck` fallback.
-- Independent root `ai-workflow checks --level pr` exit 0 after all production
-  repairs: 49/49 focused tests, schema/rig/profile/Sony suites, Pi tests,
-  smoke 268/268, sandbox 104/104, build, page-JS and diff. Signing tests 12/12.
-- Actual candidate mounted-DMG runtime passed with no browser/page/network errors:
-  `runs/electron-manual-evidence/runtime-2026-10-01T19-44-46-301Z/runtime.json`.
-  Includes real managed-helper faults, paused recovery, import and persistence.
-  Final source-committed/notarized artifact must rerun this exact gate.
+- Manual root gate: build/page-JS, 49 focused tests, rig/profile/Sony/Pi suites,
+  isolated smoke268, sandbox104; separate signing tests12, all pass.
+- Final manual app and DMG Apple Accepted, strict codesign/Gatekeeper/staples
+  pass. Exact final DMG runtime passes with empty error arrays:
+  `runs/electron-manual-evidence/runtime-2026-10-01T20-00-00-684Z/runtime.json`.
+- Tracking targeted tests, actual bundled Python mock→TS→VirtualDJI, delay sweep
+  150/300/500ms, model inference and six-viewport UI checks pass in scoped runs.
+  Root serial full repository tracking gate now exits0, including38/38 actual
+  Python/model tests, UI9/9, smoke268 and sandbox104. Final installer remains pending.
 
 ## Next step
-Commit the verified foundation, rebuild/sign/notarize it, and open its draft PR.
-Branch tracking from that exact commit after manual build inputs are copied;
-implement and test the second app, then open its stacked draft PR. Preserve PR36,
-the original checkout, existing branches/worktrees and all failed evidence.
+Finish calibration and independent runtime review, run the serial full gate,
+freeze tracking source, build/notarize/verify exact final bytes, and open the
+second stacked draft PR. Keep every manual/physical limitation explicit.

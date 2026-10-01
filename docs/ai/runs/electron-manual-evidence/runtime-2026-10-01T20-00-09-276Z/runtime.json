@@ -1,0 +1,9 @@
+{
+  "criteria": {},
+  "screenshots": [],
+  "consoleErrors": [],
+  "networkErrors": [],
+  "appErrors": [],
+  "evidenceBoundary": "Developer host fresh HOME/minimal PATH, not clean OS/TCC/hardware/Gatekeeper/notarization.",
+  "failure": "Command failed: /usr/bin/hdiutil attach -readonly -nobrowse -mountpoint /var/folders/f0/kwf9lqtx57qgt3j4rbtvg1ym0000gn/T/fps manual runtime SEq1I3/Mounted DMG /Users/ajhochhalter/.local/share/opencode/worktree/ec2e0fe3fdd54c2e9ab53bfa4cc75c91e40568ed/fps-electron-two-pr-plan/release/manual-delivery-133ae8d/2026-10-01-final/FPS CamControl-0.1.0-arm64-notarized.dmg\nhdiutil: attach failed - Resource busy\n"
+}

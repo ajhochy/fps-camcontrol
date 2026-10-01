@@ -86,3 +86,9 @@ describe compatibility; this project is not affiliated with or endorsed by them.
 test HOME, minimal PATH and random cwd; it enumerates HID without opening any device.
 Node and Electron native builds are separate. This does not prove real controller permission,
 production control-loop timing, a clean OS, Gatekeeper, or the unfinished foundation features.
+# Tracking installer
+
+The separate experimental tracking variant and its setup/safety limits are in
+[docs/tracking.md](docs/tracking.md). It includes its Python/model runtime,
+defaults to disabled, and requires the recorded physical safety drill before
+live operation. The manual installer contains no tracker.

@@ -107,6 +107,7 @@ function createShell(electron, options = {}) {
     if (quitting || child || !ownership) return;
     origin = undefined;
     const env = { ...childEnvironment(app.getPath('userData'), resources), CAMCONTROL_SESSION: token };
+    if (options.tracking === true) env.CAMCONTROL_TRACKING_AVAILABLE = '1';
     if (paused) env.CAMCONTROL_INPUT_SUSPENDED = '1';
     const owned = utilityProcess.fork(backend, [], { serviceName: 'FPS CamControl Backend', stdio: 'ignore', env });
     child = owned;

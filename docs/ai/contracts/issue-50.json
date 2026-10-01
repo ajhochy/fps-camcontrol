@@ -1,0 +1,48 @@
+{
+  "issue": 50,
+  "generated": "2026-10-01",
+  "criteria": [
+    {
+      "criterion_id": "issue-50-c1",
+      "text": "Stage exact relocatable ARM64 Python, pinned wheels, permissively licensed model and all component notices without host Python/pip; checksum every byte and preserve resume partials.",
+      "mode": "integration",
+      "test_file": "scripts/test-tracking-runtime-staging.cjs",
+      "test_id": "exact runtime manifest pins NumPy14 and verified model, with all license sources",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-50-c2",
+      "text": "Missing/corrupt model fails closed before launch or inference; no silent first-run download.",
+      "mode": "unit",
+      "test_file": "tests/tracking-sidecar-process.test.cjs",
+      "test_id": "loopback origin and model checksum fail closed with curated errors",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-50-c3",
+      "text": "Final tracking app contains runtime/model outside ASAR, minimum macOS covers all ARM64 native artifacts, exact model and notices retained, no Sony SDK.",
+      "mode": "integration",
+      "test_file": "scripts/test-electron-tracking-package.cjs",
+      "test_id": "actual signed tracking package inspection",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-50-c4",
+      "text": "Actual bundled interpreter/model inference is input-dependent with network denied and isolated HOME/PATH/cwd; authenticated bundled helper owns heartbeat and exits before stop resolves.",
+      "mode": "integration",
+      "test_file": "scripts/test-tracking-sidecar-runtime.cjs",
+      "test_id": "actual final mounted DMG inference and helper lifecycle",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-50-c5",
+      "text": "Final app and DMG independently Apple Accepted, logs match jobs, tickets staple/validate, strict nested signatures and Gatekeeper pass; final sizes/hashes recorded.",
+      "mode": "integration",
+      "test_file": "scripts/sign-electron-manual.cjs",
+      "test_id": "--variant tracking final delivery.json and Apple job logs",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript/python/electron",
+  "not_tested": ["Genuinely clean macOS installation and physical HID/camera/gimbal remain human gates; isolated developer-host runtime is not equivalent."]
+}

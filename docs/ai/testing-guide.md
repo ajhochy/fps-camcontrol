@@ -32,6 +32,38 @@ the ordinary Node test dependencies must keep their own ABI.
 The Pi bridge's `bleak>=3.0.2` runtime requires Python >=3.10.
 
 ## What's covered
+
+### Tracking-specific checks (serial, synthetic sources only)
+
+```bash
+pnpm test:tracking
+node --test -r ts-node/register/transpile-only tests/tracking/*.cjs tests/tracking/*.ts
+dist/tracking-runtime/python/bin/python3 -I -B -m unittest discover -s tracker-sidecar/tests -v
+node dist/testing/trackingSim.js
+node dist/testing/trackingIntegrationTest.js
+node scripts/test-tracking-ui.cjs
+node --test scripts/test-tracking-docs.cjs scripts/test-tracking-runtime-staging.cjs
+pnpm tracking:calibrate --dry-run --trials 5
+# This invokes scripts/tracking-calibrate.ts (developer tooling only).
+node scripts/package-electron-tracking.cjs
+node scripts/test-electron-tracking-package.cjs
+node scripts/test-tracking-sidecar-runtime.cjs --app '/absolute/FPS CamControl Tracking.app'
+node scripts/test-electron-tracking-runtime.cjs --dmg '/absolute/final-tracking.dmg'
+```
+
+Stage the pinned runtime first (explicit `--download` only for missing verified
+cache); never use host pip or replace the Node-test ABI with Electron's.
+Set `TRACKER_TEST_MODEL` to the absolute pinned ONNX path for actual inference
+tests; skipped model tests do not count as real inference. The combined
+`test:tracking` runner uses that staged interpreter/model directly.
+UI tests use an installed test browser, synthetic preview, actual HTML/assets
+and fixture API responses; integration/runtime tests cover real services.
+
+Record separate 30-minute idle and 30-minute active-tracking physical soaks,
+gain/direction calibration, BLE drop/recovery, stale/target-loss, manual override,
+emergency stop and real sleep/HID/TCC. All are MANUAL_PENDING until witnessed;
+see `runs/2026-10-01-tracking-live-verification.md`. Never save identifiable footage.
+
 - Custom virtual-hardware smoke suite (`src/testing/smokeTest.ts`); latest captured
   counts and commit provenance belong in the dated run report, not this guide.
 - Controller hot-plug via an injectable `ControllerSupervisor` (`detect` /
