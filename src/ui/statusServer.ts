@@ -1831,7 +1831,17 @@ function cameraLinkState(s, id) {
   const attachedMap = s.cameraGimbalAttached || {};
   const connected = !!(s.cameraConnected && s.cameraConnected[id]);
   if (!Object.prototype.hasOwnProperty.call(attachedMap, id)) {
-    return { cls: connected ? 'ok' : 'err', text: connected ? 'Connected' : 'Disconnected', hint: '' };
+    // A VISCA camera (V-BOT head, BirdDog, other VISCA-IP): UDP has no link to lose, so what counts is whether it
+    // answered the last health check (any reply to a power or position inquiry).
+    if (!connected) return { cls: 'err', text: 'No VISCA Link', hint: 'The app could not open its VISCA connection' };
+    const answering = s.cameraAnswering ? s.cameraAnswering[id] : undefined;
+    const last = s.cameraLastReplyAt ? s.cameraLastReplyAt[id] : undefined;
+    if (answering === true) return { cls: 'ok', text: 'Answering', hint: last ? 'Last reply ' + agoText(last) : '' };
+    if (answering === false) {
+      if (s.viscaRepliesHeard === false) return { cls: 'warn', text: 'Replies Not Heard', hint: 'Port 52381 is in use by another app on this Mac, so this camera\u2019s replies cannot be heard; commands are still sent' };
+      return { cls: 'err', text: 'Not Answering', hint: 'No reply to VISCA \u2014 check its power and network' + (last ? '; last reply ' + agoText(last) : '') };
+    }
+    return { cls: 'warn', text: 'Checking\u2026', hint: '' };
   }
   const bridgeUp = !!(s.cameraBridgeReachable && s.cameraBridgeReachable[id]);
   if (!bridgeUp) {
@@ -1850,8 +1860,16 @@ function cameraLinkState(s, id) {
   if (weak) {
     return { cls: signal.rating === 'poor' ? 'err' : 'warn', text: signal.rating === 'poor' ? 'Poor Signal' : 'Weak Signal', hint: signal.summary + ' — move the Pi or the gimbal closer' };
   }
-  return { cls: 'ok', text: 'Connected', hint: '' };
+  return { cls: 'ok', text: 'Gimbal Linked', hint: '' };
 }
+
+function agoText(ms) {
+  var sec = Math.max(0, Math.round((Date.now() - ms) / 1000));
+  return sec < 60 ? sec + ' s ago' : Math.round(sec / 60) + ' min ago';
+}
+
+// The tile's one-word verdict, from the most specific state: can this camera be used right now?
+function verdictText(cls) { return cls === 'ok' ? 'Ready' : cls === 'warn' ? 'Check' : 'Down'; }
 
 function renderStatus(s, c) {
   const cams = c.cameras || [];
@@ -1872,12 +1890,12 @@ function renderStatus(s, c) {
   let camGrid = '<div class="cam-grid">';
   for (var i = 0; i < cams.length; i++) {
     const cam = cams[i];
-    const ok = s.cameraConnected && s.cameraConnected[cam.id];
+    const link = cameraLinkState(s, cam.id);
     const isProgram = s.programCamera === cam.id;
     const isPreview = s.previewCamera === cam.id;
     const isControlled = s.controlledCamera === cam.id;
     const cardClasses = [
-      'cam-card', ok ? 'cam-card--ok' : 'cam-card--err',
+      'cam-card', 'cam-card--' + link.cls,
       isProgram ? 'cam-card--program' : '',
       isPreview ? 'cam-card--preview' : '',
       isControlled ? 'cam-card--controlled' : '',
@@ -1887,11 +1905,10 @@ function renderStatus(s, c) {
       isPreview ? '<span class="role-tag role-tag--preview">Preview</span>' : '',
       isControlled ? '<span class="role-tag role-tag--control">Control</span>' : '',
     ].filter(Boolean).join('') || '<span class="role-tag role-tag--standby">Standby</span>';
-    const link = cameraLinkState(s, cam.id);
     camGrid +=
       '<div class="' + cardClasses + '">' +
         '<div class="cam-card__meta"><span class="cam-card__index">CAM ' + String(i + 1).padStart(2, '0') + '</span>' +
-        '<span class="cam-card__status">' + (ok ? 'Online' : 'Offline') + '</span></div>' +
+        '<span class="cam-card__status" title="' + esc(link.text + (link.hint ? ' \u2014 ' + link.hint : '')) + '">' + verdictText(link.cls) + '</span></div>' +
         '<span class="cam-card__name">' + esc(cam.label) + '</span>' +
         '<span class="cam-card__status">' + esc(link.text) + '</span>' +
         (link.hint ? '<span class="cam-card__hint">' + esc(link.hint) + '</span>' : '') +

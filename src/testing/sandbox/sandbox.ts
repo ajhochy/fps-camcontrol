@@ -52,6 +52,7 @@ function sandboxEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
     STATUS_PORT: String(APP_PORT),
     CAMCONTROL_NO_CONTROLLER: '1',
     CAMCONTROL_GIMBAL_SWEEP: '0', // never sweep the real network: probing a live bridge makes it stop its gimbal
+    VISCA_LOCAL_PORT: '0', // never take port 52381 from the live app (it would get the live V-BOT's replies)
     LOG_LEVEL: process.env.LOG_LEVEL ?? 'info',
     ...extra,
   };
@@ -244,6 +245,12 @@ async function selfTest(): Promise<number> {
       bridge.link = { drops10m: 0, framesLastMin: 80, corruptLastMin: 0, linkedForS: 300 };
       check('the Status page draws roll buttons next to the preview', pageHtml.includes('function sonyRollHtml') && pageHtml.includes('Level horizon') && pageHtml.includes("'/roll'"));
     }
+
+    // VISCA cameras: the tiles say whether each one answers, not just that a socket is open.
+    const answering = await waitFor('the VISCA cameras to answer a health check', async () => { const a = (await api('/api/status')).body.cameraAnswering ?? {}; return Object.keys(a).length >= 1 && a; }, 40000);
+    check('VISCA cameras are reported as answering from their actual replies', Object.values(answering).every((v) => v === true) && Object.keys((await api('/api/status')).body.cameraLastReplyAt ?? {}).length >= 1);
+    check('the sandbox does not take port 52381 from the live app', (await api('/api/status')).body.viscaRepliesHeard === false);
+    check('tiles show a Ready / Check / Down verdict from the real state', pageHtml.includes('function verdictText') && pageHtml.includes("'Not Answering'") && !pageHtml.includes("(ok ? 'Online' : 'Offline')"));
 
     const atemBefore = (await api('/api/rigs')).body.atem;
     const atemEdit = await patch('/api/atem', { defaultTransition: 'auto', graphics: { fadeFrames: 25 } });

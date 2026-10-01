@@ -590,13 +590,27 @@
     return null;
   }
 
+  /** A VISCA camera: UDP has no link to lose, so report whether it answered the last health check. */
+  function viscaLine(live) {
+    if (live.connected === false) return { label: 'Camera control', value: 'No VISCA link', tone: 'bad' };
+    var ago = live.lastReplyAt ? ' (last reply ' + Math.max(0, Math.round((Date.now() - live.lastReplyAt) / 1000)) + ' s ago)' : '';
+    if (live.answering === true) return { label: 'Camera control', value: 'Answering' + ago, tone: 'ok' };
+    if (live.answering === false) {
+      if (live.repliesHeard === false) return { label: 'Camera control', value: 'Replies not heard: port 52381 is in use by another app on this Mac', tone: 'warn' };
+      return { label: 'Camera control', value: 'Not answering — check its power and network' + ago, tone: 'bad' };
+    }
+    return { label: 'Camera control', value: 'Checking…', tone: 'idle' };
+  }
+
   /** The right column: live state of the selected item. */
   function statusFor(data, key) {
     if (!key) return null;
     if (key.indexOf('rig:') === 0) {
       var rig = findRig(data, key);
       if (!rig) return null;
-      var lines = [{ label: rig.gimbal ? 'Gimbal link' : 'Camera control', value: connectedText(rig.live && rig.live.connected), tone: connectedTone(rig.live && rig.live.connected) }];
+      var lines = [];
+      if (rig.gimbal) lines.push({ label: 'Gimbal link', value: connectedText(rig.live && rig.live.connected), tone: connectedTone(rig.live && rig.live.connected) });
+      else lines.push(viscaLine(rig.live || {}));
       if (rig.live && 'bridgeReachable' in rig.live) lines.push({ label: 'Bridge (Pi)', value: rig.live.bridgeReachable ? 'Reachable' : 'Not reachable', tone: rig.live.bridgeReachable ? 'ok' : 'bad' });
       if (rig.live && 'gimbalAttached' in rig.live) {
         var notMoving = rig.live.gimbalResponding === false;

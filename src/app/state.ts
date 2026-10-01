@@ -41,6 +41,12 @@ export interface AppState {
   cameraGimbalResponding: Record<string, boolean>;
   /** How a gimbal's Bluetooth link to its bridge is holding up (bridges >= 0.3.0); absent when not measured. */
   cameraGimbalSignal: Record<string, GimbalSignal>;
+  /** VISCA cameras: did the last health check get a reply (true), get none (false); absent until checked. */
+  cameraAnswering: Record<string, boolean>;
+  /** VISCA cameras: when the camera last sent any reply (ms since epoch). */
+  cameraLastReplyAt: Record<string, number>;
+  /** Whether VISCA replies sent to port 52381 can be heard (the app holds that port); null before it binds. */
+  viscaRepliesHeard: boolean | null;
   controllerConnected: boolean;
   activeControllerProfile: string | null;
   activeConnectionType: 'usb' | 'bluetooth' | null;
@@ -66,6 +72,9 @@ export const defaultState: AppState = {
   cameraGimbalModel: {},
   cameraGimbalResponding: {},
   cameraGimbalSignal: {},
+  cameraAnswering: {},
+  cameraLastReplyAt: {},
+  viscaRepliesHeard: null,
   controllerConnected: false,
   activeControllerProfile: null,
   activeConnectionType: null,
@@ -90,6 +99,9 @@ export function createInitialState(overrides: Partial<AppState> = {}): AppState 
     cameraGimbalModel: {},
     cameraGimbalResponding: {},
     cameraGimbalSignal: {},
+    cameraAnswering: {},
+    cameraLastReplyAt: {},
+    viscaRepliesHeard: null,
     ...overrides,
   };
 }
@@ -199,4 +211,6 @@ export function clearCameraLinkState(state: AppState, cameraId: string): void {
   delete state.cameraGimbalModel[cameraId];
   delete state.cameraGimbalResponding[cameraId];
   delete state.cameraGimbalSignal[cameraId];
+  delete state.cameraAnswering[cameraId];
+  delete state.cameraLastReplyAt[cameraId];
 }
