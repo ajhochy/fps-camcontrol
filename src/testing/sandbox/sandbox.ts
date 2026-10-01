@@ -236,6 +236,7 @@ async function selfTest(): Promise<number> {
       check('roll is refused for a rig that is not a gimbal (404) and for a bad nudge (400)', (await post('/api/cameras/cam1/roll', { level: true })).status === 404 && (await post(`/api/cameras/${gimbalRig.id}/roll`, { delta: 45 })).status === 400);
       const order = (await api('/api/sony/status')).body.rigs ?? [];
       check('the Sony dashboard gets the rigs in order with each one\'s Sony camera, to lay cards out under them', order.map((r: any) => r.id).join() === rigsNow.rigs.map((r: any) => r.id).join() && order[0].sonyCameraId === onVbot.sonyCameraId && order.some((r: any) => r.builtInCamera === true && r.sonyCameraId === null));
+      check('a Wi-Fi camera is labelled Network, not the Sony service\'s wrong guess of USB', sonyCams.length > 0 && sonyCams.every((c: any) => c.connectionType === 'Network'));
       check('the Status page draws roll buttons next to the preview', pageHtml.includes('function sonyRollHtml') && pageHtml.includes('Level horizon') && pageHtml.includes("'/roll'"));
     }
 

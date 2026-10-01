@@ -181,7 +181,7 @@ export class FakeSonySidecar {
     if (method === 'GET' && url.pathname === '/api/cameras') {
       if (this.scanDelayMs) await sleep(this.scanDelayMs);
       const cameras = [...this.cameras.values()].filter((c) => c.powered)
-        .map((c) => ({ id: c.id, model: c.model, connectionType: 'Network', connected: c.connected }));
+        .map((c) => ({ id: c.id, model: c.model, connectionType: /TCP:|192\./.test(c.id) ? 'Network' : 'USB', connected: c.connected })); // the real service's guess, wrong for Wi-Fi cameras
       return this.json(res, 200, { cameras, message: 'Camera discovery completed', success: true });
     }
     if (parts[0] === 'api' && parts[1] === 'cameras' && parts[2]) {

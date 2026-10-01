@@ -76,9 +76,15 @@ export function createStatusServer(
     }
     return out;
   };
-  const named = <T extends { id: string }>(cameras: T[]): (T & { name?: string; deviceKey?: string; gimbalRig?: { id: string; label: string; rollAdjustable: boolean } })[] => {
+  // The Sony service guesses the connection from the camera ID and calls anything without "TCP:" or "192." USB.
+  // A camera found over the network is identified by its network (MAC) address, so that ID means Wi-Fi/Ethernet.
+  const MAC_ID = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/i;
+  const withTransport = <T extends { id: string; connectionType?: string }>(camera: T): T =>
+    (MAC_ID.test(camera.id) && camera.connectionType === 'USB' ? { ...camera, connectionType: 'Network' } : camera);
+  const named = <T extends { id: string }>(input: T[]): (T & { name?: string; deviceKey?: string; gimbalRig?: { id: string; label: string; rollAdjustable: boolean } })[] => {
     const names = sonyNames();
     const rigs = gimbalRigs();
+    const cameras = input.map((camera) => withTransport(camera as T & { connectionType?: string }));
     return cameras.map(camera => {
       const match = names.get(camera.id.toUpperCase());
       if (!match) return camera;
