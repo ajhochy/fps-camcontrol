@@ -143,6 +143,12 @@ check('a gimbal from a current bridge is named by its instance, model and Blueto
   const line = model.statusFor(d, 'rig:rs3').lines.find((l: any) => l.label === 'Gimbal');
   check('a linked gimbal that ignores moves says so in the status column', line.tone === 'warn' && /not moving/.test(line.value));
 }
+{
+  const d = JSON.parse(JSON.stringify(data));
+  d.rigs.find((r: any) => r.deviceKey === 'rs3').live = { connected: true, bridgeReachable: true, gimbalAttached: true, signal: { rating: 'weak', summary: '1 Bluetooth drop in 10 min' } };
+  const line = model.statusFor(d, 'rig:rs3').lines.find((l: any) => l.label === 'Bluetooth signal');
+  check('a gimbal rig shows its Bluetooth signal, warning when weak', line.tone === 'warn' && /Weak — 1 Bluetooth drop/.test(line.value));
+}
 check('the old typed gimbal model is gone from the inspector', control(gimbal, 'gimbal.gimbalModel') === undefined);
 check('a V-BOT has IP, port and VISCA address controls with their limits', control(rig, 'visca.host').path === 'visca.host' && control(rig, 'visca.port').min === 1 && control(rig, 'visca.port').max === 65535 && control(rig, 'visca.address').max === 7 && control(rig, 'visca.address').integer === true && control(rig, 'gimbal.host') === undefined);
 check('a gimbal has bridge host, port and model controls and no VISCA controls', control(gimbal, 'gimbal.host').value === 'dji-bridge.local' && control(gimbal, 'gimbal.port').value === 7878 && control(gimbal, 'visca.host') === undefined);

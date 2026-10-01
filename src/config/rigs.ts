@@ -49,7 +49,7 @@ export interface RigView {
   /** Names of the profiles whose rigs include this device (edits to a device apply to all of them). */
   usedInProfiles: string[];
   /** Live link state; keys are present only when the app tracks them for this kind of camera. */
-  live: { connected: boolean | null; bridgeReachable?: boolean; gimbalAttached?: boolean; gimbalResponding?: boolean };
+  live: { connected: boolean | null; bridgeReachable?: boolean; gimbalAttached?: boolean; gimbalResponding?: boolean; signal?: { rating: 'good' | 'weak' | 'poor'; summary: string } };
 }
 
 /** What the Sony service reports about one camera (a subset of SonyCameraStatus). */
@@ -123,6 +123,8 @@ export function buildRigs(
     if (cam.id in state.cameraBridgeReachable) live.bridgeReachable = state.cameraBridgeReachable[cam.id];
     if (cam.id in state.cameraGimbalAttached) live.gimbalAttached = state.cameraGimbalAttached[cam.id];
     if (state.cameraGimbalResponding && cam.id in state.cameraGimbalResponding) live.gimbalResponding = state.cameraGimbalResponding[cam.id];
+    const signal = state.cameraGimbalSignal?.[cam.id];
+    if (signal) live.signal = { rating: signal.rating, summary: signal.summary };
 
     return {
       position: i + 1,

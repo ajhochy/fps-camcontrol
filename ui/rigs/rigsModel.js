@@ -602,6 +602,10 @@
         var notMoving = rig.live.gimbalResponding === false;
         lines.push({ label: 'Gimbal', value: notMoving ? 'Linked but not moving — asleep, unbalanced or motors off?' : rig.live.gimbalAttached ? 'Attached' : 'Not attached', tone: notMoving ? 'warn' : rig.live.gimbalAttached ? 'ok' : 'bad' });
       }
+      if (rig.live && rig.live.signal) {
+        var sig = rig.live.signal;
+        lines.push({ label: 'Bluetooth signal', value: sig.rating === 'good' ? 'Good' : (sig.rating === 'poor' ? 'Poor' : 'Weak') + ' — ' + sig.summary, tone: sig.rating === 'good' ? 'ok' : sig.rating === 'poor' ? 'bad' : 'warn' });
+      }
       lines.push({ label: 'Video to ATEM', value: rig.wired ? 'Input ' + rig.inputId : 'Not wired (control only)', tone: rig.wired ? 'ok' : 'warn' });
       var camera = rig.camera ? sonyDevice(data, rig.camera) : null;
       if (rig.builtInCamera) lines.push({ label: 'Camera', value: 'Built in', tone: 'idle' });

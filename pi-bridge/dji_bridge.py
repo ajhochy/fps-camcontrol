@@ -43,7 +43,7 @@ GIMBAL_POLL_S = 2.0
 
 log = logging.getLogger("dji-bridge")
 
-BRIDGE_VERSION = "0.2.0"
+BRIDGE_VERSION = "0.3.0"
 INFO_PATH = "/info"
 
 
@@ -65,7 +65,19 @@ def bridge_info(driver: GimbalDriver, port: int, clients: int) -> Dict[str, Any]
         "gimbalConnected": bool(driver.connected),
         # Control sessions open right now (normally the app's one).
         "clients": clients,
+        "link": link_health(driver),
     }
+
+
+def link_health(driver: GimbalDriver) -> Optional[Dict[str, Any]]:
+    """The driver's Bluetooth link health, when it measures one (the RS3 driver does; the mock does not)."""
+    measure = getattr(driver, "link_health", None)
+    if not callable(measure):
+        return None
+    try:
+        return measure()
+    except Exception:  # noqa: BLE001 - health reporting must never break a session
+        return None
 
 
 def info_request_handler(driver: GimbalDriver, port: int, sessions: "set[Any]"):
@@ -230,6 +242,9 @@ class Session:
                 }
                 if pos is not None:
                     params["position"] = {"yaw": pos.yaw, "pitch": pos.pitch, "roll": pos.roll}
+                link = link_health(self.driver)
+                if link is not None:
+                    params["link"] = link
                 await self._emit("status", params)
         except asyncio.CancelledError:
             pass

@@ -1820,11 +1820,18 @@ function cameraLinkState(s, id) {
   if (!bridgeUp) {
     return { cls: 'err', text: 'Bridge Offline', hint: 'Cannot reach the Pi bridge' };
   }
+  const signal = s.cameraGimbalSignal && s.cameraGimbalSignal[id];
+  const weak = signal && signal.rating !== 'good';
   if (!attachedMap[id]) {
+    // A link that keeps dropping is a signal problem, not a gimbal that was switched off: say which.
+    if (weak && signal.drops10m) return { cls: 'err', text: 'Signal Lost', hint: signal.summary + ' — move the Pi or the gimbal closer' };
     return { cls: 'warn', text: 'Gimbal Off', hint: 'Bridge up, no gimbal attached' };
   }
   if (s.cameraGimbalResponding && s.cameraGimbalResponding[id] === false) {
-    return { cls: 'warn', text: 'Not Moving', hint: 'Linked but ignoring moves: asleep, unbalanced or motors off' };
+    return { cls: 'warn', text: 'Not Moving', hint: 'Linked but ignoring moves: asleep, unbalanced or motors off' + (weak ? '; ' + signal.summary : '') };
+  }
+  if (weak) {
+    return { cls: signal.rating === 'poor' ? 'err' : 'warn', text: signal.rating === 'poor' ? 'Poor Signal' : 'Weak Signal', hint: signal.summary + ' — move the Pi or the gimbal closer' };
   }
   return { cls: 'ok', text: 'Connected', hint: '' };
 }

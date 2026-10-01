@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events';
 import WebSocket from 'ws';
 import { MotionDevice, DeviceCapabilities, DevicePosition } from './motionDevice';
+import { GimbalLinkHealth, rateGimbalSignal } from '../app/state';
 import { ActivityLog } from '../app/activityLog';
 import { logger } from '../index';
 
@@ -115,6 +116,7 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
   private _gimbalAttached = false;
   private _reportedGimbalModel: string | null = null;
   private _motionResponsive = true;
+  private _linkHealth: GimbalLinkHealth | null = null;
   /** While the operator pushes the stick: when the push began and the pose then. */
   private motionJudge: { since: number; from: DevicePosition | null } | null = null;
   /** When we last had positive evidence of a gimbal, or 0 if never. */
@@ -188,6 +190,26 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
     if (Date.now() - judge.since >= UNRESPONSIVE_AFTER_MS) this.setMotionResponsive(false, `no movement after ${UNRESPONSIVE_AFTER_MS} ms of stick input`);
   }
   private lastPose: DevicePosition | null = null;
+
+  /** The Bluetooth link figures from the bridge's latest status (bridges >= 0.3.0); null when not reported. */
+  get linkHealth(): GimbalLinkHealth | null {
+    return this._linkHealth;
+  }
+
+  private takeLinkHealth(raw: unknown): void {
+    const l = raw as Partial<GimbalLinkHealth> | null | undefined;
+    const next: GimbalLinkHealth | null = l && typeof l.drops10m === 'number' && typeof l.framesLastMin === 'number' && typeof l.corruptLastMin === 'number'
+      ? { drops10m: l.drops10m, framesLastMin: l.framesLastMin, corruptLastMin: l.corruptLastMin, linkedForS: typeof l.linkedForS === 'number' ? l.linkedForS : null }
+      : null;
+    const before = rateGimbalSignal(this._linkHealth);
+    this._linkHealth = next;
+    const after = rateGimbalSignal(next);
+    // Tell listeners only when what the operator would see changes, not on every 0.5 s status frame.
+    if ((before?.rating ?? null) !== (after?.rating ?? null) || (before?.summary ?? null) !== (after?.summary ?? null)) {
+      if (after && after.rating !== 'good') logger.warn({ id: this.id, signal: after.summary }, 'DJI gimbal Bluetooth signal is ' + after.rating);
+      this.emit('linkHealth');
+    }
+  }
 
   /** The gimbal model the bridge named in its last `hello`; null before the first handshake. */
   get reportedGimbalModel(): string | null {
@@ -491,7 +513,9 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
         const p = frame.params as {
           position?: { yaw: number; pitch: number; roll: number };
           gimbalConnected?: boolean;
+          link?: unknown;
         } | undefined;
+        this.takeLinkHealth(p?.link); // absent (an older bridge, or none reported) clears any earlier rating
         if (p?.position) {
           const pose: DevicePosition = { kind: 'gimbal', yaw: p.position.yaw, pitch: p.position.pitch, roll: p.position.roll };
           this.judgePose(pose);

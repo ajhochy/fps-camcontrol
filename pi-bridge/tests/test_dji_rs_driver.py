@@ -285,6 +285,43 @@ class DjiRsDriverTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.driver._pose.yaw, 25.0)
 
 
+class LinkHealthTests(unittest.IsolatedAsyncioTestCase):
+    """The driver reports how its Bluetooth link is holding up, so the app can warn before it fails."""
+
+    async def asyncSetUp(self):
+        self.transport = FakeTransport(None, None)
+        self.driver = DjiRsDriver("48:1C:B9:54:C6:BC", transport_factory=lambda *_: self.transport, max_joystick=DEFAULT_MAX_JOYSTICK)
+        await self.driver.connect()
+
+    async def test_a_clean_link_reports_no_drops_and_no_corruption(self):
+        await self.transport.push(pose_frame())
+        health = self.driver.link_health()
+        self.assertEqual(health["drops10m"], 0)
+        self.assertEqual(health["corruptLastMin"], 0)
+        self.assertGreaterEqual(health["framesLastMin"], 1)
+        self.assertIsNotNone(health["linkedForS"])
+
+    async def test_corrupt_frames_are_counted(self):
+        for i in range(3):
+            await self.transport.push(corrupt(pose_frame(sequence=10 + i)))
+        await self.transport.push(pose_frame(sequence=20))
+        health = self.driver.link_health()
+        self.assertGreaterEqual(health["corruptLastMin"], 3)
+        self.assertGreaterEqual(health["framesLastMin"], health["corruptLastMin"] + 1)
+
+    async def test_a_dropped_link_is_counted_and_survives_the_reconnect(self):
+        self.transport.drop()
+        self.assertIsNone(self.driver.link_health()["linkedForS"])
+        await self.driver.connect()
+        health = self.driver.link_health()
+        self.assertEqual(health["drops10m"], 1)
+        self.assertIsNotNone(health["linkedForS"])
+
+    async def test_closing_on_purpose_is_not_a_drop(self):
+        await self.driver.close()
+        self.assertEqual(self.driver.link_health()["drops10m"], 0)
+
+
 class BleakTransportTests(unittest.IsolatedAsyncioTestCase):
     """The bleak-backed transport, exercised without bleak installed."""
 

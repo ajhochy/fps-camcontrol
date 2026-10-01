@@ -223,6 +223,19 @@ class BridgeInfoTests(unittest.TestCase):
         self.assertTrue(info["hostname"])
         self.assertEqual(info["clients"], 1)
         self.assertIs(info["gimbalConnected"], True)
+        self.assertIsNone(info["link"])  # this driver measures no link health
+
+    def test_info_carries_link_health_when_the_driver_measures_it(self):
+        class Measured(self.BleDriver):
+            def link_health(self):
+                return {"drops10m": 2, "framesLastMin": 50, "corruptLastMin": 4, "linkedForS": 30}
+        self.assertEqual(dji_bridge.bridge_info(Measured(), 7879, 1)["link"]["drops10m"], 2)
+
+    def test_a_failing_health_measure_never_breaks_info(self):
+        class Broken(self.BleDriver):
+            def link_health(self):
+                raise RuntimeError("boom")
+        self.assertIsNone(dji_bridge.bridge_info(Broken(), 7879, 1)["link"])
 
     def test_a_driver_without_an_address_reports_none(self):
         info = dji_bridge.bridge_info(Driver(), 7878, 0)

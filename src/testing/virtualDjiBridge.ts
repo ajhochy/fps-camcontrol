@@ -74,6 +74,8 @@ export class VirtualDjiBridge {
   log: string[] = [];
   /** Linked and reporting its pose, but ignoring every move (asleep, motors off). */
   asleep = false;
+  /** Bluetooth link figures sent with every status (like a bridge >= 0.3.0); null sends none. */
+  link: { drops10m: number; framesLastMin: number; corruptLastMin: number; linkedForS: number | null } | null = { drops10m: 0, framesLastMin: 60, corruptLastMin: 0, linkedForS: 100 };
   /** GET /info requests answered (they open no session). */
   infoRequests = 0;
   /** WebSocket sessions ever opened (a probe that says hello opens one). */
@@ -146,6 +148,7 @@ export class VirtualDjiBridge {
       const params: Record<string, unknown> = {
         gimbalConnected: this.gimbalConnected,
         sdkConnected: this.gimbalConnected,
+        ...(this.link ? { link: this.link } : {}),
         mode: 'follow',
       };
       if (this.gimbalConnected) {

@@ -21,6 +21,7 @@ import asyncio
 import contextlib
 import logging
 import os
+from collections import deque
 from collections.abc import Awaitable, Callable
 from time import monotonic
 from typing import Optional, Protocol
@@ -322,6 +323,12 @@ class DjiRsDriver:
         self._rx = bytearray()
         self._accepted = 0
         self._discarded = 0
+        # Link health, reported to the app (see link_health): recent drops, and the frames accepted and
+        # discarded as corrupt in the last minute. Corrupt frames are what a weak Bluetooth signal looks like
+        # before the link actually drops.
+        self._drop_times: deque[float] = deque(maxlen=50)
+        self._frame_events: deque[tuple[float, bool]] = deque(maxlen=4000)
+        self._linked_at = 0.0
         self._read_failures = 0
         self._closing = False
         self._had_link = False
@@ -341,6 +348,7 @@ class DjiRsDriver:
             with contextlib.suppress(Exception):
                 await self._transport.disconnect()
             raise GimbalError(f"failed to connect to RS3 at {self.address}: {exc}") from exc
+        self._linked_at = monotonic()
         # A pose from the previous link must never be served on this one.
         self._pose = None
         self._pose_at = 0.0
@@ -495,6 +503,8 @@ class DjiRsDriver:
         exactly what left a slept gimbal dead until a service restart (issue #15).
         """
         was_connected = self.connected
+        if was_connected and not self._closing:
+            self._drop_times.append(monotonic())
         self.connected = False
         self._pose = None
         self._unconfirmed = None
@@ -503,6 +513,19 @@ class DjiRsDriver:
         self._wake_waiters()
         if was_connected and not self._closing:
             self._throttled_warning("link-lost", "RS3 %s link lost: %s — reconnecting", self.address, reason)
+
+    def link_health(self) -> dict[str, float | int | None]:
+        """How well the Bluetooth link is holding up: drops in the last 10 minutes and the share of frames
+        that arrived corrupt in the last minute. Raw numbers only; the app decides what counts as weak."""
+        now = monotonic()
+        recent = [ok for at, ok in self._frame_events if now - at <= 60.0]
+        corrupt = sum(1 for ok in recent if not ok)
+        return {
+            "drops10m": sum(1 for at in self._drop_times if now - at <= 600.0),
+            "framesLastMin": len(recent),
+            "corruptLastMin": corrupt,
+            "linkedForS": round(now - self._linked_at) if self.connected and self._linked_at else None,
+        }
 
     def _throttled_warning(self, key: str, message: str, *args: object) -> None:
         now = monotonic()
@@ -568,6 +591,7 @@ class DjiRsDriver:
                 # so the bytes behind it no longer line up. Resync and carry on.
                 del self._rx[:1]
                 self._discarded += 1
+                self._frame_events.append((monotonic(), False))
                 self._throttled_warning(
                     "bad-crc",
                     "RS3 %s resynced past a bad checksum (%d discarded, %d frames accepted)",
@@ -575,6 +599,7 @@ class DjiRsDriver:
                 )
                 continue
             self._accepted += 1
+            self._frame_events.append((monotonic(), True))
             del self._rx[:length]
             frames.append(candidate)
 

@@ -79,6 +79,38 @@ async function main(): Promise<void> {
     gimbal.close();
     await sleepy.stop();
   }
+  // ---- Bluetooth signal: rated from what the bridge reports, shown instead of failing silently
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { rateGimbalSignal } = require('../app/state');
+  check('a clean link rates good', rateGimbalSignal({ drops10m: 0, framesLastMin: 60, corruptLastMin: 0, linkedForS: 10 }).rating === 'good');
+  check('one drop in 10 minutes rates weak and says so', (() => { const r = rateGimbalSignal({ drops10m: 1, framesLastMin: 60, corruptLastMin: 0, linkedForS: 10 }); return r.rating === 'weak' && /1 Bluetooth drop in 10 min/.test(r.summary); })());
+  check('2% corrupt data rates weak', rateGimbalSignal({ drops10m: 0, framesLastMin: 100, corruptLastMin: 2, linkedForS: 10 }).rating === 'weak');
+  check('three drops or 5% corrupt rates poor', rateGimbalSignal({ drops10m: 3, framesLastMin: 60, corruptLastMin: 0, linkedForS: 10 }).rating === 'poor' && rateGimbalSignal({ drops10m: 0, framesLastMin: 100, corruptLastMin: 6, linkedForS: 10 }).rating === 'poor');
+  check('too few frames to judge corruption by is not called weak', rateGimbalSignal({ drops10m: 0, framesLastMin: 5, corruptLastMin: 2, linkedForS: 10 }).rating === 'good');
+  check('an older bridge that reports nothing gets no rating', rateGimbalSignal(undefined) === null);
+
+  const noisy = new VirtualDjiBridge({ statusIntervalMs: 150 });
+  const noisyPort = await noisy.start();
+  const g2 = new DjiBridgeDevice({ host: '127.0.0.1', port: noisyPort, safetyTimeoutMs: 250, reconnectBackoffMs: [100], rollEnabled: false }, 'cam7', 'Noisy gimbal');
+  const s2 = createInitialState({} as never);
+  trackDeviceLinkState(s2, 'cam7', g2);
+  try {
+    g2.connect();
+    await wait(600);
+    check('a healthy link is reported as good', s2.cameraGimbalSignal.cam7?.rating === 'good');
+    noisy.link = { drops10m: 2, framesLastMin: 80, corruptLastMin: 3, linkedForS: 40 };
+    await wait(500);
+    check('the app picks up a weakening link from the bridge at once', s2.cameraGimbalSignal.cam7?.rating === 'weak' && /2 Bluetooth drops in 10 min/.test(s2.cameraGimbalSignal.cam7.summary) && /3\.8% of data arriving corrupt/.test(s2.cameraGimbalSignal.cam7.summary));
+    noisy.link = { drops10m: 0, framesLastMin: 80, corruptLastMin: 0, linkedForS: 400 };
+    await wait(500);
+    check('and clears it when the link recovers', s2.cameraGimbalSignal.cam7?.rating === 'good');
+    noisy.link = null;
+    await wait(500);
+    check('a bridge that stops reporting it leaves no stale rating', !('cam7' in s2.cameraGimbalSignal));
+  } finally {
+    g2.close();
+    await noisy.stop();
+  }
   console.log(`dji reconnect: ${passed} checks passed`);
 }
 

@@ -39,6 +39,8 @@ export interface AppState {
   cameraGimbalModel: Record<string, string>;
   /** False when a linked gimbal ignored the operator's stick (asleep, unbalanced, motors off); absent otherwise. */
   cameraGimbalResponding: Record<string, boolean>;
+  /** How a gimbal's Bluetooth link to its bridge is holding up (bridges >= 0.3.0); absent when not measured. */
+  cameraGimbalSignal: Record<string, GimbalSignal>;
   controllerConnected: boolean;
   activeControllerProfile: string | null;
   activeConnectionType: 'usb' | 'bluetooth' | null;
@@ -63,6 +65,7 @@ export const defaultState: AppState = {
   cameraGimbalAttached: {},
   cameraGimbalModel: {},
   cameraGimbalResponding: {},
+  cameraGimbalSignal: {},
   controllerConnected: false,
   activeControllerProfile: null,
   activeConnectionType: null,
@@ -86,8 +89,29 @@ export function createInitialState(overrides: Partial<AppState> = {}): AppState 
     cameraGimbalAttached: {},
     cameraGimbalModel: {},
     cameraGimbalResponding: {},
+    cameraGimbalSignal: {},
     ...overrides,
   };
+}
+
+/** The raw Bluetooth link figures a bridge reports for its gimbal. */
+export interface GimbalLinkHealth { drops10m: number; framesLastMin: number; corruptLastMin: number; linkedForS: number | null }
+export interface GimbalSignal { rating: 'good' | 'weak' | 'poor'; drops10m: number; corruptPct: number | null; summary: string }
+
+/**
+ * Rate a gimbal's Bluetooth link from what its bridge reports. Corrupt frames are what a weak signal looks like
+ * before the link drops; drops are the link actually failing. Thresholds live here (not on the Pi) so they can be
+ * tuned without redeploying the bridge.
+ */
+export function rateGimbalSignal(link: GimbalLinkHealth | null | undefined): GimbalSignal | null {
+  if (!link || typeof link.drops10m !== 'number') return null;
+  const corruptPct = link.framesLastMin >= 20 ? Math.round((link.corruptLastMin / link.framesLastMin) * 1000) / 10 : null;
+  const rating: GimbalSignal['rating'] = link.drops10m >= 3 || (corruptPct !== null && corruptPct >= 5) ? 'poor'
+    : link.drops10m >= 1 || (corruptPct !== null && corruptPct >= 1) ? 'weak' : 'good';
+  const parts: string[] = [];
+  if (link.drops10m) parts.push(`${link.drops10m} Bluetooth drop${link.drops10m === 1 ? '' : 's'} in 10 min`);
+  if (corruptPct !== null && corruptPct >= 1) parts.push(`${corruptPct}% of data arriving corrupt`);
+  return { rating, drops10m: link.drops10m, corruptPct, summary: parts.join(', ') || 'Bluetooth link healthy' };
 }
 
 /**
@@ -108,8 +132,11 @@ export function createInitialState(overrides: Partial<AppState> = {}): AppState 
 export function applyDeviceLinkState(
   state: AppState,
   cameraId: string,
-  link: { connected: boolean; gimbalAttached?: boolean; reportedGimbalModel?: string | null; motionResponsive?: boolean }
+  link: { connected: boolean; gimbalAttached?: boolean; reportedGimbalModel?: string | null; motionResponsive?: boolean; linkHealth?: GimbalLinkHealth | null }
 ): void {
+  const signal = link.connected ? rateGimbalSignal(link.linkHealth) : null;
+  if (signal) state.cameraGimbalSignal[cameraId] = signal;
+  else delete state.cameraGimbalSignal[cameraId];
   if (typeof link.reportedGimbalModel === 'string') state.cameraGimbalModel[cameraId] = link.reportedGimbalModel;
   else delete state.cameraGimbalModel[cameraId];
   const notMoving = link.motionResponsive === false && link.connected && link.gimbalAttached === true;
@@ -136,6 +163,7 @@ interface LinkStateSource {
   readonly gimbalAttached?: boolean;
   readonly reportedGimbalModel?: string | null;
   readonly motionResponsive?: boolean;
+  readonly linkHealth?: GimbalLinkHealth | null;
   on(event: string, listener: (...args: unknown[]) => void): unknown;
 }
 
@@ -159,6 +187,7 @@ export function trackDeviceLinkState(
   device.on('gimbalDetached', sync);
   device.on('gimbalResponsive', sync);
   device.on('gimbalUnresponsive', sync);
+  device.on('linkHealth', sync);
   sync();
 }
 
@@ -169,4 +198,5 @@ export function clearCameraLinkState(state: AppState, cameraId: string): void {
   delete state.cameraGimbalAttached[cameraId];
   delete state.cameraGimbalModel[cameraId];
   delete state.cameraGimbalResponding[cameraId];
+  delete state.cameraGimbalSignal[cameraId];
 }
