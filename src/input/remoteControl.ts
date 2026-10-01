@@ -7,7 +7,7 @@ import { InputArbiter, OwnerChange } from './inputArbiter';
 import { NormalizedInput } from './normalizers';
 import { standardFrameToInput } from './browserGamepad';
 import {
-  parseClientMessage, TokenBucket, WindowCounter,
+  parseClientMessage, TokenBucket, WindowCounter, cleanLabel,
   MAX_INVALID_MESSAGES, MAX_DROPS_PER_WINDOW, DROP_WINDOW_MS,
 } from './remoteFrame';
 
@@ -39,12 +39,48 @@ const PING_EVERY_MS = 1000;
 const PONG_TIMEOUT_MS = 2500;
 const TICK_MS = 100;
 const STATE_PUSH_MS = 500; // 2 Hz while owner
+const PIN_MAX_BAD = 5;
+const PIN_LOCKOUT_MS = 60000;
+const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+
+/** The slice of an http request the hub looks at (so tests can pass a plain object). */
+export interface RemoteRequest {
+  headers: Record<string, string | string[] | undefined>;
+  socket?: { remoteAddress?: string };
+}
+const header = (req: RemoteRequest | undefined, name: string): string => {
+  const v = req?.headers?.[name];
+  return (Array.isArray(v) ? v[0] : v) ?? '';
+};
+
+/**
+ * Cross-site WebSocket hijacking guard: a browser always sends Origin on a WebSocket, and a page on some other
+ * site (any page the operator happens to open on the LAN or tailnet) must not be able to drive the cameras.
+ * Origin's host has to be the host the socket was opened to. No Origin = not a browser, which can already
+ * send whatever it likes, so that is allowed.
+ */
+export function originAllowed(req: RemoteRequest | undefined): boolean {
+  const origin = header(req, 'origin');
+  if (!origin) return true;
+  try { return new URL(origin).host.toLowerCase() === header(req, 'host').toLowerCase(); } catch { return false; }
+}
+
+const sha = (v: string): Buffer => crypto.createHash('sha256').update(v).digest();
+/** Constant-time PIN comparison (hashed first so the lengths match). */
+export function pinMatches(given: string | null, expected: string): boolean {
+  return given !== null && crypto.timingSafeEqual(sha(given), sha(expected));
+}
 
 interface Session {
   id: string;
   ws: RemoteSocket;
   name: string;
+  /** Who asked, for the PIN lockout: the Tailscale login when behind `tailscale serve`, else the IP. */
+  peer: string;
+  /** Tailscale login (label only, never auth), when the socket came through `tailscale serve` on this Mac. */
+  login: string;
   hello: boolean;
+  authed: boolean;
   lastSeq: number;
   lastInput: NormalizedInput | null;
   bucket: TokenBucket;
@@ -62,6 +98,8 @@ export interface RemoteHubDeps {
   activityLog: ActivityLog | null;
   /** Stops every camera (and kills the lower third), like the controller's Back button. */
   emergencyStop: () => Promise<void> | void;
+  /** 4-8 digit PIN a page must give before it may claim control; absent = none. */
+  pin?: string | null;
   now?: () => number;
 }
 
@@ -70,6 +108,7 @@ export class RemoteControlHub {
   private timers: NodeJS.Timeout[] = [];
   private now: () => number;
   private lastStatePush = 0;
+  private badPins = new Map<string, WindowCounter>();
 
   constructor(private deps: RemoteHubDeps) {
     this.now = deps.now ?? Date.now;
@@ -109,13 +148,22 @@ export class RemoteControlHub {
     this.deps.arbiter.revoke('stop');
   }
 
-  handleConnection(ws: RemoteSocket, _req?: IncomingMessage): void {
+  handleConnection(ws: RemoteSocket, req?: RemoteRequest | IncomingMessage): void {
+    const request = req as RemoteRequest | undefined;
+    if (!originAllowed(request)) { ws.close(1008, 'origin not allowed'); return; }
     const t = this.now();
+    const address = request?.socket?.remoteAddress ?? '';
+    // `tailscale serve` terminates TLS on this Mac and sets these headers (stripping any a client sent); they
+    // are only believed when the connection really is from this Mac.
+    const login = LOOPBACK.has(address) ? cleanLabel(header(request, 'tailscale-user-login'), 60) : '';
     const s: Session = {
       id: crypto.randomBytes(6).toString('hex'),
       ws,
       name: '',
+      peer: login || address || 'unknown',
+      login,
       hello: false,
+      authed: !this.deps.pin,
       lastSeq: -1,
       lastInput: null,
       bucket: new TokenBucket(undefined, undefined, this.now),
@@ -149,7 +197,8 @@ export class RemoteControlHub {
       case 'hello':
         s.name = msg.name;
         s.hello = true;
-        this.send(s, { t: 'welcome', session: s.id, enabled: this.enabled, needsPin: false, owner: this.deps.arbiter.owner });
+        if (this.deps.pin && !s.authed) this.checkPin(s, msg.pin);
+        this.send(s, { t: 'welcome', session: s.id, enabled: this.enabled, needsPin: !s.authed, owner: this.deps.arbiter.owner });
         break;
       case 'ping':
         this.send(s, { t: 'pong', ts: msg.ts });
@@ -168,6 +217,7 @@ export class RemoteControlHub {
       }
       case 'claim': {
         if (!s.hello) return;
+        if (!s.authed) { this.send(s, { t: 'denied', reason: 'pin' }); return; }
         const r = this.deps.arbiter.claim(s.id, this.labelOf(s), s.lastInput);
         if (!r.ok) this.send(s, { t: 'denied', reason: r.reason });
         break;
@@ -187,6 +237,17 @@ export class RemoteControlHub {
     }
   }
 
+  /** Check a PIN from a hello. Five wrong ones from one peer lock it out for a minute (right ones included). */
+  private checkPin(s: Session, given: string | null): void {
+    if (given === null) return; // no PIN offered yet: the welcome says one is needed
+    let bad = this.badPins.get(s.peer);
+    if (!bad) { bad = new WindowCounter(PIN_LOCKOUT_MS, this.now); this.badPins.set(s.peer, bad); }
+    if (bad.count() >= PIN_MAX_BAD) { this.send(s, { t: 'denied', reason: 'pin', locked: true }); return; }
+    if (pinMatches(given, this.deps.pin as string)) { s.authed = true; bad.clear(); return; }
+    bad.add();
+    this.send(s, { t: 'denied', reason: 'pin', locked: bad.count() >= PIN_MAX_BAD });
+  }
+
   /** Emergency stop from a remote: release the seat first (stops motion), then stop every camera. */
   stopEverything(who: string): void {
     this.deps.arbiter.revoke('stop');
@@ -202,7 +263,7 @@ export class RemoteControlHub {
   }
 
   private labelOf(s: Session): string {
-    return `iPad: ${s.name || 'unnamed'}`;
+    return `iPad: ${s.name || 'unnamed'}${s.login ? ` (${s.login})` : ''}`;
   }
 
   private onOwnerChange(e: OwnerChange): void {
@@ -228,7 +289,8 @@ export class RemoteControlHub {
     try { s.ws.send(JSON.stringify(obj)); } catch { /* the close handler cleans up */ }
   }
 
-  private tick(): void {
+  /** Dead-man check and state push (the 100 ms timer; public so tests can drive it with a fake clock). */
+  tick(): void {
     this.deps.arbiter.tick();
     this.publish();
     const t = this.now();
@@ -243,7 +305,8 @@ export class RemoteControlHub {
     }
   }
 
-  private pingAll(): void {
+  /** Ping every session and drop those that stopped answering (the 1 s timer; public for tests). */
+  pingAll(): void {
     const t = this.now();
     for (const s of [...this.sessions.values()]) {
       if (t - s.lastPongAt > PONG_TIMEOUT_MS) {

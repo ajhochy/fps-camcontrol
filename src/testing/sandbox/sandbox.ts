@@ -521,6 +521,14 @@ async function selfTest(): Promise<number> {
       check('a claim while remote control is off is denied: disabled', r1.msgs.some((m) => m.t === 'denied' && m.reason === 'disabled') && (await ownerNow()) === 'local');
       r1.close();
 
+      const evil = await connect('http://evil.example');
+      await sleep(150);
+      check('a WebSocket opened by a page from another site (wrong Origin) is closed at once (1008)', evil.closed?.code === 1008 && evil.msgs.length === 0);
+      const bare = await connect(null);
+      await waitFor('welcome', async () => bare.msgs.some((m) => m.t === 'welcome'), 3000, 40);
+      check('a non-browser client with no Origin is allowed in', bare.msgs.some((m) => m.t === 'welcome'));
+      bare.close();
+
       check('switching remote control on', (await post('/api/remote/enabled', { enabled: true })).body.remoteControl?.enabled === true);
 
       // claim, select the RS3 with its face button, pan it

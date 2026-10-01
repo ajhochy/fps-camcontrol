@@ -159,7 +159,7 @@ async function main() {
   // Step 10: Status UI
   // iPad remote control (off unless config remoteControl.enabled or the desk page switches it on).
   const remoteHub = new RemoteControlHub({
-    state, config, arbiter, activityLog,
+    state, config, arbiter, activityLog, pin: config.remoteControl?.pin ?? null,
     emergencyStop: () => emergencyStopAll(state, config, atem, devices),
   });
   remoteHub.setEnabled(config.remoteControl?.enabled ?? false);

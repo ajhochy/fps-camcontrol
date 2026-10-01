@@ -24,6 +24,7 @@
     nameBtn: $('nameBtn'), banner: $('banner'), previewImg: $('previewImg'), previewNote: $('previewNote'),
     controlInfo: $('controlInfo'), cams: $('cams'), speedLine: $('speedLine'), claimBtn: $('claimBtn'),
     releaseBtn: $('releaseBtn'), stopBtn: $('stopBtn'), hint: $('hint'), wakeHint: $('wakeHint'),
+    pinRow: $('pinRow'), pinInput: $('pinInput'), pinBtn: $('pinBtn'),
   };
 
   var ws = null;
@@ -43,11 +44,13 @@
   var speeds = null;
   var rigs = null;
   var rttMs = null;
+  var needsPin = false;        // the server wants a PIN before this page may take control
   var bannerTimer = null;
   var bannerUntil = 0;         // a message (denied, lost control, STOP) stays up until then
 
   // ---- small helpers
   function store(key, value) { try { if (value === undefined) return localStorage.getItem(key); localStorage.setItem(key, value); } catch (_) { /* private mode */ } return null; }
+  function session(key, value) { try { if (value === undefined) return sessionStorage.getItem(key); sessionStorage.setItem(key, value); } catch (_) { /* private mode */ } return null; }
   var name = store('fps-remote-name') || 'iPad';
   el.nameBtn.textContent = name;
 
@@ -104,7 +107,10 @@
   }
 
   function sendHello() {
-    send({ t: 'hello', v: 1, name: name, pad: padInfo.pad ? { id: padInfo.pad.id, mapping: padInfo.pad.mapping } : null });
+    var hello = { t: 'hello', v: 1, name: name, pad: padInfo.pad ? { id: padInfo.pad.id, mapping: padInfo.pad.mapping } : null };
+    var pin = session('fps-remote-pin');
+    if (pin) hello.pin = pin;
+    send(hello);
   }
 
   function onMessage(data) {
@@ -112,6 +118,7 @@
     try { m = JSON.parse(data); } catch (_) { return; }
     if (m.t === 'welcome') {
       welcomed = true;
+      needsPin = !!m.needsPin;
       enabled = m.enabled;
       owner = { owner: m.owner, you: false };
     } else if (m.t === 'owner') {
@@ -124,7 +131,8 @@
       }
       if (!owner.you) pushed = null;
     } else if (m.t === 'denied') {
-      showBanner(M.deniedText(m.reason), true, 5000);
+      if (m.reason === 'pin') { needsPin = true; if (session('fps-remote-pin')) session('fps-remote-pin', ''); }
+      showBanner(m.reason === 'pin' && m.locked ? 'Too many wrong PINs. Wait a minute and try again.' : M.deniedText(m.reason), true, 5000);
     } else if (m.t === 'pong') {
       rttMs = Math.max(0, Math.round(performance.now() - m.ts));
     } else if (m.t === 'state') {
@@ -191,6 +199,15 @@
     try { fetch('/api/emergency-stop', { method: 'POST', keepalive: true }); } catch (_) { /* best effort */ }
     showBanner('STOP sent: all cameras stopped.', true, 4000);
   });
+  function submitPin() {
+    var pin = el.pinInput.value.replace(/[^0-9]/g, '');
+    if (!pin) return;
+    session('fps-remote-pin', pin);
+    el.pinInput.value = '';
+    sendHello();
+  }
+  el.pinBtn.addEventListener('click', submitPin);
+  el.pinInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') submitPin(); });
   el.nameBtn.addEventListener('click', function () {
     var next = window.prompt('Name shown on the desk', name);
     if (next === null) return;
@@ -211,6 +228,7 @@
     el.padPill.className = 'pill ' + (padInfo.kind === 'ok' ? 'pill-you' : (padInfo.kind === 'unsupported' ? 'pill-off' : 'pill-wait'));
     el.padPill.textContent = padInfo.text;
 
+    el.pinRow.hidden = !(connected && welcomed && needsPin);
     var mine = haveOwnership();
     var canClaim = connected && welcomed && enabled !== false && padInfo.kind === 'ok' && isVisible();
     el.claimBtn.hidden = mine;

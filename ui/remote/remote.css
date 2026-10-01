@@ -70,3 +70,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
   #side { width: auto; max-height: 30%; }
   #hint { display: none; }
 }
+
+.pin-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: #2b2412; border-top: 1px solid var(--line); }
+.pin-row label { font-size: 18px; font-weight: 700; color: var(--warn); }
+.pin-row input { font-size: 28px; letter-spacing: 0.3em; width: 220px; min-height: 56px; padding: 0 16px; border-radius: 10px; border: 1px solid var(--line); background: #0f1417; color: var(--text); -webkit-user-select: text; user-select: text; }

@@ -40,6 +40,12 @@
     </aside>
   </main>
 
+  <form id="pinRow" class="pin-row" hidden onsubmit="return false">
+    <label for="pinInput">PIN</label>
+    <input id="pinInput" type="password" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="4-8 digits">
+    <button id="pinBtn" class="btn" type="button">Unlock</button>
+  </form>
+
   <footer id="actions">
     <button id="claimBtn" class="btn btn-primary" type="button">Take control</button>
     <button id="releaseBtn" class="btn" type="button" hidden>Release</button>
