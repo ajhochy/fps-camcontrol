@@ -83,9 +83,10 @@ async function main(): Promise<void> {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { rateGimbalSignal } = require('../app/state');
   check('a clean link rates good', rateGimbalSignal({ drops10m: 0, framesLastMin: 60, corruptLastMin: 0, linkedForS: 10 }).rating === 'good');
-  check('one drop in 10 minutes rates weak and says so', (() => { const r = rateGimbalSignal({ drops10m: 1, framesLastMin: 60, corruptLastMin: 0, linkedForS: 10 }); return r.rating === 'weak' && /1 Bluetooth drop in 10 min/.test(r.summary); })());
+  check('a single recovered drop is not a weak signal (e.g. a link released by hand)', (() => { const r = rateGimbalSignal({ drops10m: 1, framesLastMin: 60, corruptLastMin: 0, linkedForS: 10 }); return r.rating === 'good' && /recovered from 1 drop/.test(r.summary); })());
+  check('two drops in 10 minutes rates weak and says so', (() => { const r = rateGimbalSignal({ drops10m: 2, framesLastMin: 60, corruptLastMin: 0, linkedForS: 10 }); return r.rating === 'weak' && /2 Bluetooth drops in 10 min/.test(r.summary); })());
   check('2% corrupt data rates weak', rateGimbalSignal({ drops10m: 0, framesLastMin: 100, corruptLastMin: 2, linkedForS: 10 }).rating === 'weak');
-  check('three drops or 5% corrupt rates poor', rateGimbalSignal({ drops10m: 3, framesLastMin: 60, corruptLastMin: 0, linkedForS: 10 }).rating === 'poor' && rateGimbalSignal({ drops10m: 0, framesLastMin: 100, corruptLastMin: 6, linkedForS: 10 }).rating === 'poor');
+  check('four drops or 5% corrupt rates poor', rateGimbalSignal({ drops10m: 4, framesLastMin: 60, corruptLastMin: 0, linkedForS: 10 }).rating === 'poor' && rateGimbalSignal({ drops10m: 0, framesLastMin: 100, corruptLastMin: 6, linkedForS: 10 }).rating === 'poor');
   check('too few frames to judge corruption by is not called weak', rateGimbalSignal({ drops10m: 0, framesLastMin: 5, corruptLastMin: 2, linkedForS: 10 }).rating === 'good');
   check('an older bridge that reports nothing gets no rating', rateGimbalSignal(undefined) === null);
 

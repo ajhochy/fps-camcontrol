@@ -118,12 +118,14 @@ export interface GimbalSignal { rating: 'good' | 'weak' | 'poor'; drops10m: numb
 export function rateGimbalSignal(link: GimbalLinkHealth | null | undefined): GimbalSignal | null {
   if (!link || typeof link.drops10m !== 'number') return null;
   const corruptPct = link.framesLastMin >= 20 ? Math.round((link.corruptLastMin / link.framesLastMin) * 1000) / 10 : null;
-  const rating: GimbalSignal['rating'] = link.drops10m >= 3 || (corruptPct !== null && corruptPct >= 5) ? 'poor'
-    : link.drops10m >= 1 || (corruptPct !== null && corruptPct >= 1) ? 'weak' : 'good';
+  // One drop that recovered (a gimbal power-cycled, a link released by hand) is not a weak signal; repeated drops are.
+  const rating: GimbalSignal['rating'] = link.drops10m >= 4 || (corruptPct !== null && corruptPct >= 5) ? 'poor'
+    : link.drops10m >= 2 || (corruptPct !== null && corruptPct >= 1) ? 'weak' : 'good';
   const parts: string[] = [];
   if (link.drops10m) parts.push(`${link.drops10m} Bluetooth drop${link.drops10m === 1 ? '' : 's'} in 10 min`);
   if (corruptPct !== null && corruptPct >= 1) parts.push(`${corruptPct}% of data arriving corrupt`);
-  return { rating, drops10m: link.drops10m, corruptPct, summary: parts.join(', ') || 'Bluetooth link healthy' };
+  const summary = rating === 'good' ? (link.drops10m ? `Bluetooth link healthy (recovered from ${link.drops10m} drop in 10 min)` : 'Bluetooth link healthy') : parts.join(', ');
+  return { rating, drops10m: link.drops10m, corruptPct, summary };
 }
 
 /**
