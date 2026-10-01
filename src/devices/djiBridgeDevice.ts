@@ -43,6 +43,18 @@ const GIMBAL_CHECK_INTERVAL_MS = 10000;
  */
 const GIMBAL_PROOF_METHODS = new Set(['moveVelocity', 'getPosition', 'moveToPosition', 'recenter']);
 
+/**
+ * A gimbal can be linked and streaming its pose while ignoring every move: asleep (the RS3 Pro does this when
+ * unbalanced), motors off, or not activated. Pushing the stick for this long with no change in pose marks it as
+ * not responding; any real change in pose clears that. Only the operator's own input is watched: the app never
+ * moves a camera to test it. The pose arrives about once a second, so the window covers at least one fresh pose.
+ */
+const UNRESPONSIVE_AFTER_MS = 2500;
+/** A stick push smaller than this is too gentle to judge by. */
+const MOTION_JUDGE_MIN_SPEED = 0.15;
+/** Pose change (degrees, yaw or pitch) that proves the gimbal moved. */
+const MOTION_PROOF_DEG = 0.3;
+
 export interface BridgeConfig {
   host: string;
   port: number;
@@ -102,6 +114,9 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
   private _connected = false;
   private _gimbalAttached = false;
   private _reportedGimbalModel: string | null = null;
+  private _motionResponsive = true;
+  /** While the operator pushes the stick: when the push began and the pose then. */
+  private motionJudge: { since: number; from: DevicePosition | null } | null = null;
   /** When we last had positive evidence of a gimbal, or 0 if never. */
   private lastGimbalProofAt = 0;
   /** When the `hello` handshake last succeeded; starts the first quiet window. */
@@ -133,6 +148,46 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
   get gimbalAttached(): boolean {
     return this._gimbalAttached;
   }
+
+  /**
+   * False when the gimbal is linked but did not move while the operator pushed the stick (asleep, motors off).
+   * True otherwise, including before anyone has tried to move it.
+   */
+  get motionResponsive(): boolean {
+    return this._motionResponsive;
+  }
+
+  private setMotionResponsive(responsive: boolean, reason: string): void {
+    if (this._motionResponsive === responsive) return;
+    this._motionResponsive = responsive;
+    if (responsive) logger.info({ id: this.id, reason }, 'DJI gimbal responding to moves again');
+    else logger.warn({ id: this.id, reason }, 'DJI gimbal is linked but not moving — asleep, unbalanced or motors off?');
+    this.emit(responsive ? 'gimbalResponsive' : 'gimbalUnresponsive');
+  }
+
+  /** Watch a stick push: start judging when it is firm enough, stop when it ends. */
+  private judgeMotion(pan: number, tilt: number): void {
+    if (Math.max(Math.abs(pan), Math.abs(tilt)) < MOTION_JUDGE_MIN_SPEED) { this.motionJudge = null; return; }
+    if (!this.motionJudge) this.motionJudge = { since: Date.now(), from: this.lastPos };
+  }
+
+  /** Called with every pose the bridge reports. */
+  private judgePose(pos: DevicePosition): void {
+    if (pos.kind !== 'gimbal') return;
+    const movedSince = (ref: DevicePosition | null): boolean => !!ref && ref.kind === 'gimbal'
+      && Math.max(Math.abs(pos.yaw - ref.yaw), Math.abs(pos.pitch - ref.pitch)) >= MOTION_PROOF_DEG;
+    const judge = this.motionJudge;
+    // Any real change proves the gimbal is awake, whether from the stick, a preset or a hand.
+    if (movedSince(this.lastPose) || (judge && movedSince(judge.from))) {
+      this.setMotionResponsive(true, 'pose changed');
+      if (judge) { judge.from = pos; judge.since = Date.now(); }
+      return;
+    }
+    if (!judge) return;
+    if (!judge.from) { judge.from = pos; return; }
+    if (Date.now() - judge.since >= UNRESPONSIVE_AFTER_MS) this.setMotionResponsive(false, `no movement after ${UNRESPONSIVE_AFTER_MS} ms of stick input`);
+  }
+  private lastPose: DevicePosition | null = null;
 
   /** The gimbal model the bridge named in its last `hello`; null before the first handshake. */
   get reportedGimbalModel(): string | null {
@@ -168,6 +223,7 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
   setPanTilt(panSpeed: number, tiltSpeed: number): void {
     this.lastPan = panSpeed;
     this.lastTilt = tiltSpeed;
+    this.judgeMotion(panSpeed, tiltSpeed);
     this.sendCommand('moveVelocity', { pan: panSpeed, tilt: tiltSpeed });
   }
 
@@ -181,6 +237,7 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
   stop(): void {
     this.lastPan = 0;
     this.lastTilt = 0;
+    this.motionJudge = null;
     this.sendCommand('stop', {});
   }
 
@@ -297,6 +354,9 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
     this.lastGimbalProofAt = 0;
     this.connectedAt = 0;
     this.inFlightMethods.clear();
+    this.motionJudge = null;
+    this.lastPose = null;
+    this.setMotionResponsive(true, 'link reset');
     this.setGimbalAttached(false, 'bridge unreachable');
     if (this._connected) {
       this._connected = false;
@@ -433,7 +493,10 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
           gimbalConnected?: boolean;
         } | undefined;
         if (p?.position) {
-          this.lastPos = { kind: 'gimbal', yaw: p.position.yaw, pitch: p.position.pitch, roll: p.position.roll };
+          const pose: DevicePosition = { kind: 'gimbal', yaw: p.position.yaw, pitch: p.position.pitch, roll: p.position.roll };
+          this.judgePose(pose);
+          this.lastPose = pose;
+          this.lastPos = pose;
         }
         // Prefer the bridge's own verdict; otherwise pose telemetry can only
         // have come from a gimbal that is powered and linked, so infer from it.

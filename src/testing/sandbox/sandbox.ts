@@ -215,6 +215,30 @@ async function selfTest(): Promise<number> {
       && !!(await waitFor('the V-BOT to reconnect', async () => (await api('/api/rigs')).body.rigs?.[0]?.live?.connected === true)));
     check('the round trip leaves the file documented', commentCount() === commentsBefore);
 
+    // Horizon (roll) controls on the Status page's Sony cards, for cameras mounted on a gimbal rig.
+    {
+      const rigsNow = (await api('/api/rigs')).body;
+      const gimbalRig = rigsNow.rigs.find((r: any) => r.controller === 'gimbal' && r.camera);
+      const mounted = rigsNow.sonyDevices.find((d: any) => d.key === gimbalRig?.camera);
+      const onVbot = rigsNow.sonyDevices.find((d: any) => d.key === rigsNow.rigs[0].camera);
+      const sonyCams = (await api('/api/sony/status')).body.cameras ?? [];
+      const card = sonyCams.find((c: any) => c.id === mounted?.sonyCameraId);
+      const vbotCard = sonyCams.find((c: any) => c.id === onVbot?.sonyCameraId);
+      check('a Sony camera on a gimbal rig says which rig, so its card offers roll controls', !!gimbalRig && card?.gimbalRig?.id === gimbalRig.id && card?.gimbalRig?.rollAdjustable === true);
+      check('a Sony camera on a V-BOT gets no roll controls', !!vbotCard && vbotCard.gimbalRig === undefined);
+      const bridge = fakes.bridges.find((b) => b.port === gimbalRig.gimbal.port)!;
+      const nudge = await post(`/api/cameras/${gimbalRig.id}/roll`, { delta: 2 });
+      check('Roll +2° moves the gimbal to 2° and keeps pan and tilt', nudge.status === 200 && nudge.body.roll === 2 && nudge.body.moved === true
+        && !!(await waitFor('the gimbal to roll', async () => Math.abs((bridge as any).roll - 2) < 0.01)));
+      const level = await post(`/api/cameras/${gimbalRig.id}/roll`, { level: true });
+      check('Level horizon brings roll back to 0°', level.status === 200 && level.body.roll === 0 && !!(await waitFor('the gimbal to level', async () => Math.abs((bridge as any).roll) < 0.01)));
+      check('levelling a level gimbal does nothing', (await post(`/api/cameras/${gimbalRig.id}/roll`, { level: true })).body.moved === false);
+      check('roll is refused for a rig that is not a gimbal (404) and for a bad nudge (400)', (await post('/api/cameras/cam1/roll', { level: true })).status === 404 && (await post(`/api/cameras/${gimbalRig.id}/roll`, { delta: 45 })).status === 400);
+      const order = (await api('/api/sony/status')).body.rigs ?? [];
+      check('the Sony dashboard gets the rigs in order with each one\'s Sony camera, to lay cards out under them', order.map((r: any) => r.id).join() === rigsNow.rigs.map((r: any) => r.id).join() && order[0].sonyCameraId === onVbot.sonyCameraId && order.some((r: any) => r.builtInCamera === true && r.sonyCameraId === null));
+      check('the Status page draws roll buttons next to the preview', pageHtml.includes('function sonyRollHtml') && pageHtml.includes('Level horizon') && pageHtml.includes("'/roll'"));
+    }
+
     const atemBefore = (await api('/api/rigs')).body.atem;
     const atemEdit = await patch('/api/atem', { defaultTransition: 'auto', graphics: { fadeFrames: 25 } });
     check('PATCH /api/atem changes the default transition and graphics and answers with the new view', atemEdit.status === 200 && atemEdit.body.atem?.defaultTransition === 'auto' && atemEdit.body.graphics?.fadeFrames === 25);

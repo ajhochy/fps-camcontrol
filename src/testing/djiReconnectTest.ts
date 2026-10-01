@@ -45,6 +45,40 @@ async function main(): Promise<void> {
     device.close();
     await bridge.stop();
   }
+
+  // ---- a linked gimbal that ignores moves (asleep) is noticed from the operator's own stick input
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { createInitialState, trackDeviceLinkState } = require('../app/state');
+  const sleepy = new VirtualDjiBridge({ statusIntervalMs: 200 });
+  const sleepyPort = await sleepy.start();
+  const gimbal = new DjiBridgeDevice({ host: '127.0.0.1', port: sleepyPort, safetyTimeoutMs: 250, reconnectBackoffMs: [100], rollEnabled: false }, 'cam8', 'Sleepy gimbal');
+  const state = createInitialState({} as never);
+  trackDeviceLinkState(state, 'cam8', gimbal);
+  const push = async (pan: number, ms: number): Promise<void> => {
+    const end = Date.now() + ms;
+    while (Date.now() < end) { gimbal.setPanTilt(pan, 0); await wait(100); }
+    gimbal.stop();
+  };
+  try {
+    gimbal.connect();
+    await wait(500);
+    check('an awake gimbal starts out counted as responding', gimbal.motionResponsive === true && state.cameraConnected.cam8 === true && !('cam8' in state.cameraGimbalResponding));
+    sleepy.asleep = true;
+    await push(0.05, 3500);
+    check('a push too gentle to judge never marks it as not moving', gimbal.motionResponsive === true);
+    await push(0.5, 3500);
+    check('pushing an asleep gimbal for over 2.5 s marks it as not moving', gimbal.motionResponsive === false);
+    check('the app then shows it as not connected and says why', state.cameraConnected.cam8 === false && state.cameraGimbalResponding.cam8 === false && state.cameraGimbalAttached.cam8 === true);
+    sleepy.asleep = false;
+    await push(0.5, 1500);
+    check('once it moves again it is responding and connected', gimbal.motionResponsive === true && state.cameraConnected.cam8 === true && !('cam8' in state.cameraGimbalResponding));
+    sleepy.asleep = true;
+    await push(0.5, 1200);
+    check('a short push is not long enough to judge', gimbal.motionResponsive === true);
+  } finally {
+    gimbal.close();
+    await sleepy.stop();
+  }
   console.log(`dji reconnect: ${passed} checks passed`);
 }
 

@@ -72,6 +72,8 @@ export class VirtualDjiBridge {
   /** See goSilent(): attached but unresponsive, neither acking nor nacking. */
   private silent = false;
   log: string[] = [];
+  /** Linked and reporting its pose, but ignoring every move (asleep, motors off). */
+  asleep = false;
   /** GET /info requests answered (they open no session). */
   infoRequests = 0;
   /** WebSocket sessions ever opened (a probe that says hello opens one). */
@@ -256,8 +258,9 @@ export class VirtualDjiBridge {
       case 'moveVelocity': {
         this.integrate();
         const p = frame.params as { pan?: number; tilt?: number };
-        this.velPan = p?.pan ?? 0;
-        this.velTilt = p?.tilt ?? 0;
+        // An asleep gimbal acks moves and keeps reporting its pose, but does not move (like an unbalanced RS3 Pro).
+        this.velPan = this.asleep ? 0 : p?.pan ?? 0;
+        this.velTilt = this.asleep ? 0 : p?.tilt ?? 0;
         this.armSafety(ws);
         this.ack(ws, frame.id, {});
         return;

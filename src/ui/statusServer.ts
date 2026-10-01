@@ -66,15 +66,64 @@ export function createStatusServer(
     }
     return names;
   };
-  const named = <T extends { id: string }>(cameras: T[]): (T & { name?: string; deviceKey?: string })[] => {
+  // The gimbal rig (in the running profile) each Sony device is mounted on, so the dashboard can offer roll controls.
+  const gimbalRigs = (): Map<string, { id: string; label: string; rollAdjustable: boolean }> => {
+    const out = new Map<string, { id: string; label: string; rollAdjustable: boolean }>();
+    for (const rig of buildRigs(config, state, '', []).rigs) {
+      if (rig.controller !== 'gimbal' || !rig.camera) continue;
+      const device = devices.get(rig.id as CameraId);
+      out.set(rig.camera, { id: rig.id, label: rig.label, rollAdjustable: !!device && device.capabilities.position && device.capabilities.moveTo });
+    }
+    return out;
+  };
+  const named = <T extends { id: string }>(cameras: T[]): (T & { name?: string; deviceKey?: string; gimbalRig?: { id: string; label: string; rollAdjustable: boolean } })[] => {
     const names = sonyNames();
+    const rigs = gimbalRigs();
     return cameras.map(camera => {
       const match = names.get(camera.id.toUpperCase());
-      return match ? { ...camera, name: match.label, deviceKey: match.key } : camera;
+      if (!match) return camera;
+      const rig = rigs.get(match.key);
+      return rig ? { ...camera, name: match.label, deviceKey: match.key, gimbalRig: rig } : { ...camera, name: match.label, deviceKey: match.key };
     });
   };
   const cameraList = (manager: SonyManager) => named(manager.getStatus().cameras).map(camera => ({ ...camera, connected: camera.state === 'connected', status: camera.state }));
-  app.get('/api/sony/status', (_req, res) => { const manager = sony(res); if (manager) { const status = manager.getStatus(); res.json({ ...status, cameras: named(status.cameras) }); } });
+  // Side-to-side tilt (roll) of a gimbal rig: `{ level: true }` brings roll back to 0°, `{ delta: n }` (−5…5°) nudges
+  // it. Pan and tilt are kept where they are; the move goes through the bridge's go-to-position command.
+  const ROLL_LIMIT_DEG = 30;
+  app.post('/api/cameras/:id/roll', async (req, res) => {
+    const id = req.params.id;
+    if (!/^cam[0-9]{1,2}$/.test(id)) { res.status(400).json({ ok: false, error: 'invalid camera id' }); return; }
+    const device = devices.get(id as CameraId);
+    const cam = config.cameras.find((c) => c.id === id);
+    if (!device || !cam || cam.protocol !== 'dji-bridge') { res.status(404).json({ ok: false, error: 'that rig is not a gimbal' }); return; }
+    const body = (req.body ?? {}) as { level?: unknown; delta?: unknown };
+    const level = body.level === true;
+    const delta = typeof body.delta === 'number' && Number.isFinite(body.delta) ? body.delta : null;
+    if (!level && (delta === null || delta === 0 || Math.abs(delta) > 5)) { res.status(400).json({ ok: false, error: 'send { level: true } or { delta } between -5 and 5 degrees' }); return; }
+    if (!device.capabilities.position || !device.capabilities.moveTo) { res.status(409).json({ ok: false, error: 'this gimbal\'s bridge cannot move to a position' }); return; }
+    if (!device.connected || device.gimbalAttached === false) { res.status(409).json({ ok: false, error: 'the gimbal is not connected' }); return; }
+    try {
+      const pos = await device.getPosition();
+      if (pos.kind !== 'gimbal') throw new Error('unexpected position type');
+      const target = level ? 0 : Math.max(-ROLL_LIMIT_DEG, Math.min(ROLL_LIMIT_DEG, Math.round((pos.roll + (delta as number)) * 10) / 10));
+      if (Math.abs(target - pos.roll) < 0.05) { res.json({ ok: true, roll: pos.roll, moved: false }); return; }
+      await device.moveTo({ ...pos, roll: target });
+      activityLog.addEntry({ protocol: 'DJI-BRIDGE', message: `roll ${pos.roll.toFixed(1)}° → ${target.toFixed(1)}°${level ? ' (level horizon)' : ''}`, targetName: cam.label, targetIp: cam.bridge ? `${cam.bridge.host}:${cam.bridge.port}` : '' });
+      res.json({ ok: true, roll: target, from: pos.roll, moved: true });
+    } catch (error) {
+      res.status(502).json({ ok: false, error: error instanceof Error ? error.message : 'the gimbal did not answer' });
+    }
+  });
+  // The running rigs in order, with the Sony camera each carries, so the dashboard lays its cards out under them.
+  const sonyRigOrder = () => {
+    const view = buildRigs(config, state, '', []);
+    const inventory = (config.devices ?? {}) as Record<string, { label?: string; sonyCameraId?: string }>;
+    return view.rigs.map((rig) => ({
+      id: rig.id, position: rig.position, label: rig.label, controller: rig.controller, builtInCamera: rig.builtInCamera,
+      cameraName: rig.cameraLabel, sonyCameraId: rig.camera ? inventory[rig.camera]?.sonyCameraId ?? null : null,
+    }));
+  };
+  app.get('/api/sony/status', (_req, res) => { const manager = sony(res); if (manager) { const status = manager.getStatus(); res.json({ ...status, cameras: named(status.cameras), rigs: sonyRigOrder() }); } });
   app.get('/api/sony/cameras', (_req, res) => { const manager = sony(res); if (manager) res.json({ cameras: cameraList(manager) }); });
   app.post('/api/sony/cameras/discover', async (_req, res) => { const manager = sony(res); if (!manager) return; try { await manager.discover(); res.json({ cameras: cameraList(manager) }); } catch (error) { sonyError(res, error); } });
   app.post('/api/sony/service/retry', (_req, res) => { const manager = sony(res); if (!manager) return; manager.retryService(); res.json({ ok: true }); });
@@ -1285,6 +1334,13 @@ function statusHtml(): string {
   .sony-widget__id { overflow-wrap:anywhere; }
   .sony-preview { position:relative; aspect-ratio:16 / 9; background:#000; overflow:hidden; }
   .sony-preview img { width:100%; height:100%; object-fit:contain; display:block; }
+  .sony-widget--placeholder { opacity:.6; border-style:dashed; }
+  .sony-placeholder__why { color:var(--text-2); font-size:13px; }
+  .sony-roll { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:6px 0 2px; }
+  .sony-roll:empty { display:none; }
+  .sony-roll .btn-sm { min-height:36px; }
+  .sony-roll__label { width:100%; font-size:12px; color:var(--text-2); }
+  .sony-roll__status { font-size:12px; color:var(--text-2); }
   .sony-preview-loading::after { content:'Live preview loading…'; position:absolute; inset:50% auto auto 50%; transform:translate(-50%,-50%); color:var(--text-2); white-space:nowrap; }
   .sony-preview-stale::after { content:'STALE'; position:absolute; top:8px; right:8px; padding:3px 6px; background:var(--warn-bg); color:var(--warn-text); }
   .sony-crosshair { position:absolute; width:18px; height:18px; border:2px solid var(--amber); border-radius:50%; transform:translate(-50%,-50%); pointer-events:none; display:none; }
@@ -1760,6 +1816,9 @@ function cameraLinkState(s, id) {
   if (!attachedMap[id]) {
     return { cls: 'warn', text: 'Gimbal Off', hint: 'Bridge up, no gimbal attached' };
   }
+  if (s.cameraGimbalResponding && s.cameraGimbalResponding[id] === false) {
+    return { cls: 'warn', text: 'Not Moving', hint: 'Linked but ignoring moves: asleep, unbalanced or motors off' };
+  }
   return { cls: 'ok', text: 'Connected', hint: '' };
 }
 
@@ -1834,7 +1893,7 @@ async function refreshSony() {
     sonySidecar = data.sidecar || null;
     sonyDiscovered = data.cameras || [];
     sonyDashboardStatus('');
-    renderSonyCameras(sonyDiscovered.filter(function(camera) { return camera.state === 'connected' || camera.connected; }));
+    renderSonyCameras(sonyDiscovered.filter(function(camera) { return camera.state === 'connected' || camera.connected; }), data.rigs || []);
   } catch (_) {
     sonySidecar = null;
     sonyDiscovered = [];
@@ -1843,8 +1902,31 @@ async function refreshSony() {
   }
 }
 
-function renderSonyCameras(cameras) {
+// One card per rig, in rig order, so each camera sits under its rig in the camera row above. A rig with no
+// connected Sony camera keeps its column with a small placeholder; cameras on no rig follow at the end.
+function sonyLayout(cameras, rigs) {
+  var byId = {}, used = {}, slots = [];
+  cameras.forEach(function(camera) { byId[String(camera.id).toUpperCase()] = camera; });
+  rigs.forEach(function(rig) {
+    var camera = rig.sonyCameraId ? byId[String(rig.sonyCameraId).toUpperCase()] : null;
+    if (camera && !used[camera.id]) { used[camera.id] = true; slots.push({ camera: camera }); }
+    else slots.push({ rig: rig });
+  });
+  cameras.forEach(function(camera) { if (!used[camera.id]) slots.push({ camera: camera }); });
+  return slots;
+}
+
+function sonyPlaceholderHtml(rig) {
+  var why = rig.builtInCamera ? 'Built-in camera — no Sony controls'
+    : rig.sonyCameraId ? esc(rig.cameraName || 'Its Sony camera') + ' — not connected'
+    : rig.cameraName ? esc(rig.cameraName) + ' — no camera bound yet'
+    : 'No Sony camera assigned';
+  return '<article class="sony-widget sony-widget--placeholder" data-rig-slot="' + esc(rig.id) + '"><div class="sony-widget__head"><div><h3 class="sony-widget__title">' + esc(rig.label) + '</h3><small class="sony-widget__id">Cam ' + esc(String(rig.position).padStart(2, '0')) + '</small></div></div><p class="sony-placeholder__why">' + why + '</p></article>';
+}
+
+function renderSonyCameras(cameras, rigs) {
   var root = document.getElementById('sony-grid-root');
+  root.querySelectorAll('[data-rig-slot]').forEach(function(node) { node.remove(); });
   var liveIds = {};
   cameras.forEach(function(camera) { liveIds[camera.id] = true; });
   Object.keys(sonyWidgets).forEach(function(id) {
@@ -1856,15 +1938,22 @@ function renderSonyCameras(cameras) {
       delete sonyWidgets[id];
     }
   });
-  cameras.forEach(function(camera) {
+  var nodes = [];
+  sonyLayout(cameras, rigs || []).forEach(function(slot) {
+    var holder = document.createElement('div');
+    if (slot.rig) { holder.innerHTML = sonyPlaceholderHtml(slot.rig); nodes.push(holder.firstChild); return; }
+    var camera = slot.camera;
     var created = !sonyWidgets[camera.id];
     if (created) {
       sonyWidgets[camera.id] = { active:true, confirmed:{}, delay:125, frameUrl:null, loadingProperties:false, previewAnnouncementState:'loading' };
-      var holder = document.createElement('div'); holder.innerHTML = sonyWidgetHtml(camera); var article = holder.firstChild; root.appendChild(article); sonyWidgets[camera.id].article = article;
+      holder.innerHTML = sonyWidgetHtml(camera); var article = holder.firstChild; root.appendChild(article); sonyWidgets[camera.id].article = article;
       loadSonyProperties(camera.id);
     } else updateSonyWidget(camera);
+    nodes.push(sonyWidgets[camera.id].article);
     startSonyPreview(camera.id);
   });
+  // Put the cards in rig order, moving only those out of place (a moved card keeps its preview and settings).
+  nodes.forEach(function(node, i) { if (root.children[i] !== node) root.insertBefore(node, root.children[i] || null); });
 }
 
 function sonyDashboardStatus(message, error) {
@@ -1878,6 +1967,39 @@ function updateSonyWidget(camera) {
   article.querySelector('.sony-widget__transport').textContent = camera.connectionType || 'Unknown transport';
   article.querySelector('.sony-widget__connection').textContent = camera.status || 'Connected';
   article.querySelector('.sony-preview img').alt = 'Live preview from ' + (camera.name || camera.model || camera.id);
+  // Show or hide the roll controls as the camera is mounted on or taken off a gimbal rig (never mid-action).
+  var roll = article.querySelector('.sony-roll'), rig = camera.gimbalRig && camera.gimbalRig.rollAdjustable ? camera.gimbalRig.id + '|' + camera.gimbalRig.label : '';
+  if (roll && roll.dataset.rig !== rig && !roll.querySelector('button:disabled')) { roll.innerHTML = sonyRollHtml(camera); roll.dataset.rig = rig; }
+}
+
+// Side-to-side tilt (roll) for a camera mounted on a gimbal rig; nothing for any other camera.
+function sonyRollHtml(camera) {
+  var rig = camera.gimbalRig;
+  if (!rig || !rig.rollAdjustable) return '';
+  var id = esc(rig.id), name = esc(rig.label);
+  return '<span class="sony-roll__label">Horizon (' + name + ')</span>' +
+    '<button class="btn-sm" data-rig="' + id + '" data-delta="-1" title="Roll the gimbal 1 degree one way" onclick="sonyRoll(this)">Roll &minus;1&deg;</button>' +
+    '<button class="btn-sm" data-rig="' + id + '" data-level="1" title="Bring the gimbal roll back to level (0 degrees); pan and tilt stay" onclick="sonyRoll(this)">Level horizon</button>' +
+    '<button class="btn-sm" data-rig="' + id + '" data-delta="1" title="Roll the gimbal 1 degree the other way" onclick="sonyRoll(this)">Roll +1&deg;</button>' +
+    '<span class="sony-roll__status" aria-live="polite"></span>';
+}
+
+async function sonyRoll(button) {
+  var box = button.parentNode, status = box.querySelector('.sony-roll__status');
+  var buttons = box.querySelectorAll('button');
+  buttons.forEach(function(b) { b.disabled = true; });
+  status.className = 'sony-roll__status'; status.textContent = button.dataset.level ? 'Levelling…' : 'Rolling…';
+  try {
+    var body = button.dataset.level ? { level: true } : { delta: Number(button.dataset.delta) };
+    var response = await fetch('/api/cameras/' + encodeURIComponent(button.dataset.rig) + '/roll', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    var result = await response.json().catch(function() { return {}; });
+    if (!response.ok || result.ok === false) throw new Error(result.error || ('HTTP ' + response.status));
+    status.textContent = result.moved ? 'Roll now ' + Number(result.roll).toFixed(1) + '°' : 'Already level (' + Number(result.roll).toFixed(1) + '°)';
+  } catch (error) {
+    status.className = 'sony-roll__status error-state'; status.textContent = 'Roll failed: ' + (error && error.message ? error.message : 'unknown error');
+  } finally {
+    buttons.forEach(function(b) { b.disabled = false; });
+  }
 }
 
 function sonyWidgetHtml(camera) {
@@ -1888,6 +2010,7 @@ function sonyWidgetHtml(camera) {
   return '<article class="sony-widget" data-camera-id="' + esc(camera.id) + '" aria-labelledby="sony-heading-' + esc(key) + '">' +
     '<div class="sony-widget__head"><div><h3 class="sony-widget__title" id="sony-heading-' + esc(key) + '">' + esc(camera.name || camera.model || 'Sony camera') + '</h3><small class="sony-widget__id">' + esc(camera.id) + '</small></div><div><span class="sony-widget__transport">' + esc(camera.connectionType || 'Unknown transport') + '</span><br><span class="sony-widget__connection" style="color:var(--ok-text)">' + esc(camera.status || 'Connected') + '</span></div></div>' +
     '<div class="sony-preview sony-preview-loading" id="sony-preview-' + esc(key) + '" role="region" aria-labelledby="sony-heading-' + esc(key) + '"><img alt="Live preview from ' + esc(camera.model || camera.id) + '" data-id="' + esc(camera.id) + '"><span class="sony-crosshair" aria-hidden="true"></span></div>' +
+    '<div class="sony-roll" id="sony-roll-' + esc(key) + '" data-rig="' + esc(camera.gimbalRig && camera.gimbalRig.rollAdjustable ? camera.gimbalRig.id + '|' + camera.gimbalRig.label : '') + '">' + sonyRollHtml(camera) + '</div>' +
     '<div class="sony-controls">' + controls + '</div>' +
     '<div class="sony-touch-controls"><label>X (0–1)<input class="cfg-input" id="sony-x-' + esc(key) + '" type="number" min="0" max="1" step="0.01" value="0.5"></label><label>Y (0–1)<input class="cfg-input" id="sony-y-' + esc(key) + '" type="number" min="0" max="1" step="0.01" value="0.5"></label><button class="btn-sm" data-id="' + esc(camera.id) + '" onclick="applySonyTouchInputs(this.dataset.id)">Apply touch point</button></div>' +
     '<p>Camera Touch Function determines focus vs tracking.</p><div id="sony-status-' + esc(key) + '" aria-live="polite">Live preview loading. Loading camera controls…</div></article>';

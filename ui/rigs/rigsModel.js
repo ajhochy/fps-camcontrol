@@ -598,7 +598,10 @@
       if (!rig) return null;
       var lines = [{ label: rig.gimbal ? 'Gimbal link' : 'Camera control', value: connectedText(rig.live && rig.live.connected), tone: connectedTone(rig.live && rig.live.connected) }];
       if (rig.live && 'bridgeReachable' in rig.live) lines.push({ label: 'Bridge (Pi)', value: rig.live.bridgeReachable ? 'Reachable' : 'Not reachable', tone: rig.live.bridgeReachable ? 'ok' : 'bad' });
-      if (rig.live && 'gimbalAttached' in rig.live) lines.push({ label: 'Gimbal', value: rig.live.gimbalAttached ? 'Attached' : 'Not attached', tone: rig.live.gimbalAttached ? 'ok' : 'bad' });
+      if (rig.live && 'gimbalAttached' in rig.live) {
+        var notMoving = rig.live.gimbalResponding === false;
+        lines.push({ label: 'Gimbal', value: notMoving ? 'Linked but not moving — asleep, unbalanced or motors off?' : rig.live.gimbalAttached ? 'Attached' : 'Not attached', tone: notMoving ? 'warn' : rig.live.gimbalAttached ? 'ok' : 'bad' });
+      }
       lines.push({ label: 'Video to ATEM', value: rig.wired ? 'Input ' + rig.inputId : 'Not wired (control only)', tone: rig.wired ? 'ok' : 'warn' });
       var camera = rig.camera ? sonyDevice(data, rig.camera) : null;
       if (rig.builtInCamera) lines.push({ label: 'Camera', value: 'Built in', tone: 'idle' });

@@ -37,6 +37,8 @@ export interface AppState {
   cameraGimbalAttached: Record<string, boolean>;
   /** The gimbal model a DJI bridge named in its handshake, by camera id; absent for VISCA or before one. */
   cameraGimbalModel: Record<string, string>;
+  /** False when a linked gimbal ignored the operator's stick (asleep, unbalanced, motors off); absent otherwise. */
+  cameraGimbalResponding: Record<string, boolean>;
   controllerConnected: boolean;
   activeControllerProfile: string | null;
   activeConnectionType: 'usb' | 'bluetooth' | null;
@@ -60,6 +62,7 @@ export const defaultState: AppState = {
   cameraBridgeReachable: {},
   cameraGimbalAttached: {},
   cameraGimbalModel: {},
+  cameraGimbalResponding: {},
   controllerConnected: false,
   activeControllerProfile: null,
   activeConnectionType: null,
@@ -82,6 +85,7 @@ export function createInitialState(overrides: Partial<AppState> = {}): AppState 
     cameraBridgeReachable: {},
     cameraGimbalAttached: {},
     cameraGimbalModel: {},
+    cameraGimbalResponding: {},
     ...overrides,
   };
 }
@@ -104,10 +108,13 @@ export function createInitialState(overrides: Partial<AppState> = {}): AppState 
 export function applyDeviceLinkState(
   state: AppState,
   cameraId: string,
-  link: { connected: boolean; gimbalAttached?: boolean; reportedGimbalModel?: string | null }
+  link: { connected: boolean; gimbalAttached?: boolean; reportedGimbalModel?: string | null; motionResponsive?: boolean }
 ): void {
   if (typeof link.reportedGimbalModel === 'string') state.cameraGimbalModel[cameraId] = link.reportedGimbalModel;
   else delete state.cameraGimbalModel[cameraId];
+  const notMoving = link.motionResponsive === false && link.connected && link.gimbalAttached === true;
+  if (notMoving) state.cameraGimbalResponding[cameraId] = false;
+  else delete state.cameraGimbalResponding[cameraId];
   if (link.gimbalAttached === undefined) {
     delete state.cameraBridgeReachable[cameraId];
     delete state.cameraGimbalAttached[cameraId];
@@ -116,7 +123,7 @@ export function applyDeviceLinkState(
   }
   state.cameraBridgeReachable[cameraId] = link.connected;
   state.cameraGimbalAttached[cameraId] = link.gimbalAttached;
-  state.cameraConnected[cameraId] = link.connected && link.gimbalAttached;
+  state.cameraConnected[cameraId] = link.connected && link.gimbalAttached && !notMoving;
 }
 
 /**
@@ -128,6 +135,7 @@ interface LinkStateSource {
   readonly connected: boolean;
   readonly gimbalAttached?: boolean;
   readonly reportedGimbalModel?: string | null;
+  readonly motionResponsive?: boolean;
   on(event: string, listener: (...args: unknown[]) => void): unknown;
 }
 
@@ -149,6 +157,8 @@ export function trackDeviceLinkState(
   device.on('disconnected', sync);
   device.on('gimbalAttached', sync);
   device.on('gimbalDetached', sync);
+  device.on('gimbalResponsive', sync);
+  device.on('gimbalUnresponsive', sync);
   sync();
 }
 
@@ -158,4 +168,5 @@ export function clearCameraLinkState(state: AppState, cameraId: string): void {
   delete state.cameraBridgeReachable[cameraId];
   delete state.cameraGimbalAttached[cameraId];
   delete state.cameraGimbalModel[cameraId];
+  delete state.cameraGimbalResponding[cameraId];
 }
