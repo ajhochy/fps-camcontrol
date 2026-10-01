@@ -277,3 +277,58 @@ class BridgeInfoTests(unittest.TestCase):
         self.assertEqual(result["gimbalAddress"], "48:1C:B9:54:C6:BC")
         self.assertNotIn("clients", result)
         self.assertIn("capabilities", result)
+
+
+class WakeDispatchTests(unittest.TestCase):
+    class WakeDriver:
+        connected = True
+        mode = "follow"
+        model = "RS3"
+        name = "dji-rs3-ble"
+        address = "48:1C:B9:54:C6:BC"
+        capabilities = ("velocity", "wake")
+
+        def __init__(self):
+            self.wakes = 0
+
+        async def wake(self):
+            self.wakes += 1
+
+    class OldDriver:
+        connected = True
+        mode = "follow"
+        model = "RS3"
+        name = "dji-rs3-ble"
+        address = "48:1C:B9:54:C6:BC"
+        capabilities = ("velocity",)
+
+    def test_hello_advertises_wake_when_the_driver_has_it(self):
+        session = Session(IdleSocket(), self.WakeDriver(), 250, 7879)
+        result = asyncio.run(session._dispatch("hello", {"clientId": "app"}))
+        self.assertIn("wake", result["capabilities"])
+        self.assertEqual(result["bridgeVersion"], "0.5.0")
+
+    def test_wake_dispatches_to_the_driver_and_logs_who_asked(self):
+        driver = self.WakeDriver()
+        session = Session(IdleSocket(), driver, 250, 7879)
+        asyncio.run(session._dispatch("hello", {"clientId": "app-1"}))
+        with self.assertLogs(dji_bridge.log, level="WARNING") as logs:
+            result = asyncio.run(session._dispatch("wake", {}))
+        self.assertEqual(result, {})
+        self.assertEqual(driver.wakes, 1)
+        self.assertTrue(any("WAKE" in line and "app-1" in line for line in logs.output))
+
+    def test_wake_is_not_supported_without_the_capability(self):
+        session = Session(IdleSocket(), self.OldDriver(), 250, 7879)
+        with self.assertRaises(dji_bridge.NotSupported):
+            asyncio.run(session._dispatch("wake", {}))
+
+    def test_mock_driver_wakes(self):
+        from drivers.mock_driver import MockDriver
+
+        driver = MockDriver()
+        self.assertIn("wake", driver.capabilities)
+        driver.asleep = True
+        asyncio.run(driver.wake())
+        self.assertIs(driver.asleep, False)
+        self.assertEqual(driver.wakes, 1)

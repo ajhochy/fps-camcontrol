@@ -229,6 +229,9 @@ async def _release_stale_link(address: str) -> bool:
 CENSUS_ENV = "DJI_RS3_FRAME_CENSUS"
 CENSUS_WATCH = {(0x04, 0x27), (0x0D, 0x02), (0x04, 0x10), (0x04, 0x1C)}
 CENSUS_SUMMARY_S = 60.0
+# Wake command payload (cmd_set 0x04, cmd_id 0x0f): 23 01 00 = wake; 23 01 01 would put it to sleep.
+WAKE_PAYLOAD = bytes((0x23, 0x01, 0x00))
+
 # The gimbal's own "sleep status" notification (cmd_set 0x04, cmd_id 0x27): last payload byte 1 = asleep, 0 = awake
 # (jdesbonnet/dji_rs3_control rs3_ble_protocol_spec.md 4.3 / 6.4).
 SLEEP_STATUS = (0x04, 0x27)
@@ -326,7 +329,7 @@ def resolve_max_joystick(raw: str | int | None) -> int:
 class DjiRsDriver:
     name = "dji-rs3-ble"
     model = "RS3"
-    capabilities = ("velocity", "position", "moveTo", "recenter")
+    capabilities = ("velocity", "position", "moveTo", "recenter", "wake")
     mode = "follow"
 
     def __init__(
@@ -500,6 +503,18 @@ class DjiRsDriver:
 
     async def recenter(self) -> None:
         await self._write(0x04, 0x4C, bytes.fromhex("fe01"))
+
+    async def wake(self) -> None:
+        """Ask a sleeping gimbal to switch its motors back on (operator-initiated only, never automatic).
+
+        Documented upstream (jdesbonnet/dji_rs3_control rs3_ble_protocol_spec.md 6.4, rev 689884f):
+        cmd_set 0x04, cmd_id 0x0f, payload 23 01 00 = wake (23 01 01 would be sleep). Confirmed there on an
+        RS3, not on an RS3 Pro, and unknown for a gimbal stopped by motor protection. Whether it worked is
+        read from the gimbal's own 0x04/0x27 sleep report; `asleep` is never set here.
+        """
+        if not self.connected:
+            raise GimbalError("RS3 is not connected")
+        await self._write(0x04, 0x0F, WAKE_PAYLOAD, receiver=0x04)
 
     async def set_mode(self, mode: str) -> None:
         raise NotSupported("set_mode is not implemented for dji-rs3-ble")

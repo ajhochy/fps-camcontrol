@@ -121,6 +121,29 @@ export function createStatusServer(
       res.status(502).json({ ok: false, error: error instanceof Error ? error.message : 'the gimbal did not answer' });
     }
   });
+  // Wake a sleeping gimbal: switches its motors back on (bridge 0.5.0+, DJI wake command 0x04/0x0f 23 01 00).
+  // Operator-initiated only — an unbalanced gimbal can jerk when its motors re-engage — so the page asks first and
+  // the request must carry { confirm: true }. Nothing here marks the gimbal awake: the health verdict clears only
+  // when the gimbal itself reports awake or is seen moving.
+  app.post('/api/cameras/:id/wake', async (req, res) => {
+    const id = req.params.id;
+    if (!/^cam[0-9]{1,2}$/.test(id)) { res.status(400).json({ ok: false, error: 'invalid camera id' }); return; }
+    const device = devices.get(id as CameraId);
+    const cam = config.cameras.find((c) => c.id === id);
+    if (!device || !cam || cam.protocol !== 'dji-bridge') { res.status(404).json({ ok: false, error: 'that rig is not a gimbal' }); return; }
+    if (!device.connected) { res.status(409).json({ ok: false, error: 'the Pi bridge for this gimbal is not reachable' }); return; }
+    if (device.gimbalAttached === false) { res.status(409).json({ ok: false, error: 'the gimbal is not linked to its Pi bridge' }); return; }
+    if (!device.capabilities.wake || typeof device.wake !== 'function') { res.status(409).json({ ok: false, error: 'this gimbal’s Pi bridge cannot wake it yet: the bridge needs updating (0.5.0 or later)' }); return; }
+    const body = (req.body ?? {}) as { confirm?: unknown };
+    if (body.confirm !== true) { res.status(409).json({ ok: false, error: 'waking switches the gimbal motors on and an unbalanced gimbal can jerk: confirm first (send { confirm: true })' }); return; }
+    try {
+      await device.wake();
+      activityLog.addEntry({ protocol: 'DJI-BRIDGE', message: 'wake sent (operator confirmed); waiting for the gimbal to report awake', targetName: cam.label, targetIp: cam.bridge ? `${cam.bridge.host}:${cam.bridge.port}` : '' });
+      res.json({ ok: true, sent: true });
+    } catch (error) {
+      res.status(502).json({ ok: false, error: error instanceof Error ? error.message : 'the bridge did not answer' });
+    }
+  });
   // The running rigs in order, with the Sony camera each carries, so the dashboard lays its cards out under them.
   const sonyRigOrder = () => {
     const view = buildRigs(config, state, '', []);
@@ -1414,6 +1437,9 @@ function statusHtml(): string {
   .sony-roll { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:6px 0 2px; }
   .sony-roll:empty { display:none; }
   .sony-roll .btn-sm { min-height:36px; }
+  .cam-wake { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:6px 0 2px; padding-left:16px; }
+  .cam-wake .btn-sm { min-height:36px; }
+  .cam-wake__status { font-size:12px; color:var(--text-2); }
   .sony-roll__label { width:100%; font-size:12px; color:var(--text-2); }
   .sony-roll__status { font-size:12px; color:var(--text-2); }
   .sony-preview-loading::after { content:'Live preview loading…'; position:absolute; inset:50% auto auto 50%; transform:translate(-50%,-50%); color:var(--text-2); white-space:nowrap; }
@@ -1985,6 +2011,7 @@ function renderStatus(s, c) {
         '<span class="cam-card__status cam-card__line--' + motion.cls + '">' + esc(motion.text) + '</span>' +
         (motion.hint && motion.cls !== 'ok' ? '<span class="cam-card__hint">' + esc(motion.hint) + '</span>' : '') +
         signalBadge(s.cameraGimbalSignal && s.cameraGimbalSignal[cam.id]) +
+        wakeHtml(cam, motion, s) +
         (camera ? '<span class="cam-card__status cam-card__line--' + camera.cls + '" title="' + esc(camera.hint) + '">Camera: ' + esc(camera.text) + '</span>' +
           (camera.hint && camera.cls !== 'ok' ? '<span class="cam-card__hint">' + esc(camera.hint) + '</span>' : '') : '') +
         '<div class="cam-card__roles">' + roles + '</div>' +
@@ -2136,6 +2163,56 @@ function sonyBatteryInfo(camera) {
   if (reading.stale) return { text: '🔋 ' + percent + '%', color: 'var(--text-2)', title: 'Battery ' + percent + '% (last reading is more than 3 minutes old)' };
   var color = percent >= 40 ? 'var(--ok-text)' : percent >= 20 ? 'var(--warn-text)' : 'var(--err-text)';
   return { text: '🔋 ' + percent + '%', color: color, title: 'Battery ' + percent + '%' };
+}
+
+// Wake a sleeping gimbal from its camera tile. The tiles are rebuilt on every status poll, so each camera's
+// in-flight/result state lives here and the button is drawn from it: a re-render never loses it, and a wake
+// already on its way is never sent twice.
+var gimbalWake = {};
+var WAKE_HOLD_MS = 10000;
+function gimbalAsleepText(text) { return text === 'Asleep' || text === 'Asleep / Not Moving'; }
+function wakeHtml(cam, motion, s) {
+  var st = gimbalWake[cam.id];
+  var canWake = !!(s && s.cameraGimbalCanWake && s.cameraGimbalCanWake[cam.id]);
+  var asleep = cam.protocol === 'dji-bridge' && canWake && gimbalAsleepText(motion.text);
+  if (!asleep) {
+    // Awake again (its own report, or seen moving): forget the earlier attempt.
+    if (st && st.phase !== 'sending') delete gimbalWake[cam.id];
+    return '';
+  }
+  var busy = !!st && (st.phase === 'sending' || (st.phase === 'sent' && Date.now() - st.at < WAKE_HOLD_MS));
+  var label = st && st.phase === 'sending' ? 'Waking…' : 'Wake gimbal';
+  var status = st ? '<span class="cam-wake__status' + (st.phase === 'error' ? ' error-state' : '') + '" aria-live="polite">' + esc(st.text) + '</span>' : '';
+  return '<div class="cam-wake"><button class="btn-sm" data-cam="' + esc(cam.id) + '" data-label="' + esc(cam.label) + '"' +
+    (busy ? ' disabled' : '') + ' title="Switch the gimbal motors back on (asks first)" onclick="wakeGimbal(this)">' + label + '</button>' + status + '</div>';
+}
+async function wakeGimbal(button) {
+  var id = button.dataset.cam, label = button.dataset.label || id;
+  var st = gimbalWake[id];
+  if (st && st.phase === 'sending') return;
+  if (!window.confirm('Wake ' + label + '? Its motors switch back on and it holds its position; if it is unbalanced it can jerk the camera. Make sure nobody is touching it.')) return;
+  if (gimbalWake[id] && gimbalWake[id].phase === 'sending') return;
+  gimbalWake[id] = { phase: 'sending', text: 'Sending wake…', at: Date.now() };
+  button.disabled = true; button.textContent = 'Waking…';
+  var next;
+  try {
+    var response = await fetch('/api/cameras/' + encodeURIComponent(id) + '/wake', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirm: true }) });
+    var result = await response.json().catch(function() { return {}; });
+    if (!response.ok || result.ok === false) throw new Error(result.error || ('HTTP ' + response.status));
+    next = { phase: 'sent', text: 'Wake sent — waiting for it to report awake', at: Date.now() };
+  } catch (error) {
+    next = { phase: 'error', text: 'Wake failed: ' + (error && error.message ? error.message : 'unknown error'), at: Date.now() };
+  }
+  gimbalWake[id] = next;
+  var box = button.parentNode;
+  if (box && box.isConnected) {
+    var b = box.querySelector('button');
+    if (b) { b.disabled = next.phase === 'sent'; b.textContent = 'Wake gimbal'; }
+    var line = box.querySelector('.cam-wake__status');
+    if (!line) { line = document.createElement('span'); line.setAttribute('aria-live', 'polite'); box.appendChild(line); }
+    line.className = 'cam-wake__status' + (next.phase === 'error' ? ' error-state' : '');
+    line.textContent = next.text;
+  }
 }
 
 // Side-to-side tilt (roll) for a camera mounted on a gimbal rig; nothing for any other camera.

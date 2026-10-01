@@ -17,7 +17,7 @@ FULL_SCALE_DEG_PER_SEC = 30.0
 class MockDriver:
     name = "mock"
     model = "mock-RS4Pro"
-    capabilities = ("velocity", "position", "moveTo", "recenter", "mode")
+    capabilities = ("velocity", "position", "moveTo", "recenter", "mode", "wake")
     connected = False
     mode = "follow"
 
@@ -30,6 +30,8 @@ class MockDriver:
         self._vel_roll = 0.0
         self._last = time.monotonic()
         self._lock = asyncio.Lock()
+        self.asleep: bool | None = None
+        self.wakes = 0
 
     async def connect(self) -> None:
         self.connected = True
@@ -76,6 +78,11 @@ class MockDriver:
 
     async def recenter(self) -> None:
         await self.move_to(0.0, 0.0, 0.0, 0.5)
+
+    async def wake(self) -> None:
+        self.wakes += 1
+        if self.asleep:
+            self.asleep = False
 
     async def set_mode(self, mode: str) -> None:
         if mode not in ("follow", "pan", "fpv", "lock"):

@@ -960,7 +960,7 @@
       var key = 'status:' + action.id;
       row.appendChild(button(action.label, '', function (b) {
         if (action.confirm && !window.confirm(action.confirm)) return;
-        act(b, action.progress || 'Working…', function () { return call(action.method, action.url); }, action.done || null, key);
+        act(b, action.progress || 'Working…', function () { return call(action.method, action.url, action.body); }, action.done || null, key);
       }));
       row.appendChild(messageNode(key));
       statusBody.appendChild(row);

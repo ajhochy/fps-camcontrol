@@ -97,6 +97,7 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
     zoom: false,
     position: false,
     moveTo: false,
+    wake: false,
   };
 
   private ws: WebSocket | null = null;
@@ -300,6 +301,19 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
     await this.request('recenter', {}, 5000);
   }
 
+  /**
+   * Ask a sleeping gimbal to switch its motors back on. Operator-initiated only: an unbalanced gimbal can
+   * jerk when its motors re-engage. The ack only means the bridge sent it; whether the gimbal woke comes
+   * from its own sleep report (or from it moving), never from this call.
+   */
+  async wake(): Promise<void> {
+    if (!this.capabilities.wake) {
+      throw new Error(`${this.id}: bridge does not advertise wake capability (update the Pi bridge to 0.5.0 or later)`);
+    }
+    logger.warn({ id: this.id }, 'DJI gimbal wake requested by the operator');
+    await this.request('wake', {}, 5000);
+  }
+
   async probe(timeoutMs = 1000): Promise<boolean> {
     if (!this._connected) return false;
     return Promise.race<boolean>([
@@ -418,6 +432,7 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
       zoom: set.has('zoom'),
       position: set.has('position'),
       moveTo: set.has('moveTo'),
+      wake: set.has('wake'),
     };
   }
 

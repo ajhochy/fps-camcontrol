@@ -370,6 +370,43 @@ class SleepStatusTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.driver._census_on)
 
 
+class WakeTests(unittest.IsolatedAsyncioTestCase):
+    """Wake (0x04/0x0f, payload 23 01 00) is sent only when an operator asks for it."""
+
+    async def asyncSetUp(self):
+        self.transport = FakeTransport(None, None)
+        self.driver = DjiRsDriver("48:1C:B9:56:31:95", transport_factory=lambda *_: self.transport, max_joystick=DEFAULT_MAX_JOYSTICK)
+        await self.driver.connect()
+
+    def test_wake_is_advertised(self):
+        self.assertIn("wake", DjiRsDriver.capabilities)
+
+    async def test_wake_writes_exactly_the_documented_frame(self):
+        before = len(self.transport.frames)
+        await self.driver.wake()
+        self.assertEqual(len(self.transport.frames), before + 1, "wake writes exactly one frame")
+        frame = self.transport.frames[-1]
+        self.assertEqual(frame[9:11], b"\x04\x0f", "cmd_set 0x04, cmd_id 0x0f")
+        self.assertEqual(payload(frame), bytes((0x23, 0x01, 0x00)), "23 01 00 = wake (23 01 01 would be sleep)")
+        self.assertEqual(frame[5], 0x04, "receiver 0x04 (the gimbal)")
+        sequence = frame[6] | (frame[7] << 8)
+        self.assertEqual(frame, _frame(sequence, 0x04, 0x0F, bytes.fromhex("230100")), "well-formed DUML frame with valid CRCs")
+
+    async def test_wake_does_not_pretend_the_gimbal_woke(self):
+        await self.transport.push(status_frame(0x04, 0x27, bytes.fromhex("0000000001")))
+        await self.driver.wake()
+        self.assertIs(self.driver.asleep, True, "only the gimbal's own report may clear asleep")
+        await self.transport.push(status_frame(0x04, 0x27, bytes.fromhex("0000000000"), sequence=9))
+        self.assertIs(self.driver.asleep, False)
+
+    async def test_wake_is_refused_when_not_connected(self):
+        self.transport.drop()
+        before = len(self.transport.frames)
+        with self.assertRaises(GimbalError):
+            await self.driver.wake()
+        self.assertEqual(len(self.transport.frames), before, "nothing written on a dead link")
+
+
 class StaleLinkTests(unittest.IsolatedAsyncioTestCase):
     """A gimbal BlueZ still holds a link to does not advertise; the bridge must release it, not wait forever."""
 

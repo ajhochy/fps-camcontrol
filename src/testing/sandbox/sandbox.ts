@@ -247,6 +247,24 @@ async function selfTest(): Promise<number> {
       bridge.link = { drops10m: 0, framesLastMin: 80, corruptLastMin: 0, linkedForS: 300 };
       check('the Status page Sony cards show a battery level, toned by charge, with a dash when unknown', pageHtml.includes('function sonyBatteryInfo') && pageHtml.includes('sony-widget__battery') && pageHtml.includes("'Battery —'") && pageHtml.includes('var(--err-text)'));
       check('the Status page draws roll buttons next to the preview', pageHtml.includes('function sonyRollHtml') && pageHtml.includes('Level horizon') && pageHtml.includes("'/roll'"));
+
+      // Wake gimbal: an asleep gimbal can be woken from the app, only after the operator confirms.
+      const rigHealthOf = async () => (await api('/api/status')).body.health?.rigs?.[gimbalRig.id];
+      bridge.reportSleep = true; bridge.asleep = true;
+      const asleepHealth = await waitFor('the gimbal to show Asleep', async () => { const h = await rigHealthOf(); return h?.text === 'Asleep' && h; });
+      check('a gimbal that reports it is asleep shows Asleep', asleepHealth.text === 'Asleep' && (await api('/api/status')).body.cameraGimbalCanWake?.[gimbalRig.id] === true);
+      check('Device Config offers Wake gimbal for the asleep gimbal', (await api('/api/rigs')).body.rigs.find((r: any) => r.id === gimbalRig.id)?.live?.canWake === true);
+      const wakesBefore = bridge.wakes;
+      const unconfirmed = await post(`/api/cameras/${gimbalRig.id}/wake`, {});
+      check('a wake without { confirm: true } is refused (409) and sends nothing', unconfirmed.status === 409 && /confirm/.test(unconfirmed.body.error) && bridge.wakes === wakesBefore);
+      check('wake is refused for a rig that is not a gimbal (404) and a bad id (400)', (await post('/api/cameras/cam1/wake', { confirm: true })).status === 404 && (await post('/api/cameras/nope/wake', { confirm: true })).status === 400);
+      const woke = await post(`/api/cameras/${gimbalRig.id}/wake`, { confirm: true });
+      check('a confirmed wake is sent once (200)', woke.status === 200 && woke.body.ok === true && bridge.wakes === wakesBefore + 1);
+      const awake = await waitFor('the gimbal to report awake', async () => { const h = await rigHealthOf(); return h?.level === 'ready' && h; });
+      check('once the gimbal reports awake its health returns to ready', awake.level === 'ready');
+      check('the wake is in the activity log', ((await api('/api/activity')).body.entries ?? []).some((e: any) => /wake sent/.test(e.message ?? '')));
+      check('the Status page draws a Wake gimbal button that asks first and keeps its state across re-renders', pageHtml.includes('function wakeHtml') && pageHtml.includes('Wake gimbal') && pageHtml.includes("'/wake'") && pageHtml.includes('window.confirm(') && pageHtml.includes('var gimbalWake = {}') && pageHtml.includes('Make sure nobody is touching it.'));
+      bridge.reportSleep = false;
     }
 
     // VISCA cameras: the tiles say whether each one answers, not just that a socket is open.

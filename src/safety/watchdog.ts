@@ -46,12 +46,12 @@ export function startWatchdog(
         // resurrecting a dead gimbal as "connected".
         const details = device as MotionDevice & { reportedGimbalModel?: string | null; motionResponsive?: boolean; linkHealth?: import('../app/state').GimbalLinkHealth | null; reportedAsleep?: boolean | null };
         device.probe().then(reachable => {
-          applyDeviceLinkState(state, id, { connected: reachable, gimbalAttached: device.gimbalAttached, reportedGimbalModel: details.reportedGimbalModel, motionResponsive: details.motionResponsive, linkHealth: details.linkHealth, reportedAsleep: details.reportedAsleep });
+          applyDeviceLinkState(state, id, { connected: reachable, gimbalAttached: device.gimbalAttached, reportedGimbalModel: details.reportedGimbalModel, motionResponsive: details.motionResponsive, linkHealth: details.linkHealth, reportedAsleep: details.reportedAsleep, capabilities: device.capabilities });
           if (!reachable) {
             logger.warn({ cameraId: id }, 'camera probe failed — not reachable');
           }
         }).catch(() => {
-          applyDeviceLinkState(state, id, { connected: false, gimbalAttached: device.gimbalAttached, reportedGimbalModel: details.reportedGimbalModel, motionResponsive: details.motionResponsive, linkHealth: details.linkHealth, reportedAsleep: details.reportedAsleep });
+          applyDeviceLinkState(state, id, { connected: false, gimbalAttached: device.gimbalAttached, reportedGimbalModel: details.reportedGimbalModel, motionResponsive: details.motionResponsive, linkHealth: details.linkHealth, reportedAsleep: details.reportedAsleep, capabilities: device.capabilities });
         });
       }
     }

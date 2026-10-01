@@ -602,6 +602,17 @@
     return { label: 'Camera control', value: 'Checking…', tone: 'idle' };
   }
 
+  /** An asleep (or not-moving) gimbal whose bridge can wake it (bridge 0.5.0+). */
+  function gimbalWakeable(rig) {
+    var live = rig.live || {};
+    return !!rig.gimbal && live.canWake === true && live.connected !== false && live.gimbalAttached === true && (live.asleep === true || live.gimbalResponding === false);
+  }
+
+  /** Asked before a wake is sent: motors re-engaging on an unbalanced gimbal can jerk the camera. */
+  function wakeQuestion(label) {
+    return 'Wake ' + label + '? Its motors switch back on and it holds its position; if it is unbalanced it can jerk the camera. Make sure nobody is touching it.';
+  }
+
   /** The right column: live state of the selected item. */
   function statusFor(data, key) {
     if (!key) return null;
@@ -614,7 +625,8 @@
       if (rig.live && 'bridgeReachable' in rig.live) lines.push({ label: 'Bridge (Pi)', value: rig.live.bridgeReachable ? 'Reachable' : 'Not reachable', tone: rig.live.bridgeReachable ? 'ok' : 'bad' });
       if (rig.live && 'gimbalAttached' in rig.live) {
         var notMoving = rig.live.gimbalResponding === false;
-        lines.push({ label: 'Gimbal', value: notMoving ? 'Linked but not moving — asleep, unbalanced or motors off?' : rig.live.gimbalAttached ? 'Attached' : 'Not attached', tone: notMoving ? 'warn' : rig.live.gimbalAttached ? 'ok' : 'bad' });
+        var reportsAsleep = rig.live.gimbalAttached && rig.live.asleep === true;
+        lines.push({ label: 'Gimbal', value: reportsAsleep ? 'Asleep (the gimbal reports it)' : notMoving ? 'Linked but not moving — asleep, unbalanced or motors off?' : rig.live.gimbalAttached ? 'Attached' : 'Not attached', tone: reportsAsleep || notMoving ? 'warn' : rig.live.gimbalAttached ? 'ok' : 'bad' });
       }
       if (rig.live && rig.live.signal) {
         var sig = rig.live.signal;
@@ -628,6 +640,7 @@
       var cameraInfo = camera ? cameraStatus(data, camera.sonyCameraId) : null;
       if (cameraInfo && cameraInfo.message) lines.push({ label: 'Last message', value: cameraInfo.message, tone: camera.state === 'error' ? 'bad' : 'idle' });
       var actions = [{ id: 'reconnect-controller', label: rig.gimbal ? 'Reconnect gimbal' : 'Reconnect camera control', method: 'POST', url: '/api/reconnect/camera/' + encodeURIComponent(rig.id), progress: 'Reconnecting…', done: 'Reconnect requested' }];
+      if (gimbalWakeable(rig)) actions.push({ id: 'wake-gimbal', label: 'Wake gimbal', method: 'POST', url: '/api/cameras/' + encodeURIComponent(rig.id) + '/wake', body: { confirm: true }, progress: 'Waking…', done: 'Wake sent — waiting for it to report awake', confirm: wakeQuestion(rig.label || rig.id) });
       if (camera && camera.sonyCameraId && camera.state === 'discovered_unapproved') actions.push({ id: 'connect-sony', label: 'Connect Sony camera', method: 'POST', url: '/api/sony/cameras/' + encodeURIComponent(camera.sonyCameraId) + '/connect', progress: 'Connecting…', done: 'Connected' });
       if (camera && camera.sonyCameraId && RETRYABLE[camera.state]) actions.push({ id: 'retry-sony', label: 'Retry Sony camera', method: 'POST', url: '/api/sony/cameras/' + encodeURIComponent(camera.sonyCameraId) + '/retry', progress: 'Retrying…', done: 'Retry requested' });
       return { headline: rigTitle(rig), lines: lines, actions: actions, previewCameraId: camera && camera.state === 'connected' ? camera.sonyCameraId : null, noPreviewReason: previewReason(rig, camera) };

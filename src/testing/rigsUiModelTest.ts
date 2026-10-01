@@ -149,6 +149,22 @@ check('a gimbal from a current bridge is named by its instance, model and Blueto
   const line = model.statusFor(d, 'rig:rs3').lines.find((l: any) => l.label === 'Bluetooth signal');
   check('a gimbal rig shows its Bluetooth signal, warning when weak', line.tone === 'warn' && /Weak — 1 Bluetooth drop/.test(line.value));
 }
+{
+  const d = JSON.parse(JSON.stringify(data));
+  const g = d.rigs.find((r: any) => r.deviceKey === 'rs3');
+  g.live = { connected: true, bridgeReachable: true, gimbalAttached: true, asleep: true, canWake: true };
+  const status = model.statusFor(d, 'rig:rs3');
+  const wake = status.actions.find((a: any) => a.id === 'wake-gimbal');
+  check('an asleep gimbal says so in the status column', /Asleep/.test(status.lines.find((l: any) => l.label === 'Gimbal').value));
+  check('an asleep gimbal whose bridge can wake it offers Wake gimbal, which asks first and sends confirm', !!wake && wake.method === 'POST' && wake.url === '/api/cameras/' + g.id + '/wake' && wake.body.confirm === true && /^Wake .+\? Its motors switch back on/.test(wake.confirm) && /Make sure nobody is touching it\./.test(wake.confirm));
+  g.live = { connected: true, bridgeReachable: true, gimbalAttached: true, gimbalResponding: false, canWake: true };
+  check('a not-moving gimbal is offered Wake gimbal too', model.statusFor(d, 'rig:rs3').actions.some((a: any) => a.id === 'wake-gimbal'));
+  g.live = { connected: true, bridgeReachable: true, gimbalAttached: true, asleep: true };
+  check('no Wake gimbal when the bridge cannot wake (older than 0.5.0)', !model.statusFor(d, 'rig:rs3').actions.some((a: any) => a.id === 'wake-gimbal'));
+  g.live = { connected: true, bridgeReachable: true, gimbalAttached: true, asleep: false, canWake: true };
+  check('no Wake gimbal for an awake gimbal', !model.statusFor(d, 'rig:rs3').actions.some((a: any) => a.id === 'wake-gimbal'));
+  check('a VISCA rig is never offered Wake gimbal', !model.statusFor(data, 'rig:vbot').actions.some((a: any) => a.id === 'wake-gimbal'));
+}
 check('the old typed gimbal model is gone from the inspector', control(gimbal, 'gimbal.gimbalModel') === undefined);
 check('a V-BOT has IP, port and VISCA address controls with their limits', control(rig, 'visca.host').path === 'visca.host' && control(rig, 'visca.port').min === 1 && control(rig, 'visca.port').max === 65535 && control(rig, 'visca.address').max === 7 && control(rig, 'visca.address').integer === true && control(rig, 'gimbal.host') === undefined);
 check('a gimbal has bridge host, port and model controls and no VISCA controls', control(gimbal, 'gimbal.host').value === 'dji-bridge.local' && control(gimbal, 'gimbal.port').value === 7878 && control(gimbal, 'visca.host') === undefined);
