@@ -1342,6 +1342,7 @@ function statusHtml(): string {
   .sony-preview img { width:100%; height:100%; object-fit:contain; display:block; }
   .sony-widget--placeholder { opacity:.6; border-style:dashed; }
   .sony-placeholder__why { color:var(--text-2); font-size:13px; }
+  .sony-placeholder__note { color:var(--text-3, var(--text-2)); font-size:12px; }
   .sony-roll { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:6px 0 2px; }
   .sony-roll:empty { display:none; }
   .sony-roll .btn-sm { min-height:36px; }
@@ -1922,12 +1923,25 @@ function sonyLayout(cameras, rigs) {
   return slots;
 }
 
+// A rig's column when its Sony camera is not on the dashboard. It is about the Sony camera only: the rig's own
+// motion (V-BOT head, gimbal) has its status in the camera row above and is not affected.
 function sonyPlaceholderHtml(rig) {
-  var why = rig.builtInCamera ? 'Built-in camera — no Sony controls'
-    : rig.sonyCameraId ? esc(rig.cameraName || 'Its Sony camera') + ' — not connected'
-    : rig.cameraName ? esc(rig.cameraName) + ' — no camera bound yet'
-    : 'No Sony camera assigned';
-  return '<article class="sony-widget sony-widget--placeholder" data-rig-slot="' + esc(rig.id) + '"><div class="sony-widget__head"><div><h3 class="sony-widget__title">' + esc(rig.label) + '</h3><small class="sony-widget__id">Cam ' + esc(String(rig.position).padStart(2, '0')) + '</small></div></div><p class="sony-placeholder__why">' + why + '</p></article>';
+  var known = rig.sonyCameraId ? (sonyDiscovered || []).filter(function(c) { return String(c.id).toUpperCase() === String(rig.sonyCameraId).toUpperCase(); })[0] : null;
+  var title, why;
+  if (rig.builtInCamera) { title = rig.label; why = 'Built-in camera — no Sony controls'; }
+  else if (!rig.cameraName) { title = rig.label; why = 'No Sony camera assigned to this rig'; }
+  else if (!rig.sonyCameraId) { title = rig.cameraName; why = 'Sony camera not bound yet — bind it in Device Config ▸ Sony connections'; }
+  else {
+    title = rig.cameraName;
+    var state = known ? known.state : null, err = known ? (known.lastError || known.message || '') : '';
+    if (/820A|refused/i.test(err) || state === 'needs_pairing') why = 'Sony camera refused the connection — put it in pairing mode, then press Retry connect in Device Config ▸ Sony connections';
+    else if (state === 'error') why = 'Sony camera connection failed' + (err ? ' (' + err + ')' : '') + ' — an FX3 usually needs pairing mode again after a drop; then press Retry connect in Device Config ▸ Sony connections';
+    else if (state === 'connecting') why = 'Sony camera reconnecting…';
+    else if (!known) why = 'Sony camera not found on the network — is it on, with Wi-Fi / PC Remote on?';
+    else why = 'Sony camera not connected' + (err ? ' (' + err + ')' : '');
+  }
+  return '<article class="sony-widget sony-widget--placeholder" data-rig-slot="' + esc(rig.id) + '"><div class="sony-widget__head"><div><h3 class="sony-widget__title">' + esc(title) + '</h3><small class="sony-widget__id">Sony camera on ' + esc(rig.label) + ' (Cam ' + esc(String(rig.position).padStart(2, '0')) + ')</small></div></div><p class="sony-placeholder__why">' + esc(why) + '</p>' +
+    (rig.builtInCamera || !rig.cameraName ? '' : '<p class="sony-placeholder__note">Only the Sony remote controls are affected. Motion for ' + esc(rig.label) + ' is shown in the camera row above.</p>') + '</article>';
 }
 
 function renderSonyCameras(cameras, rigs) {
