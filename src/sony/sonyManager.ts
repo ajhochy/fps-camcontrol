@@ -14,6 +14,15 @@ const DISCOVERY_TIMEOUT_MS = 30000;
 const FRAME_TIMEOUT_MS = 3000;
 const LINK_CHECK_MS = 5000;
 const LINK_CHECK_TIMEOUT_MS = 2000;
+/**
+ * After a connected camera drops, leave it to the Sony SDK's own reconnect (requested with `reconnecting: "on"`)
+ * for this long before asking for a fresh connection. A fresh connection is a new session, which an FX3/FX3A
+ * refuses (0x820A, "Connect_FailRejected") until it is put in pairing mode again; the SDK's reconnect resumes the
+ * existing session and needs no pairing. Discovery keeps checking meanwhile, so a resumed camera shows at once.
+ */
+const SDK_RECONNECT_GRACE_MS = 20000;
+/** A camera that vanished from discovery and came back (powered off, out of range) gets only this long. */
+const SDK_REAPPEAR_GRACE_MS = 8000;
 const SHUTDOWN_REQUEST_TIMEOUT_MS = 2000;
 const SHUTDOWN_EXIT_WAIT_MS = 3000;
 const TERM_EXIT_WAIT_MS = 2000;
@@ -68,7 +77,7 @@ export interface SonyChildProcess {
 }
 
 type Timer = unknown;
-type CameraRecord = SonyCameraStatus & { missing: boolean };
+type CameraRecord = SonyCameraStatus & { missing: boolean; /** Until when (ms) background connects leave it to the SDK's own reconnect. */ sdkGraceUntil?: number };
 
 /** Retryable backpressure for polling reads that hit an occupied camera lane. */
 export class SonyRetryableError extends Error {
@@ -203,7 +212,7 @@ export class SonyManager {
         mode: this.mode, state: this.state, owned: this.owned, apiUrl: this.config.apiUrl,
         version: this.version, sdkVersion: this.sdkVersion, message: this.sidecarMessage,
       },
-      cameras: [...this.cameras.values()].map(({ missing: _missing, ...camera }) => ({ ...camera })),
+      cameras: [...this.cameras.values()].map(({ missing: _missing, sdkGraceUntil: _grace, ...camera }) => ({ ...camera })),
     };
   }
 
@@ -399,6 +408,13 @@ export class SonyManager {
       const approved = this.approved.has(id);
       const connected = this.connectedFlag(raw);
       if (previous?.missing && approved) this.burstIndex = 0; // reappearance starts a fresh burst
+      const nowMs = this.now().getTime();
+      const sdkGraceUntil = connected ? undefined
+        : previous?.state === 'connected' && !previous.missing ? nowMs + SDK_RECONNECT_GRACE_MS // dropped while still on the network
+          // Back after dropping and vanishing in this run: only a short beat for the SDK first. A camera never
+          // connected in this run (e.g. at startup) has no session to resume and gets no grace at all.
+          : previous?.missing && previous.sdkGraceUntil !== undefined ? Math.min(previous.sdkGraceUntil, nowMs + SDK_REAPPEAR_GRACE_MS)
+            : previous?.sdkGraceUntil;
       this.cameras.set(id, {
         id,
         approved,
@@ -409,13 +425,17 @@ export class SonyManager {
         nextRetryAt: null,
         message: connected ? null : previous?.message ?? null,
         missing: false,
+        sdkGraceUntil,
       });
-      // Only remembered cameras get background work; unknown IDs wait for an explicit Connect.
-      if (approved && !connected && previous?.state !== 'needs_pairing') reconnect.push(id);
+      // Only remembered cameras get background work; unknown IDs wait for an explicit Connect. A camera that
+      // just dropped is left to the SDK's own reconnect first (see SDK_RECONNECT_GRACE_MS).
+      const inGrace = sdkGraceUntil !== undefined && nowMs < sdkGraceUntil;
+      if (approved && !connected && previous?.state !== 'needs_pairing' && !inGrace) reconnect.push(id);
     }
     for (const [id, camera] of [...this.cameras]) {
       if (seen.has(id)) continue;
       if (!camera.approved) { this.cameras.delete(id); continue; }
+      if (camera.state === 'connected') camera.sdkGraceUntil = this.now().getTime() + SDK_RECONNECT_GRACE_MS;
       camera.missing = true;
       if (camera.state !== 'needs_pairing') camera.state = 'disconnected';
       camera.message = camera.message ?? 'Camera not found';
@@ -479,6 +499,7 @@ export class SonyManager {
         if (!this.connectedFlag(body) && camera.state === 'connected') {
           camera.state = 'disconnected';
           camera.message = 'Camera stopped responding';
+          camera.sdkGraceUntil = this.now().getTime() + SDK_RECONNECT_GRACE_MS;
           lost = true;
         }
       } catch (_) { /* inconclusive: a sidecar outage is handled by the health probe, not here */ }
@@ -524,7 +545,8 @@ export class SonyManager {
       if (previous) previous.state = 'connecting';
       try {
         const body = await this.request(`${this.cameraPath(id)}/connection`, {
-          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'remote' }),
+          // `reconnecting: "on"` lets the SDK resume this session by itself after a Wi-Fi blip (no re-pairing).
+          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'remote', reconnecting: 'on' }),
         }, CONNECT_TIMEOUT_MS) as any;
         const camera = this.normalizeCamera(body, id, previous);
         // Only an explicit, successful Connect persists approval.

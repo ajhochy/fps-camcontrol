@@ -20,7 +20,7 @@ const criteria = new Set<string>();
 
 function record(name: string): void {
   const criterion = name.split(':')[0];
-  assert.ok(/^c(?:[1-9]|1[0-5])$/.test(criterion), `check name must start with a criterion id: ${name}`);
+  assert.ok(/^c(?:[1-9]|1[0-6])$/.test(criterion), `check name must start with a criterion id: ${name}`);
   assert.ok(!checks.includes(name), `duplicate check name: ${name}`);
   checks.push(name);
   criteria.add(criterion);
@@ -144,6 +144,7 @@ interface Harness {
   manager: SonyManager;
   clock: Clock;
   calls: string[];
+  bodies: string[];
   timeouts: number[];
   spawns: FakeChild[];
   spawnOptions: unknown[];
@@ -168,6 +169,7 @@ const build = (
 ): Harness => {
   const clock = new Clock();
   const calls: string[] = [];
+  const bodies: string[] = [];
   const timeouts: number[] = [];
   const spawns: FakeChild[] = [];
   const spawnOptions: unknown[] = [];
@@ -177,7 +179,7 @@ const build = (
     { enabled: true, apiUrl: 'http://127.0.0.1:8181', ...config },
     store ?? new SonyStateStore(config.stateFile),
     {
-      fetch: async (url, init) => { calls.push(`${init?.method ?? 'GET'} ${url}`); return upstream(url, init); },
+      fetch: async (url, init) => { calls.push(`${init?.method ?? 'GET'} ${url}`); if (typeof init?.body === 'string') bodies.push(init.body); return upstream(url, init); },
       spawn: (command, args, options) => {
         spawnCommands.push(command); spawnArgs.push(args); spawnOptions.push(options);
         const child = fakeChild(); spawns.push(child); return child;
@@ -190,7 +192,7 @@ const build = (
       ...extra,
     },
   );
-  return { manager, clock, calls, timeouts, spawns, spawnOptions, spawnArgs, spawnCommands };
+  return { manager, clock, calls, bodies, timeouts, spawns, spawnOptions, spawnArgs, spawnCommands };
 };
 
 async function main(): Promise<void> {
@@ -359,6 +361,7 @@ async function main(): Promise<void> {
   checkEqual('c6: an explicit successful connect persists approval', (await store.load()).map((camera) => camera.id), ['AA:BB']);
   checkEqual('c6: an explicit connect writes the approval exactly once', store.approvals, 1);
   checkEqual('c6: connect uses the 30 s upstream budget', approval.timeouts[approval.timeouts.length - 1], 30000);
+  check('c16: connect asks for the SDK\'s own reconnect, so a Wi-Fi blip is resumed without re-pairing', approval.bodies.some((body: string) => { try { const b = JSON.parse(body); return b.mode === 'remote' && b.reconnecting === 'on'; } catch { return false; } }));
   checkEqual('c6: a connected camera is reported connected', approval.manager.getStatus().cameras[0].state, 'connected');
   await approval.manager.stop();
 
@@ -587,8 +590,15 @@ async function main(): Promise<void> {
   checkEqual('c13: the lost link is explained to the operator', link.manager.getStatus().cameras.find((camera) => camera.id === camA)?.message, 'Camera stopped responding');
   linked.delete(camA);
   powered.add(camA);
-  await link.clock.run(link.manager, 30000);
+  // c16: right after a drop the SDK's own reconnect is given the first chance (no fresh connect, which an FX3
+  // refuses until it is paired again); after that the app connects as before.
+  const freshConnects = () => link.calls.filter((call) => call === `POST http://127.0.0.1:8181/api/cameras/${camA}/connection`).length;
+  const before = freshConnects();
+  await link.clock.run(link.manager, 12000);
+  checkEqual('c16: no fresh connect while the SDK may still be resuming the dropped session', freshConnects(), before);
+  await link.clock.run(link.manager, 48000);
   checkEqual('c13: an approved camera reconnects by itself after power returns', stateOf(camA), 'connected');
+  check('c16: after the grace the app connects as before', freshConnects() > before);
   const afterReconnect = link.calls.length;
   await link.manager.stop();
   checkEqual('c13: stop cancels the link check timer', link.clock.pending(), 0);
@@ -627,7 +637,7 @@ async function main(): Promise<void> {
   checkEqual('c15: stop cancels every timer', restarted.clock.pending(), 0);
 
   const covered = [...criteria].sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
-  assert.strictEqual(covered.length, 15, `every criterion needs a check; covered: ${covered.join(',')}`);
+  assert.strictEqual(covered.length, 16, `every criterion needs a check; covered: ${covered.join(',')}`);
   assert.strictEqual(new Set(checks).size, checks.length, 'check names must be unique');
   console.log(`sony manager: ${checks.length} checks passed across ${covered.length} criteria (${covered.join(' ')})`);
 }
