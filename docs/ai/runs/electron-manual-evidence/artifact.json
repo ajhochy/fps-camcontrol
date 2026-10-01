@@ -1,0 +1,37 @@
+{
+  "root": "/Users/ajhochhalter/.local/share/opencode/worktree/ec2e0fe3fdd54c2e9ab53bfa4cc75c91e40568ed/fps-electron-two-pr-plan",
+  "branch": "feat/electron-foundation",
+  "head": "763122d5ef27097661773ccc16d4f704f950ea81",
+  "sourceDirty": true,
+  "artifactNotFromImmutableCommit": true,
+  "app": {
+    "path": "/Users/ajhochhalter/.local/share/opencode/worktree/ec2e0fe3fdd54c2e9ab53bfa4cc75c91e40568ed/fps-electron-two-pr-plan/release/manual/mac-arm64/FPS CamControl.app",
+    "files": 1038,
+    "bytes": 337137389,
+    "appAsarSha256": "0c8da6518a8355908507ee5ff06dabf2327fca91923e2f03ccc72892823737e1",
+    "bundleIdentifier": "com.ajhochhalter.fpscamcontrol",
+    "minOS": "13.0",
+    "version": "0.1.0"
+  },
+  "dmg": {
+    "path": "/Users/ajhochhalter/.local/share/opencode/worktree/ec2e0fe3fdd54c2e9ab53bfa4cc75c91e40568ed/fps-electron-two-pr-plan/release/manual/FPS CamControl-manual-0.1.0-arm64.dmg",
+    "bytes": 137706616,
+    "sha256": "88a824c42f0bc1e33e9f418d04a61205da640e89ed90379e870a70686e78a3a6"
+  },
+  "versions": {
+    "buildNode": "22.23.0",
+    "electron": "44.5.1",
+    "electronBuilder": "26.15.3",
+    "rebuild": "4.2.0",
+    "playwright": "1.58.2"
+  },
+  "signing": {
+    "strictVerify": "PASS",
+    "team": "56Q69NYP9H",
+    "nestedTargets": 29,
+    "notary": "NOT RUN",
+    "stapled": false,
+    "Gatekeeper": "UNVERIFIED"
+  },
+  "runtime": "FAIL: backend exited before dashboard; see runtime.json"
+}

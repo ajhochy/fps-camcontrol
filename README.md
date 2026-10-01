@@ -67,3 +67,22 @@ Then uncomment the `cam4` block in [config/devices.yaml](config/devices.yaml).
 The gimbal joins camera selection on the controller exactly like a VISCA
 camera. The LB+RB chord recenters gimbal devices (falls through to ATEM
 auto-transition on VISCA cameras).
+
+## License
+
+FPS CamControl is released under the [MIT License](LICENSE) — Copyright (c) 2026 AJ Hochhalter.
+
+Third-party components keep their own licenses (see `pi-bridge/THIRD_PARTY_NOTICES.md`; a complete notices
+file for bundled dependencies is tracked in the issue tracker). The **Sony Camera Remote SDK is not included
+in this repository and is never redistributed**: each user downloads it from Sony under Sony's own license
+(see [docs/sony-sidecar-setup.md](docs/sony-sidecar-setup.md)).
+Product and company names (Sony, DJI, Blackmagic Design/ATEM, BirdDog, V-BOT, Raspberry Pi) are used only to
+describe compatibility; this project is not affiliated with or endorsed by them.
+
+## Electron feasibility probe (not the production app)
+
+`pnpm electron:probe:package` builds an arm64 probe app/DMG under `dist/electron-probe/`.
+`pnpm test:electron:probe -- --duration-ms=1800000` runs the packaged app with an empty
+test HOME, minimal PATH and random cwd; it enumerates HID without opening any device.
+Node and Electron native builds are separate. This does not prove real controller permission,
+production control-loop timing, a clean OS, Gatekeeper, or the unfinished foundation features.

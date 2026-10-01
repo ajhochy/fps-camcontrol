@@ -12,7 +12,7 @@ A macOS Node.js/TypeScript app that turns a game controller (Xbox / Wii U Pro) i
 ## Stack
 | Layer | Tech |
 |---|---|
-| Runtime | Node.js + TypeScript |
+| Runtime | TypeScript backend; CLI Node.js or bundled Electron utility-process Node |
 | Package mgr | pnpm |
 | ATEM | `atem-connection` |
 | VISCA-IP | Custom UDP client (Node.js `dgram`) on port 52381 |
@@ -20,10 +20,23 @@ A macOS Node.js/TypeScript app that turns a game controller (Xbox / Wii U Pro) i
 | Gamepad | `node-hid` (Xbox + Wii U Pro profiles) |
 | Config | YAML + Zod validation |
 | Logging | Pino (stdout + daily `logs/service-YYYY-MM-DD.log`) |
-| Status UI | Express + HTML on port 8080 (bound `0.0.0.0` for LAN) |
-| Testing | Custom virtual hardware + smoke suite (36 assertions) |
+| Status UI | Express + HTML on loopback; CLI port 8080, packaged port 0 with actual ready-port IPC |
+| Testing | Serial virtual hardware smoke/sandbox, focused tests, actual packaged-app runtime tests |
 
 ## Components
+
+The Electron shell (`electron/main.cjs`) and explicit backend lifecycle
+(`src/embed.ts`, `src/index.ts`) share one production startup path. The sandboxed
+renderer has no Node integration; HTTP and WebSocket requests require the
+private session, expected host, and appropriate origin. App defaults are generic
+and immutable; mutable settings live in Electron userData. `CAMCONTROL_HOME`
+and `CAMCONTROL_RESOURCES` separate operator data from bundled resources.
+An OS-owned loopback lock prevents concurrent manual/tracking hardware owners;
+the normal Electron singleton handles repeated launches of one identity.
+Shutdown stops control before transports. Parent heartbeat loss stops the
+backend; crash/sleep recovery requires explicit operator restart and never
+replays motion. Sony SDK/CameraWebApp is user-supplied, not redistributed.
+
 | Component | Path | Responsibility |
 |---|---|---|
 | Controller loop | `src/app/controllerLoop.ts` | 60 Hz tick: read gamepad → drive state machine → emit device commands |

@@ -1,5 +1,4 @@
 import pino from 'pino';
-import path from 'path';
 
 export const logger = (global as any).__testLogger ?? pino({
   transport: { target: 'pino-pretty', options: { colorize: true } },
@@ -7,6 +6,7 @@ export const logger = (global as any).__testLogger ?? pino({
 });
 
 import { loadConfig } from './config/configLoader';
+import { getResourcePath } from './config/paths';
 import { createInitialState, AppState, CameraId, trackDeviceLinkState } from './app/state';
 import { AtemClient } from './atem/atemClient';
 import { MotionDevice } from './devices/motionDevice';
@@ -17,35 +17,55 @@ import { throttledLog } from './app/logThrottle';
 import { normalizeHIDReport } from './input/normalizers';
 import { ControlStateMachine } from './model/controlStateMachine';
 import { PresetManager } from './model/presetManager';
-import { startControllerLoop } from './app/controllerLoop';
+import { startControllerLoop, stopControllerLoop } from './app/controllerLoop';
 import { eventBus } from './app/eventBus';
-import { createStatusServer, startStatusServer } from './ui/statusServer';
+import { createStatusServer, startStatusServer, waitForListening } from './ui/statusServer';
 import { ActivityLog } from './app/activityLog';
 import { startWatchdog } from './safety/watchdog';
 import { CalibrationWizard } from './input/calibrationWizard';
 import { SonyStateStore } from './sony/sonyStateStore';
 import { SonyManager } from './sony/sonyManager';
 
-async function main() {
+export interface ApplicationLifecycle {
+  server: ReturnType<typeof startStatusServer>;
+  shutdown(): Promise<void>;
+}
+
+export interface StartApplicationOptions {
+  /** The embedded utility process always supplies an OS-assigned port (0). */
+  statusPort?: number;
+  /** Embedded startup must not wait for unavailable production hardware. */
+  embedded?: boolean;
+}
+
+/**
+ * Start one app instance explicitly. Importing this module deliberately has no
+ * startup side effects so the Electron utility process can control readiness.
+ */
+export async function startApplication(
+  options: StartApplicationOptions = {},
+  startServer: typeof startStatusServer = startStatusServer,
+): Promise<ApplicationLifecycle> {
   logger.info('FPS CamControl starting…');
 
   const config = loadConfig();
+  const controlsPaused = process.env.CAMCONTROL_INPUT_SUSPENDED === '1';
   if (config.working) logger.info({ profile: config.working.base, rigs: config.working.slots.length }, 'restored unsaved rig changes (working copy)');
   if (config.workingNotice) logger.warn(config.workingNotice);
   const state: AppState = createInitialState();
   const activityLog = new ActivityLog();
-  const sonyManager = new SonyManager(config.sony!, new SonyStateStore(config.sony!.stateFile));
+  const sonyManager = new SonyManager(controlsPaused ? { ...config.sony!, enabled: false } : config.sony!, new SonyStateStore(config.sony!.stateFile));
   // Sony is optional; readiness stays in the manager background lane.
   sonyManager.start();
 
   // Step 1: Connect to ATEM
   const atem = new AtemClient(config.atem.ip);
   atem.setActivityLog(activityLog);
-  try {
-    await atem.connect();
-  } catch (err) {
+  const connectAtem = (controlsPaused ? Promise.resolve() : atem.connect()).catch(err => {
     logger.warn({ err }, 'ATEM initial connection failed, will retry in background');
-  }
+  });
+  // Packaged readiness must not wait for absent hardware; CLI behavior stays unchanged.
+  if (!options.embedded) await connectAtem;
 
   // Step 2: Connect to cameras (non-blocking)
   const devices = new Map<CameraId, MotionDevice>();
@@ -53,14 +73,14 @@ async function main() {
     const device = createMotionDevice(cam, activityLog);
     trackDeviceLinkState(state, cam.id, device);
     devices.set(cam.id as CameraId, device);
-    device.connect();
+    if (!controlsPaused) device.connect();
   }
 
   // Step 3 & 4: Detect controller and load profile.
   // Detection is supervised, not one-shot — a controller that pairs or wakes up
   // after startup is picked up on the next poll instead of being ignored until
   // the app restarts.
-  const profilesDir = path.join(process.cwd(), 'controller-profiles');
+  const profilesDir = process.env.PROFILES_DIR ?? getResourcePath('controller-profiles');
   const profiles = loadProfiles(profilesDir);
 
   const presetManager = new PresetManager(state, config, devices);
@@ -103,7 +123,7 @@ async function main() {
 
   // CAMCONTROL_NO_CONTROLLER=1 (the sandbox, isolated tests): never open the real
   // HID controller, so a second copy of the app cannot take it from the live one.
-  const controllerDisabled = process.env.CAMCONTROL_NO_CONTROLLER === '1';
+  const controllerDisabled = process.env.CAMCONTROL_NO_CONTROLLER === '1' || process.env.CAMCONTROL_INPUT_SUSPENDED === '1';
   if (controllerDisabled) logger.warn('controller input disabled (CAMCONTROL_NO_CONTROLLER=1)');
   else supervisor.start();
 
@@ -143,35 +163,54 @@ async function main() {
   }
 
   // Step 9: Start controller loop
-  startControllerLoop(machine);
+  if (!controlsPaused) startControllerLoop(machine);
 
   // Watchdog
-  startWatchdog(state, atem, devices);
+  const watchdog = controlsPaused ? undefined : startWatchdog(state, atem, devices);
 
   // Step 10: Status UI
   const app = createStatusServer(state, config, presetManager, activityLog, atem, devices, sonyManager);
-  const port = parseInt(process.env.STATUS_PORT ?? '8080', 10);
-  startStatusServer(app, activityLog, port);
+  const port = options.statusPort ?? parseInt(process.env.STATUS_PORT ?? '8080', 10);
+  const server = startServer(app, activityLog, port);
+  await waitForListening(server);
 
   logger.info({ controlledCamera: state.controlledCamera }, 'FPS CamControl running');
 
   // Graceful shutdown
-  let shuttingDown = false;
-  const shutdown = async () => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    logger.info('shutting down');
-    supervisor.stop();
-    atem.disconnect();
-    for (const [, device] of devices) device.close();
-    await sonyManager.stop();
-    process.exit(0);
+  let shutdownPromise: Promise<void> | null = null;
+  const shutdown = (): Promise<void> => {
+    if (shutdownPromise) return shutdownPromise;
+    shutdownPromise = (async () => {
+      logger.info('shutting down');
+      stopControllerLoop();
+      if (watchdog) clearInterval(watchdog);
+      supervisor.stop();
+      for (const [, device] of devices) device.stop();
+      // Yield after enqueueing stops, before closing their transports.
+      await new Promise<void>(resolve => setImmediate(resolve));
+      server.emit('shutdown');
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) => server.close(err => err ? reject(err) : resolve()));
+      atem.disconnect();
+      for (const [, device] of devices) device.close();
+      await sonyManager.stop();
+    })();
+    return shutdownPromise;
   };
-  process.on('SIGINT', () => void shutdown());
-  process.on('SIGTERM', () => void shutdown());
+
+  return { server, shutdown };
 }
 
-main().catch(err => {
-  console.error('fatal error:', err);
-  process.exit(1);
-});
+/** Retain the historical CLI entrypoint while keeping imports inert. */
+export async function main(): Promise<void> {
+  const lifecycle = await startApplication();
+  process.once('SIGINT', () => void lifecycle.shutdown().then(() => { process.exitCode = 0; }));
+  process.once('SIGTERM', () => void lifecycle.shutdown().then(() => { process.exitCode = 0; }));
+}
+
+if (require.main === module) {
+  main().catch(err => {
+    console.error('fatal error:', err);
+    process.exitCode = 1;
+  });
+}
