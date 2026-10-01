@@ -199,3 +199,67 @@ class MaintainGimbalTests(unittest.IsolatedAsyncioTestCase):
             await task
         except asyncio.CancelledError:
             pass
+
+
+class BridgeInfoTests(unittest.TestCase):
+    """GET /info and hello say which Pi, port, instance and gimbal a bridge is (no session opened)."""
+
+    class BleDriver:
+        model = "RS3"
+        address = "48:1C:B9:54:C6:BC"
+        connected = True
+        capabilities = ("velocity",)
+
+    def test_info_names_the_pi_port_instance_and_gimbal(self):
+        import os
+        os.environ["BRIDGE_INSTANCE"] = "rs3pro-a"
+        try:
+            info = dji_bridge.bridge_info(self.BleDriver(), 7879, 1)
+        finally:
+            del os.environ["BRIDGE_INSTANCE"]
+        self.assertEqual(info["port"], 7879)
+        self.assertEqual(info["instance"], "rs3pro-a")
+        self.assertEqual(info["gimbalAddress"], "48:1C:B9:54:C6:BC")
+        self.assertTrue(info["hostname"])
+        self.assertEqual(info["clients"], 1)
+        self.assertIs(info["gimbalConnected"], True)
+
+    def test_a_driver_without_an_address_reports_none(self):
+        info = dji_bridge.bridge_info(Driver(), 7878, 0)
+        self.assertIsNone(info["gimbalAddress"])
+        self.assertIsNone(info["instance"])
+
+    def test_legacy_api_answers_info_and_leaves_other_paths_to_websockets(self):
+        hook = dji_bridge.info_request_handler(self.BleDriver(), 7880, set())
+        self.assertIsNone(hook("/", {}))
+        status, headers, body = hook("/info", {})
+        self.assertEqual(int(status), 200)
+        self.assertIn(("Content-Type", "application/json"), headers)
+        self.assertEqual(json.loads(body)["port"], 7880)
+
+    def test_new_api_answers_info_through_connection_respond(self):
+        class Headers(dict):
+            pass
+
+        class Response:
+            def __init__(self, status, text):
+                self.status, self.text = status, text
+                self.headers = Headers({"Content-Type": "text/plain"})
+
+        class Connection:
+            def respond(self, status, text):
+                return Response(status, text)
+
+        hook = dji_bridge.info_request_handler(self.BleDriver(), 7879, {object()})
+        self.assertIsNone(hook(Connection(), types.SimpleNamespace(path="/")))
+        response = hook(Connection(), types.SimpleNamespace(path="/info"))
+        self.assertEqual(response.headers["Content-Type"], "application/json")
+        self.assertEqual(json.loads(response.text)["clients"], 1)
+
+    def test_hello_carries_the_identity(self):
+        session = Session(IdleSocket(), self.BleDriver(), 250, 7879)
+        result = asyncio.run(session._dispatch("hello", {"clientId": "t"}))
+        self.assertEqual(result["port"], 7879)
+        self.assertEqual(result["gimbalAddress"], "48:1C:B9:54:C6:BC")
+        self.assertNotIn("clients", result)
+        self.assertIn("capabilities", result)

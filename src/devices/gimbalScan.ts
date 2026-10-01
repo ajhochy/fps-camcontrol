@@ -12,22 +12,64 @@ import dns from 'dns';
  * from the live connection instead. On a port nobody drives the stop is harmless.
  */
 
-export interface BridgeProbe {
+export interface BridgeIdentity {
+  /** The Pi's host name, from a bridge >= 0.2.0; null for older bridges. */
+  hostname: string | null;
+  /** The systemd instance (dji-bridge@<instance>), e.g. "rs3pro-a". */
+  instance: string | null;
+  /** The Bluetooth address of the gimbal this bridge drives. */
+  gimbalAddress: string | null;
+  /** Control sessions open on the bridge (from /info only). */
+  clients: number | null;
+}
+
+export interface BridgeProbe extends BridgeIdentity {
   host: string;
   port: number;
   reachable: boolean;
-  /** What the bridge's `hello` named, if anything. */
+  /** What the bridge named, if anything. */
   model: string | null;
-  /** From the bridge's first status frame; null when it sent none in time (a Pi with no gimbal goes quiet). */
+  /** Whether a gimbal is attached; null when the bridge did not say in time (a Pi with no gimbal goes quiet). */
   gimbalConnected: boolean | null;
+  /** How it was asked: `info` (plain HTTP, opens no session, always safe) or `hello` (an older bridge). */
+  via: 'info' | 'hello' | null;
+}
+
+const text = (value: unknown, max = 64): string | null => (typeof value === 'string' && value.trim() ? value.trim().slice(0, max) : null);
+const NO_IDENTITY: BridgeIdentity = { hostname: null, instance: null, gimbalAddress: null, clients: null };
+
+/**
+ * Ask a bridge >= 0.2.0 who it is with a plain HTTP GET /info. It opens no WebSocket session, so unlike a hello it
+ * can never make the bridge stop its gimbal, and it is safe even on a port the app is driving. Null for an older
+ * bridge (it answers 426 Upgrade Required) or one that does not answer.
+ */
+export async function fetchBridgeInfo(host: string, port: number, timeoutMs = 1500): Promise<BridgeProbe | null> {
+  try {
+    const response = await fetch(`http://${host.includes(':') ? `[${host}]` : host}:${port}/info`, { signal: AbortSignal.timeout(timeoutMs) });
+    if (!response.ok) return null;
+    const body = (await response.json()) as Record<string, unknown>;
+    if (!body || typeof body !== 'object' || typeof body.bridgeVersion !== 'string') return null;
+    return {
+      host, port, reachable: true, via: 'info',
+      model: text(body.gimbalModel, 32),
+      gimbalConnected: typeof body.gimbalConnected === 'boolean' ? body.gimbalConnected : null,
+      hostname: text(body.hostname),
+      instance: text(body.instance),
+      gimbalAddress: text(body.gimbalAddress, 32),
+      clients: typeof body.clients === 'number' && Number.isInteger(body.clients) ? body.clients : null,
+    };
+  } catch {
+    return null;
+  }
 }
 
 /** The ports the Pi's bridge instances use by default (dji-bridge@rs3 / @rs3pro-a / @rs3pro-b and room for more). */
 export const DEFAULT_BRIDGE_PORTS = [7878, 7879, 7880, 7881, 7882, 7883, 7884, 7885];
 
+/** Say hello over a WebSocket: the only way to learn about a bridge older than 0.2.0. Opens a session; see above. */
 export function probeBridge(host: string, port: number, timeoutMs = 1500): Promise<BridgeProbe> {
   return new Promise((resolve) => {
-    const result: BridgeProbe = { host, port, reachable: false, model: null, gimbalConnected: null };
+    const result: BridgeProbe = { host, port, reachable: false, model: null, gimbalConnected: null, via: null, ...NO_IDENTITY };
     let ws: WebSocket;
     let done = false;
     const finish = (): void => {
@@ -52,8 +94,11 @@ export function probeBridge(host: string, port: number, timeoutMs = 1500): Promi
       try { frame = JSON.parse(data.toString()); } catch { return; }
       if (frame.type === 'ack' && frame.id === 1) {
         result.reachable = true;
-        const model = frame.params?.gimbalModel;
-        result.model = typeof model === 'string' && model.trim() ? model.trim().slice(0, 32) : null;
+        result.via = 'hello';
+        result.model = text(frame.params?.gimbalModel, 32);
+        result.hostname = text(frame.params?.hostname);
+        result.instance = text(frame.params?.instance);
+        result.gimbalAddress = text(frame.params?.gimbalAddress, 32);
         if (typeof frame.params?.gimbalConnected === 'boolean') { result.gimbalConnected = frame.params.gimbalConnected; finish(); }
         return;
       }
@@ -124,4 +169,44 @@ export function nameOf(ip: string): Promise<string | null> {
       resolve(!err && hostname && hostname !== ip && /\.local\.?$/i.test(hostname) ? hostname.replace(/\.$/, '') : null);
     });
   });
+}
+
+// ------------------------------------------------------------ one gimbal, many addresses
+
+export interface FoundBridge extends BridgeProbe {
+  /** The address the host resolved to, when known. */
+  address: string | null;
+  /** Every host:port this same bridge was reached at (a Pi on Wi-Fi and Ethernet answers on both). */
+  aliases: string[];
+}
+
+/**
+ * Merge entries that are the same bridge reached at different addresses. Two entries are the same bridge when they
+ * report the same host name and port (bridges >= 0.2.0), or failing that the same gimbal Bluetooth address and port.
+ * The kept entry's host is the most useful one: a host the inventory already uses, else `<hostname>.local`, else
+ * the first found. Entries with no identity are kept as they are.
+ */
+export function mergeBridges(found: FoundBridge[], preferredHosts: string[]): FoundBridge[] {
+  const keyOf = (b: FoundBridge): string | null => (b.hostname ? `name:${b.hostname.toLowerCase()}:${b.port}` : b.gimbalAddress ? `ble:${b.gimbalAddress.toUpperCase()}:${b.port}` : null);
+  const groups = new Map<string, FoundBridge[]>();
+  const out: FoundBridge[] = [];
+  for (const b of found) {
+    const key = keyOf(b);
+    if (!key) { out.push({ ...b, aliases: [`${b.host}:${b.port}`] }); continue; }
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(b);
+  }
+  for (const group of groups.values()) {
+    const preferred = group.find((b) => preferredHosts.includes(b.host))
+      ?? group.find((b) => b.hostname && b.host.toLowerCase() === `${b.hostname.toLowerCase()}.local`)
+      ?? group[0];
+    const reachable = group.find((b) => b.reachable) ?? preferred;
+    out.push({
+      ...reachable,
+      host: preferred.host,
+      address: preferred.address ?? reachable.address,
+      aliases: [...new Set(group.map((b) => `${b.host}:${b.port}`))],
+    });
+  }
+  return out;
 }

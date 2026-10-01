@@ -59,15 +59,17 @@ function sandboxEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function startFakes(scanDelayMs: number): Promise<{ sony: FakeSonySidecar; stop: () => Promise<void> }> {
+async function startFakes(scanDelayMs: number): Promise<{ sony: FakeSonySidecar; bridges: VirtualDjiBridge[]; stop: () => Promise<void> }> {
   const visca = VISCA_PORTS.map((port, i) => new FakeViscaCamera(port, `visca-${i + 1}`));
   await Promise.all(visca.map((camera) => camera.start()));
-  const bridges = DJI_PORTS.map((port) => new VirtualDjiBridge({ port, statusIntervalMs: 500, safetyTimeoutMs: 250 }));
+  // Like the real Pi: one host, one bridge instance per gimbal, each naming itself on GET /info.
+  const bridges = DJI_PORTS.map((port, i) => new VirtualDjiBridge({ port, statusIntervalMs: 500, safetyTimeoutMs: 250, hostname: 'sandbox-pi', instance: ['rs3', 'rs3pro-a', 'rs3pro-b'][i] }));
   await Promise.all(bridges.map((bridge) => bridge.start()));
   const sony = new FakeSonySidecar(CAMERAS, { scanDelayMs });
   await sony.start(SONY_PORT);
   return {
     sony,
+    bridges,
     stop: async () => {
       await sony.stop();
       await Promise.all(bridges.map((bridge) => bridge.stop()));
@@ -188,7 +190,10 @@ async function selfTest(): Promise<number> {
     // Follow-up F3: the controller type and the gimbal model, live.
     const reported = (await api('/api/rigs')).body.rigs?.find((r: any) => r.deviceKey === 'rs3')?.gimbal?.reportedModel;
     check('a gimbal rig shows the model its bridge reports', typeof reported === 'string' && reported.length > 0);
+    const sessionsBefore = fakes.bridges.map((bridge) => bridge.sessionsOpened);
     const scanned = (await api('/api/gimbals')).body.gimbals ?? [];
+    check('the gimbal scan asks GET /info and opens no session on any bridge (a session\'s end stops a gimbal)', fakes.bridges.every((bridge, i) => bridge.sessionsOpened === sessionsBefore[i] && bridge.infoRequests >= 1));
+    check('each gimbal found says which Pi instance and Bluetooth address it is', scanned.filter((g: any) => g.hostname === 'sandbox-pi').map((g: any) => g.instance).join() === 'rs3,rs3pro-a,rs3pro-b' && scanned.every((g: any) => g.hostname !== 'sandbox-pi' || /^AA:BB:CC/.test(g.gimbalAddress)));
     const onPort = (port: number) => scanned.find((g: any) => g.host === '127.0.0.1' && g.port === port);
     check('GET /api/gimbals finds every fake bridge with its model and gimbal link', DJI_PORTS.every((port) => onPort(port)?.reachable === true && onPort(port)?.model === reported && onPort(port)?.gimbalConnected === true));
     check('the gimbal the app drives is reported from its live connection, not probed', onPort(17878)?.drivenBy === 'cam4' && onPort(17878)?.usedBy?.[0]?.deviceKey === 'rs3' && onPort(17879)?.drivenBy === null);

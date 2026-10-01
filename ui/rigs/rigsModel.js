@@ -258,11 +258,17 @@
     var options = [], patches = {};
     var found = scan && scan.gimbals ? scan.gimbals : [];
     function describe(g) {
-      var name = g.model || (g.host + ':' + g.port === current ? rig.gimbal.reportedModel || rig.gimbal.gimbalModel : null) || 'Gimbal';
+      var model = g.model || (g.host + ':' + g.port === current ? rig.gimbal.reportedModel || rig.gimbal.gimbalModel : null);
+      var known = (g.usedBy || []).filter(function (u) { return u.deviceKey !== rig.deviceKey; }).map(function (u) { return u.label; });
+      var primary = known.length ? known.join(' / ') : g.instance || model || 'Gimbal';
+      var details = [];
+      if (g.instance && g.instance !== primary) details.push(g.instance);
+      if (model && model !== primary) details.push(model);
+      // The Bluetooth address is what tells two gimbals of the same model apart.
+      if (g.gimbalAddress) details.push('BT …' + String(g.gimbalAddress).slice(-5));
       var where = 'port ' + g.port + (found.some(function (o) { return o.host !== g.host; }) ? ' on ' + g.host : '');
       var link = !g.reachable ? 'bridge not reachable' : g.gimbalConnected === true ? 'gimbal connected' : g.gimbalConnected === false ? 'no gimbal attached' : 'no gimbal reporting';
-      var known = (g.usedBy || []).filter(function (u) { return u.deviceKey !== rig.deviceKey; }).map(function (u) { return u.label; });
-      return (known.length ? known.join(' / ') + ' (' + name + ')' : name) + ' — ' + where + ' — ' + link;
+      return primary + (details.length ? ' (' + details.join(' · ') + ')' : '') + ' — ' + where + ' — ' + link;
     }
     var sawCurrent = false;
     found.forEach(function (g) {

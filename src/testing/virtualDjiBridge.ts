@@ -24,6 +24,13 @@ export interface VirtualDjiBridgeOptions {
   gimbalConnected?: boolean;
   /** How often to emit `status`, matching the Pi's 500 ms loop. */
   statusIntervalMs?: number;
+  /** Answer GET /info like a bridge >= 0.2.0 (default true); false acts like an older bridge. */
+  info?: boolean;
+  /** The Pi's host name reported by /info and hello (default "virtual-pi"). */
+  hostname?: string;
+  instance?: string | null;
+  /** The gimbal's Bluetooth address (default derived from the port). */
+  gimbalAddress?: string | null;
 }
 
 /**
@@ -65,6 +72,11 @@ export class VirtualDjiBridge {
   /** See goSilent(): attached but unresponsive, neither acking nor nacking. */
   private silent = false;
   log: string[] = [];
+  /** GET /info requests answered (they open no session). */
+  infoRequests = 0;
+  /** WebSocket sessions ever opened (a probe that says hello opens one). */
+  sessionsOpened = 0;
+  private identity: { hostname: string; instance: string | null; gimbalAddress: string | null };
 
   constructor(opts: VirtualDjiBridgeOptions = {}) {
     this.port = opts.port ?? 0;
@@ -74,7 +86,22 @@ export class VirtualDjiBridge {
     this.gimbalConnected = opts.gimbalConnected ?? true;
     this.statusIntervalMs = opts.statusIntervalMs ?? 200;
 
-    this.server = http.createServer();
+    const info = opts.info ?? true;
+    this.identity = {
+      hostname: opts.hostname ?? 'virtual-pi',
+      instance: opts.instance ?? null,
+      gimbalAddress: opts.gimbalAddress === undefined ? `AA:BB:CC:00:${String(Math.floor(this.port / 256) % 100).padStart(2, '0')}:${String(this.port % 100).padStart(2, '0')}` : opts.gimbalAddress,
+    };
+    this.server = http.createServer((req, res) => {
+      if (info && req.method === 'GET' && (req.url ?? '').split('?')[0] === '/info') {
+        this.infoRequests++;
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify(this.info()));
+        return;
+      }
+      res.writeHead(426, { 'Content-Type': 'text/plain' });
+      res.end('Upgrade Required');
+    });
     this.wss = new WebSocketServer({ server: this.server });
     this.wss.on('connection', (ws) => this.onConnection(ws));
   }
@@ -148,7 +175,13 @@ export class VirtualDjiBridge {
     this.log = [];
   }
 
+  /** What a bridge >= 0.2.0 says about itself on GET /info. */
+  info(): Record<string, unknown> {
+    return { bridgeVersion: '0.2.0', ...this.identity, port: this.port, gimbalModel: this.gimbalModel, gimbalConnected: this.gimbalConnected, clients: this.connections.size };
+  }
+
   private onConnection(ws: WebSocket): void {
+    this.sessionsOpened++;
     this.connections.add(ws);
     ws.on('message', (data) => this.onFrame(ws, data.toString()));
     ws.on('close', () => this.connections.delete(ws));
@@ -212,6 +245,8 @@ export class VirtualDjiBridge {
           bridgeVersion: 'virtual-0.1',
           gimbalModel: this.gimbalModel,
           capabilities: this.capabilities,
+          ...this.identity,
+          port: this.port,
         });
         return;
       case 'ping':

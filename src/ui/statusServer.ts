@@ -21,7 +21,7 @@ import { ActivityLog } from '../app/activityLog';
 import { ViscaDevice } from '../devices/viscaDevice';
 import { MotionDevice } from '../devices/motionDevice';
 import { createMotionDevice } from '../devices/deviceFactory';
-import { probeBridge, DEFAULT_BRIDGE_PORTS, tcpOpen, localSubnetHosts, inBatches, resolveHost, nameOf } from '../devices/gimbalScan';
+import { probeBridge, fetchBridgeInfo, mergeBridges, DEFAULT_BRIDGE_PORTS, tcpOpen, localSubnetHosts, inBatches, resolveHost, nameOf, BridgeProbe, FoundBridge } from '../devices/gimbalScan';
 import { AtemClient } from '../atem/atemClient';
 import { loadProfiles, detectConnectionType } from '../input/profileDetector';
 import { eventBus } from '../app/eventBus';
@@ -158,8 +158,9 @@ export function createStatusServer(
   app.get('/api/rigs', (_req, res) => { res.json(rigsBody()); });
   // The gimbals on offer: every DJI bridge the app can find, on the Pi hosts already in the inventory and, by a
   // sweep of this machine's local /24 networks, on any other Pi (one Pi may run a bridge per gimbal on several
-  // ports, or several Pis may run one each). A port the app already drives is reported from its live connection
-  // and never probed, matched by address as well as by name: a probe's disconnect makes that bridge stop its gimbal.
+  // ports, or several Pis may run one each). A Pi reached at two addresses (Wi-Fi and Ethernet) is listed once,
+  // recognised by the host name its bridges report. A hello probe's disconnect makes a bridge stop its gimbal, so
+  // hello is used only for bridges too old for GET /info, and never on a port the app drives.
   // CAMCONTROL_GIMBAL_SWEEP=0 turns the network sweep off (the sandbox does, so it never touches real bridges).
   app.get('/api/gimbals', async (_req, res) => {
     try {
@@ -196,16 +197,32 @@ export function createStatusServer(
         for (const t of open) addCandidate(names.get(t.ip) ?? t.ip, t.port, t.ip);
       }
 
-      const gimbals = await Promise.all([...candidates.values()].map(async ({ host, port, ip }) => {
+      // Ask every candidate GET /info first: it opens no session, so it is safe even where the app drives the
+      // gimbal. Only a bridge too old for /info is greeted with hello, and never on a port the app drives.
+      const found: FoundBridge[] = await Promise.all([...candidates.values()].map(async ({ host, port, ip }) => {
         const live = driven.get(`${host}:${port}`) ?? (ip ? driven.get(`${ip}:${port}`) : undefined);
-        const probe = live
-          ? { reachable: state.cameraBridgeReachable[live.id] === true, model: state.cameraGimbalModel[live.id] ?? null, gimbalConnected: state.cameraGimbalAttached[live.id] ?? null }
-          : await probeBridge(host, port);
-        const usedBy = bridgeDevices
-          .filter(([, d]) => (d.bridge.port ?? 7878) === port && (d.bridge.host === host || (ip !== null && ipOf.get(String(d.bridge.host)) === ip)))
-          .map(([deviceKey, d]) => ({ deviceKey, label: String(d.label ?? deviceKey), rig: view.rigs.find((rig) => rig.deviceKey === deviceKey)?.position ?? null }));
-        return { host, port, address: ip, reachable: probe.reachable, model: probe.model, gimbalConnected: probe.gimbalConnected, drivenBy: live ? live.id : null, usedBy };
+        const info = await fetchBridgeInfo(host, port);
+        let probe: BridgeProbe;
+        if (info) probe = info;
+        else if (live) probe = { host, port, reachable: state.cameraBridgeReachable[live.id] === true, model: state.cameraGimbalModel[live.id] ?? null, gimbalConnected: state.cameraGimbalAttached[live.id] ?? null, via: null, hostname: null, instance: null, gimbalAddress: null, clients: null };
+        else probe = await probeBridge(host, port);
+        return { ...probe, host, port, address: ip, aliases: [] };
       }));
+      const merged = mergeBridges(found, knownHosts);
+      const aliasIps = (b: FoundBridge): string[] => b.aliases.map((alias) => { const [h, p] = [alias.slice(0, alias.lastIndexOf(':')), alias.slice(alias.lastIndexOf(':') + 1)]; return `${ipOf.get(h) ?? h}:${p}`; });
+      const gimbals = merged.map((b) => {
+        const keys = new Set([...b.aliases, ...aliasIps(b)]);
+        const live = [...keys].map((key) => driven.get(key)).find(Boolean);
+        const usedBy = bridgeDevices
+          .filter(([, d]) => { const p = d.bridge.port ?? 7878; return keys.has(`${d.bridge.host}:${p}`) || keys.has(`${ipOf.get(String(d.bridge.host)) ?? ''}:${p}`); })
+          .map(([deviceKey, d]) => ({ deviceKey, label: String(d.label ?? deviceKey), rig: view.rigs.find((rig) => rig.deviceKey === deviceKey)?.position ?? null }));
+        const reachable = live && !b.reachable ? state.cameraBridgeReachable[live.id] === true : b.reachable;
+        return {
+          host: b.host, port: b.port, address: b.address, aliases: b.aliases, reachable, model: b.model, gimbalConnected: b.gimbalConnected,
+          hostname: b.hostname, instance: b.instance, gimbalAddress: b.gimbalAddress, clients: b.clients,
+          drivenBy: live ? live.id : null, usedBy,
+        };
+      });
       res.json({ gimbals: gimbals.filter((g) => g.reachable || g.usedBy.length).sort((x, y) => x.host.localeCompare(y.host) || x.port - y.port) });
     } catch (err) {
       logger.error({ err }, 'gimbal scan failed');
