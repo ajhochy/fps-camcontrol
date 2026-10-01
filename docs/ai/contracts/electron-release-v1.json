@@ -1,0 +1,90 @@
+{
+  "issue": null,
+  "request": "build the release workflow and release a build of both PRs for testing; mirror the rhythm release workflow",
+  "generated": "2026-10-01",
+  "criteria": [
+    {
+      "criterion_id": "release-c1",
+      "text": "Manual dispatch accepts a release label and qualification-only input, testing-tag bootstrap exists, and pull requests run read-only validation without signing or publishing.",
+      "mode": "unit",
+      "test_file": "tests/release/electron-release.test.cjs",
+      "test_id": "release-c1: dispatch, testing-tag, and read-only pull-request triggers are available",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "release-c2",
+      "text": "Manual and tracking sources are full pinned SHAs from this repository.",
+      "mode": "unit",
+      "test_file": "tests/release/electron-release.test.cjs",
+      "test_id": "release-c2: release variants use the full pinned manual and tracking source commits",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "release-c3",
+      "text": "Only ARM64 macOS is built; credentials fail closed and never reach dependency installation.",
+      "mode": "unit",
+      "test_file": "tests/release/electron-release.test.cjs",
+      "test_id": "release-c3: hosted builds run on native Apple Silicon and install dependencies before scoped signing credentials",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "release-c4",
+      "text": "The hosted runner keychain is temporary and cleaned even on failure.",
+      "mode": "unit",
+      "test_file": "tests/release/electron-release.test.cjs",
+      "test_id": "release-c4: temporary signing keychains are removed by unconditional cleanup",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "release-c5",
+      "text": "Both signed/notarized DMGs pass packaged checks before a single prerelease publication job.",
+      "mode": "unit",
+      "test_file": "tests/release/electron-release.test.cjs",
+      "test_id": "release-c5: both verified installer artifacts feed one prerelease publication job",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "release-c6",
+      "text": "Qualification-only runs never publish; duplicate releases/assets are refused rather than overwritten.",
+      "mode": "unit",
+      "test_file": "tests/release/electron-release.test.cjs",
+      "test_id": "release-c6: qualification-only runs skip publication and existing releases/assets are never overwritten",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "release-c7",
+      "text": "Malformed release versions and non-full source SHAs are rejected before a build starts.",
+      "mode": "unit",
+      "test_file": "tests/release/electron-release.test.cjs",
+      "test_id": "release-c7: invalid release versions and non-full source SHAs are rejected before build",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "release-c8",
+      "text": "Each asset receipt has byte count, SHA-256, source, release label, embedded app version, and minimum-OS metadata, with no local paths or secrets in the public manifest.",
+      "mode": "unit",
+      "test_file": "tests/release/electron-release.test.cjs",
+      "test_id": "release-c8: asset receipts include byte count, SHA-256, source, app version and minimum OS without paths or secrets",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "release-c9",
+      "text": "Downloaded public asset bytes match their published receipts.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Requires publication to GitHub followed by downloading both public assets and comparing their bytes and SHA-256 values with the published receipt."
+    },
+    {
+      "criterion_id": "release-c10",
+      "text": "Real-person tracking, clean-OS/TCC, and physical camera/gimbal smoke remain unverified until witnessed.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Production qualification is outside this testing-release task and remains pending until a clean macOS/TCC run and physical tracking session are witnessed."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    "release-c9",
+    "release-c10"
+  ]
+}

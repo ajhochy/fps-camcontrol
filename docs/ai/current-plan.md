@@ -1,4 +1,76 @@
-# Current plan — packaging-first Electron delivery (supersedes the plan below)
+# Current plan — GitHub testing release, mirroring Rhythm
+
+2026-10-01 user follow-up authorizes building the release workflow and publishing
+test builds of PR57 and PR58. It supersedes only the earlier no-release restriction.
+No PR merge, main-branch write, keychain export, live-hardware operation, cleanup,
+third PR, or change to Rhythm is authorized.
+
+## Intent, scope, and clarification
+
+Goal: provide one clearly labeled GitHub prerelease containing the separately
+identified manual and tracking Apple Silicon installers, and a repeatable hosted
+release workflow based on Rhythm's Electron workflow.
+The user's follow-up selects the reference architecture. Credential reuse is the
+one open external setup question, asked explicitly; do not copy secrets without
+an answer. Preserve both existing PRs; add release tooling to the tracking PR,
+which checks out each artifact's exact source SHA independently. Foundation stays
+frozen. App code/version and existing notarized bytes need not change to publish
+the initial testing release. A release label may differ from the embedded 0.1.0
+app version and must say so explicitly.
+
+Tension: GitHub has no signing secrets, but two signed/notarized local builds
+already exist. Implement hosted build/sign/notarize/verify/publish regardless;
+publish the already-qualified bytes if hosted credentials are unavailable, with
+honest local-build provenance. Never label that as a successful hosted build.
+
+## Prior art
+
+Read-only reference: Rhythm `.github/workflows/electron_release.yml`: manual
+version/prerelease/qualification inputs, macOS build, temporary signing keychain,
+Apple acceptance, signed bundle smoke, artifact upload and GitHub publication.
+Adapt to ARM64 only, two FPS variants, exact source SHA checkouts, staged native
+dependencies, least-privilege secrets, cleanup, checksums, immutable assets and
+prerelease-only publication from unmerged PRs. No Rhythm/Hermes/Colony resources.
+Tag-triggered testing bootstrap avoids merging merely to register a dispatch
+workflow; manual dispatch is documented for after workflow registration.
+
+## Ordered work and acceptance
+
+| Order | Work | Likely files | Required evidence |
+| --- | --- | --- | --- |
+| R1 | Freeze contract before implementation | tests/release, docs/ai/contracts | Runnable failing contract tests |
+| R2 | Implement mirrored workflow and release helper | .github/workflows/electron_release.yml, .github/electron-release-sources.json, scripts/electron-release.cjs, docs/releasing.md | Workflow syntax; input/provenance/security/publication negative tests |
+| R3 | Independently verify | scripts/checks.cjs, run record | Full repo gate; exact asset hash/signature/staple/runtime evidence; diff review |
+| R4 | Push existing tracking PR and publish testing release | PR58, GitHub Releases | Both downloadable DMGs with matching SHA256, source commits, separate identities and explicit remaining human gates |
+
+Concrete criteria: manual dispatch and testing-tag trigger exist; manual and
+tracking sources are full pinned SHAs from this repository; only ARM64 macOS is
+built; credentials fail closed and never reach dependency installation; hosted
+runner keychain is temporary and cleaned even on failure; both signed/notarized
+DMGs pass packaged checks before a single prerelease publication job; qualifying
+only never publishes; each asset has size/hash/source/version/minimum-OS metadata;
+duplicate releases/assets are refused rather than overwritten; downloaded public
+asset bytes must match their receipt. Real-person tracking, clean-OS/TCC and
+physical camera/gimbal smoke remain NOT TESTED until witnessed.
+
+## Completion checklist
+
+- [x] Read context and Rhythm reference; inspect live PRs, secrets and runners.
+- [x] Write contract and observe expected failures (8 runnable assertion failures;
+  missing workflow/helper/pins, no test-import or syntax errors).
+- [x] Implement workflow/helper/docs and independently review (11 focused tests
+  plus actionlint pass; no remaining blocking review finding).
+- [x] Run full repository and release-specific verification (PR gate exit0,
+  smoke268/sandbox104; exact final DMGs rechecked and mounted runtimes pass).
+- [ ] Publish and verify both testing downloads; record hosted versus local proof.
+- [ ] Update project state and hand off release links, without merging.
+
+No TodoWrite/update_plan tool is exposed in this session; this durable checklist
+is the workflow tracking fallback.
+
+---
+
+# Prior plan — packaging-first Electron delivery
 
 2026-10-01 · Delivered exactly two drafts: manual PR57/source133ae8d and stacked tracking PR58/source3711a9e. Both final signed/notarized/stapled DMGs pass exact mounted runtime. Clean-OS/physical gates remain MANUAL_PENDING; see `runs/2026-10-01-electron-delivery.md`. Historical sections below do not expand active scope.
 

@@ -14,6 +14,12 @@ Node contract/security/lifecycle tests, Pi fake-BLE tests, and the isolated FPS 
 PR level also runs the FPS sandbox self-test. There is no separate lint command.
 Importing `src/index.ts` no longer boots the app; startup is explicit.
 
+Release changes additionally require `node --test tests/release/electron-release.test.cjs scripts/test-electron-release.cjs`
+and `actionlint .github/workflows/electron_release.yml`. The local check runner
+includes the release contracts and helper fixtures. The GitHub PR job is
+credential-free release-tooling validation only, not a hosted signed app build.
+See `docs/releasing.md` for full signing and publication gates.
+
 ```bash
 pnpm build
 node scripts/check-page-js.cjs

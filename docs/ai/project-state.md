@@ -9,16 +9,23 @@ The manual Electron installer is complete as a signed/notarized/stapled artifact
 from frozen foundation commit `133ae8d9620665b1e87b799a765a619ccae06ebc`.
 Tracking is implemented from frozen source `3711a9e6475633a6cf889850ba3a23843a12c450`;
 its separately identified final signed/notarized/stapled DMG passes exact-byte
-mounted runtime. Both draft deliveries are complete; human gates remain below.
+mounted runtime. User now authorizes a GitHub testing release and a workflow
+mirroring Rhythm. Release tooling is implemented; publication is being verified.
+Human gates remain below.
 
 ## Active branch / PR
 Current: `codex/electron-tracking`, branched from the exact foundation above.
 Foundation draft: https://github.com/ajhochy/fps-camcontrol/pull/57, targeting main.
 Tracking draft: https://github.com/ajhochy/fps-camcontrol/pull/58, targeting
 `feat/electron-foundation`. PR36 and its inherited rigs/Sony
-work remain unchanged and credited. No merge, release, deployment or cleanup.
+work remain unchanged and credited. Release tooling belongs to PR58 and builds
+each variant from separate pinned source commits. No merge, deployment or cleanup.
 
-## Delivered
+## In progress
+- GitHub release workflow: manual/tag trigger, ARM64 matrix, scoped Apple secrets,
+  temporary hosted keychain, notarization and final DMG runtime gates, one
+  prerelease publisher with asset download/hash verification. Initial release
+  uses qualified local artifacts; full hosted signing awaits credential setup.
 - Tracking #23–35/#50: strict config/protocol, shared motion arbitration,
   real Python detector/association, API/UI/RS toggle, bounded calibration,
   pinned runtime/model delivery. Contracts and negative tests precede code.
@@ -39,10 +46,16 @@ work remain unchanged and credited. No merge, release, deployment or cleanup.
   preserved. Local exclusions: `docs/ai/issues/tracking-v1-exclusions.md`.
 - #23 comment placement and #26 manager-to-API status projection are implemented
   adaptations, not literal original file/field changes; no closing keywords.
-  #34/#35 human evidence remains pending. No GitHub CI checks are configured;
-  local/artifact evidence must not be described as hosted CI.
+  #34/#35 human evidence remains pending. Hosted Apple release execution is not
+  verified: repository signing secrets are absent and no permission to copy them
+  has yet been received. Local artifacts must not be described as hosted builds.
 
 ## Test status
+- Release change: 11 contract/behavior tests, actionlint, syntax and independent
+  diff review pass. Full PR-level gate exits0, including actual Python38,
+  UI9, smoke268 and sandbox104. Fresh mounted runtimes pass for the exact old
+  manual/tracking DMGs at 22:45:57Z and 22:46:42Z; both hashes/signatures/staples
+  and Gatekeeper assessments rechecked. See `runs/2026-10-01-github-release.md`.
 - Manual root gate: build/page-JS, 49 focused tests, rig/profile/Sony/Pi suites,
   isolated smoke268, sandbox104; separate signing tests12, all pass.
 - Final manual app and DMG Apple Accepted, strict codesign/Gatekeeper/staples
@@ -61,7 +74,8 @@ work remain unchanged and credited. No merge, release, deployment or cleanup.
   No page JS or unexpected HTTP/console/transport errors.
 
 ## Next step
-Human clean-Mac and physical-rig smoke using the delivery/runbook instructions.
-Do not merge either draft, publish releases or claim physical approval without
-separate user direction and witnessed evidence. Evidence/test-only commits after
-3711a9e do not change the shipped tracking production source.
+Finish GitHub prerelease upload/readback and hosted PR validation; configure
+hosted signing only with the user's credential authorization. Then human clean-Mac
+and physical-rig smoke using the delivery/runbook instructions. Do not merge
+either draft or claim physical approval. Release/test/docs changes after3711a9e
+do not change the shipped tracking production source.
