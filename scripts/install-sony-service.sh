@@ -75,6 +75,8 @@ cat > "$PLIST" <<EOF
 EOF
 
 launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
+# bootout returns before the old service has finished its clean shutdown; bootstrapping too early fails (error 5).
+for _ in $(seq 1 30); do launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1 || break; sleep 0.5; done
 launchctl bootstrap "$DOMAIN" "$PLIST"
 echo "Installed and started the Sony background service ($LABEL) on port $PORT."
 echo "Log: $LOG"
