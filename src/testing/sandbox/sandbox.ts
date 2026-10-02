@@ -223,6 +223,16 @@ async function selfTest(): Promise<number> {
       check('a confirmed switch goes to the Pi and the rig shows the new gimbal, still linked', switchedBt.status === 200 && rs3Bridge.switches.join() === 'AA:BB:CC:99:99:01'
         && !!(await waitFor('the rig to show the new gimbal', async () => { const l = await rs3Live(); return l?.bluetooth?.address === 'AA:BB:CC:99:99:01' && l?.bluetooth?.connected === true && l?.connected === true; })));
       const back = await post('/api/rigs/rs3/bluetooth-gimbal', { address: ownAddress, confirm: true });
+      // Gimbal battery: the gimbal's own report, passed on by the bridge in status.
+      rs3Bridge.battery = 23;
+      check('a gimbal\'s battery shows on its rig (state, rig view)', !!(await waitFor('the battery report', async () => (await rs3Live())?.battery?.percent === 23))
+        && (await api('/api/status')).body.cameraGimbalBattery?.cam4?.percent === 23);
+      rs3Bridge.battery = 12;
+      check('below 15% the rig health says "Gimbal battery low" (check, not down)', !!(await waitFor('the low-battery verdict', async () => { const h = (await api('/api/status')).body.health?.rigs?.cam4; return h?.text === 'Gimbal battery low' && h?.level === 'check'; })));
+      check('the Status page draws the gimbal battery next to the BT signal', /Gimbal battery /.test(String((await api('/')).body)) && /cam-card__bt/.test(String((await api('/')).body)));
+      rs3Bridge.battery = null;
+      check('no report, no battery shown', !!(await waitFor('the battery to clear', async () => !(await rs3Live())?.battery)));
+
       // Regression: the 1 s watchdog re-applied link state without the bluetooth block and wiped it until the
       // next change, so a switch back to the same gimbal was never shown.
       const backOk = back.status === 200 && !!(await waitFor('the original gimbal', async () => (await rs3Live())?.bluetooth?.address === ownAddress, 8000).catch(() => false));

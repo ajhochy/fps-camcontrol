@@ -102,6 +102,8 @@ export class VirtualDjiBridge {
   scans = 0;
   /** Gimbal switches carried out (POST /gimbal), in order. */
   switches: string[] = [];
+  /** The gimbal's battery percent, sent as `battery: {percent, ageS}` with each status (bridge 0.6.0); null sends none. */
+  battery: number | null = null;
   /** How long a switch leaves the gimbal unlinked before the new one connects. */
   switchReconnectMs = 150;
 
@@ -187,7 +189,7 @@ export class VirtualDjiBridge {
         sdkConnected: this.gimbalConnected,
         ...(this.link ? { link: this.link } : {}),
         ...(this.reportSleep ? { asleep: this.asleep } : {}),
-        ...(this.gimbalSelect ? { bluetooth: this.bluetooth() } : {}),
+        ...(this.gimbalSelect ? { bluetooth: this.bluetooth(), battery: this.batteryBlock() } : {}),
         mode: 'follow',
       };
       if (this.gimbalConnected) {
@@ -221,7 +223,12 @@ export class VirtualDjiBridge {
 
   /** What a bridge >= 0.2.0 says about itself on GET /info (with `bluetooth` like 0.6.0 when gimbalSelect is on). */
   info(): Record<string, unknown> {
-    return { bridgeVersion: this.gimbalSelect ? '0.6.0' : '0.2.0', ...this.identity, port: this.port, gimbalModel: this.gimbalModel, gimbalConnected: this.gimbalConnected, clients: this.connections.size, ...(this.gimbalSelect ? { bluetooth: this.bluetooth() } : {}) };
+    return { bridgeVersion: this.gimbalSelect ? '0.6.0' : '0.2.0', ...this.identity, port: this.port, gimbalModel: this.gimbalModel, gimbalConnected: this.gimbalConnected, clients: this.connections.size, ...(this.gimbalSelect ? { bluetooth: this.bluetooth(), battery: this.batteryBlock() } : {}) };
+  }
+
+  /** The bridge's `battery` block: the gimbal's own report, null when there is none or no gimbal is linked. */
+  batteryBlock(): { percent: number; ageS: number } | null {
+    return this.battery !== null && this.gimbalConnected ? { percent: this.battery, ageS: 0 } : null;
   }
 
   /** The bridge's `bluetooth` block: which gimbal it drives. */

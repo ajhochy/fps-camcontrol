@@ -267,6 +267,12 @@ WAKE_PAYLOAD = bytes((0x23, 0x01, 0x00))
 # The gimbal's own "sleep status" notification (cmd_set 0x04, cmd_id 0x27): last payload byte 1 = asleep, 0 = awake
 # (jdesbonnet/dji_rs3_control rs3_ble_protocol_spec.md 4.3 / 6.4).
 SLEEP_STATUS = (0x04, 0x27)
+# Battery level, passive (listen-only): the gimbal pushes 0x0d/0x02 frames (sender 0xe5) whose LAST payload byte is
+# the battery percent. Matched on 2026-10-02 against an RS3's own screen (23% <-> ...0417, i.e. 0x17 = 23); the
+# upstream (f3+22.57)/27.19 formula gave 20.3 and is wrong. RS3 Pro frames end in 65 and 47: assumed the same
+# encoding, pending a check against an RS3 Pro screen.
+BATTERY_STATUS = (0x0D, 0x02)
+BATTERY_MIN_PAYLOAD = 17
 
 
 def _valid_frame(candidate: bytes) -> bool:
@@ -407,6 +413,9 @@ class DjiRsDriver:
         self._linked_at = 0.0
         # The gimbal's own sleep report (0x04/0x27): True asleep, False awake, None not reported on this link yet.
         self.asleep: Optional[bool] = None
+        # The gimbal's own battery report (0x0d/0x02, last payload byte); None until one arrives on this link.
+        self.battery_percent: Optional[int] = None
+        self._battery_at = 0.0
         self._census_on = os.environ.get(CENSUS_ENV, "1").strip() not in ("0", "false", "off", "")
         self._census_counts: dict[tuple[int, int, int, int], int] = {}
         self._census_last: dict[tuple[int, int], bytes] = {}
@@ -454,6 +463,7 @@ class DjiRsDriver:
         self._drop_times.clear()
         self._frame_events.clear()
         self.asleep = None
+        self.battery_percent = None
         if address:
             self._make_transport()
         log.warning("RS3 driver now set to gimbal %s", address or "(none)")
@@ -475,6 +485,7 @@ class DjiRsDriver:
             raise GimbalError(f"failed to connect to RS3 at {self.address}: {exc}") from exc
         self._linked_at = monotonic()
         self.asleep = None  # a new link has not reported its sleep state yet
+        self.battery_percent = None  # nor its battery
         # A pose from the previous link must never be served on this one.
         self._pose = None
         self._pose_at = 0.0
@@ -652,6 +663,12 @@ class DjiRsDriver:
         if was_connected and not self._closing:
             self._throttled_warning("link-lost", "RS3 %s link lost: %s — reconnecting", self.address, reason)
 
+    def battery(self) -> dict[str, int] | None:
+        """The gimbal's last battery report on this link: {"percent", "ageS"}, or None when none has arrived."""
+        if self.battery_percent is None or not self.connected:
+            return None
+        return {"percent": int(self.battery_percent), "ageS": max(0, round(monotonic() - self._battery_at))}
+
     def link_health(self) -> dict[str, float | int | None]:
         """How well the Bluetooth link is holding up: drops in the last 10 minutes and the share of frames
         that arrived corrupt in the last minute. Raw numbers only; the app decides what counts as weak."""
@@ -711,6 +728,13 @@ class DjiRsDriver:
                 if asleep != self.asleep:
                     log.warning("RS3 %s reports it is %s", self.address, "ASLEEP" if asleep else "awake")
                 self.asleep = asleep
+            if (cmd_set, cmd_id) == BATTERY_STATUS and len(payload) >= BATTERY_MIN_PAYLOAD:
+                percent = payload[-1]
+                if 0 <= percent <= 100:
+                    if percent != self.battery_percent:
+                        log.info("RS3 %s battery %d%%", self.address, percent)
+                    self.battery_percent = percent
+                    self._battery_at = monotonic()
             if not self._census_on:
                 return
             key = (sender, receiver, cmd_set, cmd_id)

@@ -583,5 +583,38 @@ class MaxJoystickTests(unittest.TestCase):
         self.assertEqual(int.from_bytes(payload[4:6], "little"), CENTER - MAX_MAX_JOYSTICK)
 
 
+# The Far Right RS3's own screen said 23% when this 0x0d/0x02 frame arrived (2026-10-02): last byte 0x17 = 23.
+RS3_BATTERY_23 = bytes.fromhex("00251c000016ffffff3609000012020000f8000417")
+
+
+class BatteryTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.transport = FakeTransport(None, None)
+        self.driver = DjiRsDriver("34:D2:62:15:A5:47", transport_factory=lambda *_: self.transport, max_joystick=DEFAULT_MAX_JOYSTICK)
+        await self.driver.connect()
+        self.writes = len(self.transport.frames)
+
+    async def test_battery_is_the_last_payload_byte_of_0d_02(self):
+        self.assertIsNone(self.driver.battery(), "nothing reported yet")
+        await self.transport.push(_frame(7, 0x0D, 0x02, RS3_BATTERY_23))
+        self.assertEqual(self.driver.battery_percent, 23)
+        self.assertEqual(self.driver.battery()["percent"], 23)
+        self.assertEqual(self.driver.battery()["ageS"], 0)
+        self.assertEqual(len(self.transport.frames), self.writes, "listen-only: reading the battery writes nothing")
+
+    async def test_out_of_range_or_short_frames_are_ignored(self):
+        await self.transport.push(_frame(7, 0x0D, 0x02, RS3_BATTERY_23))
+        await self.transport.push(_frame(8, 0x0D, 0x02, RS3_BATTERY_23[:-1] + b"\xff"))
+        await self.transport.push(_frame(9, 0x0D, 0x02, b"\x00\x05"))
+        self.assertEqual(self.driver.battery_percent, 23)
+
+    async def test_a_new_link_forgets_the_old_battery(self):
+        await self.transport.push(_frame(7, 0x0D, 0x02, RS3_BATTERY_23))
+        self.transport.drop()
+        self.assertIsNone(self.driver.battery(), "no battery is reported for a link that is down")
+        await self.driver.connect()
+        self.assertIsNone(self.driver.battery_percent)
+
+
 if __name__ == "__main__":
     unittest.main()

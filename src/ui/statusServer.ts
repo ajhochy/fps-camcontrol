@@ -1536,6 +1536,8 @@ function statusHtml(): string {
   .cam-card__signal { display:inline-flex; align-items:center; gap:6px; font-size:11px; letter-spacing:.04em; text-transform:uppercase; color:var(--ok-text); margin-top:2px; }
   .cam-card__signal--weak { color:var(--warn-text); }
   .cam-card__signal--poor { color:var(--err-text, #f87171); }
+  .cam-card__bt { display:flex; flex-wrap:wrap; align-items:center; gap:4px 12px; }
+  .cam-card__bt:empty { display:none; }
   .sig-bars { display:inline-flex; align-items:flex-end; gap:2px; height:10px; }
   .sig-bar { display:block; width:3px; background:currentColor; opacity:.25; }
   .sig-bar--1 { height:4px; } .sig-bar--2 { height:7px; } .sig-bar--3 { height:10px; }
@@ -2017,6 +2019,13 @@ function signalBadge(sig) {
   return '<span class="cam-card__signal cam-card__signal--' + esc(sig.rating) + '" title="' + esc(sig.summary) + '"><span class="sig-bars" aria-hidden="true">' + bars + '</span>BT signal: ' + word + '</span>';
 }
 
+// The gimbal's own battery report (bridge 0.6.0+): ok from 40%, warn 20-39%, error below 20%.
+function batteryBadge(b) {
+  if (!b || typeof b.percent !== 'number') return '';
+  var tone = b.percent >= 40 ? 'good' : b.percent >= 20 ? 'weak' : 'poor';
+  return '<span class="cam-card__signal cam-card__signal--' + tone + '" title="As the gimbal reports it">Gimbal battery ' + esc(String(b.percent)) + '%</span>';
+}
+
 // Turn the three camera-keyed maps in /api/status into one label per camera.
 // A camera reached through a Pi bridge has two things that can be broken and
 // they need different remedies, so "Disconnected" alone is not good enough:
@@ -2119,7 +2128,8 @@ function renderStatus(s, c) {
         '<span class="cam-card__name">' + esc(cam.label) + '</span>' +
         '<span class="cam-card__status cam-card__line--' + motion.cls + '">' + esc(motion.text) + '</span>' +
         (motion.hint && motion.cls !== 'ok' ? '<span class="cam-card__hint">' + esc(motion.hint) + '</span>' : '') +
-        signalBadge(s.cameraGimbalSignal && s.cameraGimbalSignal[cam.id]) +
+        '<span class="cam-card__bt">' + signalBadge(s.cameraGimbalSignal && s.cameraGimbalSignal[cam.id]) +
+        batteryBadge(s.cameraGimbalBattery && s.cameraGimbalBattery[cam.id]) + '</span>' +
         wakeHtml(cam, motion, s) +
         (camera ? '<span class="cam-card__status cam-card__line--' + camera.cls + '" title="' + esc(camera.hint) + '">Camera: ' + esc(camera.text) + '</span>' +
           (camera.hint && camera.cls !== 'ok' ? '<span class="cam-card__hint">' + esc(camera.hint) + '</span>' : '') : '') +

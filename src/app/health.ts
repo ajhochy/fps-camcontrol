@@ -9,6 +9,9 @@ import type { AppState } from './state';
  * Levels: ready (usable), check (works, needs attention), down (not usable).
  */
 export type HealthLevel = 'ready' | 'check' | 'down';
+/** Gimbal battery thresholds (percent, as the gimbal reports it): below LOW the rig needs attention, below DOWN it is down. */
+export const GIMBAL_BATTERY_LOW = 15;
+export const GIMBAL_BATTERY_DOWN = 8;
 export interface Health { level: HealthLevel; text: string; hint: string }
 
 export interface RigCamera { id: string; label: string; protocol: string }
@@ -42,7 +45,11 @@ export function rigHealth(state: AppState, cam: RigCamera): Health {
   if (state.cameraGimbalResponding[id] === false) {
     return { level: 'down', text: 'Asleep / Not Moving', hint: 'Linked but ignoring moves: asleep (often from imbalance), motors off, or overloaded. Press its power button once to wake it' + (weak ? `; ${signal.summary}` : '') };
   }
+  // The gimbal's own battery report (bridge >= 0.6.0). Battery alone marks the rig down only when nearly empty.
+  const battery = state.cameraGimbalBattery?.[id]?.percent;
+  if (typeof battery === 'number' && battery < GIMBAL_BATTERY_DOWN) return { level: 'down', text: `Gimbal Battery ${battery}%`, hint: 'The gimbal battery is nearly empty: it will switch off soon. Swap or charge it' };
   if (weak) return { level: signal.rating === 'poor' ? 'down' : 'check', text: signal.rating === 'poor' ? 'Poor Signal' : 'Weak Signal', hint: `${signal.summary}; move the Pi or the gimbal closer` };
+  if (typeof battery === 'number' && battery < GIMBAL_BATTERY_LOW) return { level: 'check', text: 'Gimbal battery low', hint: `The gimbal reports ${battery}% battery: charge or swap it before the next service` };
   return { level: 'ready', text: 'Gimbal Linked', hint: '' };
 }
 

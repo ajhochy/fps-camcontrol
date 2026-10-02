@@ -59,6 +59,8 @@ export interface AppState {
   cameraGimbalCanWake: Record<string, boolean>;
   /** Which Bluetooth gimbal a DJI rig's bridge drives (bridges >= 0.6.0); absent for older bridges or while unreachable. */
   cameraGimbalBluetooth?: Record<string, GimbalBluetoothView>;
+  /** A DJI gimbal's own battery report (bridges >= 0.6.0): percent and how old the report is; absent when not reported. */
+  cameraGimbalBattery?: Record<string, GimbalBattery>;
   /** VISCA cameras: did the last health check get a reply (true), get none (false); absent until checked. */
   cameraAnswering: Record<string, boolean>;
   /** VISCA cameras: when the camera last sent any reply (ms since epoch). */
@@ -139,6 +141,8 @@ export function createInitialState(overrides: Partial<AppState> = {}): AppState 
 /** The raw Bluetooth link figures a bridge reports for its gimbal. */
 export interface GimbalLinkHealth { drops10m: number; framesLastMin: number; corruptLastMin: number; linkedForS: number | null }
 export interface GimbalBluetoothView { address: string | null; name: string | null; rssi: number | null; mode: 'auto' | 'fixed' | null; chosenBy: string | null; saved: boolean | null; connected: boolean | null; switching: boolean; error: string | null }
+/** A gimbal's battery as it reports it (DUML 0x0d/0x02, last payload byte), and seconds since that report. */
+export interface GimbalBattery { percent: number; ageS: number | null }
 export interface GimbalSignal { rating: 'good' | 'weak' | 'poor'; drops10m: number; corruptPct: number | null; summary: string }
 
 /**
@@ -177,7 +181,7 @@ export function rateGimbalSignal(link: GimbalLinkHealth | null | undefined): Gim
 export function applyDeviceLinkState(
   state: AppState,
   cameraId: string,
-  link: { connected: boolean; gimbalAttached?: boolean; reportedGimbalModel?: string | null; motionResponsive?: boolean; linkHealth?: GimbalLinkHealth | null; reportedAsleep?: boolean | null; capabilities?: { wake?: boolean }; bluetoothGimbal?: GimbalBluetoothView | null }
+  link: { connected: boolean; gimbalAttached?: boolean; reportedGimbalModel?: string | null; motionResponsive?: boolean; linkHealth?: GimbalLinkHealth | null; reportedAsleep?: boolean | null; capabilities?: { wake?: boolean }; bluetoothGimbal?: GimbalBluetoothView | null; battery?: GimbalBattery | null }
 ): void {
   if (link.connected && typeof link.reportedAsleep === 'boolean') state.cameraGimbalAsleep[cameraId] = link.reportedAsleep;
   else delete state.cameraGimbalAsleep[cameraId];
@@ -187,6 +191,9 @@ export function applyDeviceLinkState(
   if (!state.cameraGimbalBluetooth) state.cameraGimbalBluetooth = {};
   if (link.connected && link.bluetoothGimbal) state.cameraGimbalBluetooth[cameraId] = { ...link.bluetoothGimbal };
   else delete state.cameraGimbalBluetooth[cameraId];
+  if (!state.cameraGimbalBattery) state.cameraGimbalBattery = {};
+  if (link.connected && link.battery) state.cameraGimbalBattery[cameraId] = { ...link.battery };
+  else delete state.cameraGimbalBattery[cameraId];
   const signal = link.connected ? rateGimbalSignal(link.linkHealth) : null;
   if (signal) state.cameraGimbalSignal[cameraId] = signal;
   else delete state.cameraGimbalSignal[cameraId];
@@ -220,6 +227,7 @@ interface LinkStateSource {
   readonly reportedAsleep?: boolean | null;
   readonly capabilities?: { wake?: boolean };
   readonly bluetoothGimbal?: GimbalBluetoothView | null;
+  readonly battery?: GimbalBattery | null;
   on(event: string, listener: (...args: unknown[]) => void): unknown;
 }
 
@@ -246,6 +254,7 @@ export function trackDeviceLinkState(
   device.on('linkHealth', sync);
   device.on('sleepReport', sync);
   device.on('bluetoothGimbal', sync);
+  device.on('battery', sync);
   sync();
 }
 
@@ -260,6 +269,7 @@ export function clearCameraLinkState(state: AppState, cameraId: string): void {
   delete state.cameraGimbalAsleep[cameraId];
   if (state.cameraGimbalCanWake) delete state.cameraGimbalCanWake[cameraId];
   if (state.cameraGimbalBluetooth) delete state.cameraGimbalBluetooth[cameraId];
+  if (state.cameraGimbalBattery) delete state.cameraGimbalBattery[cameraId];
   delete state.cameraAnswering[cameraId];
   delete state.cameraLastReplyAt[cameraId];
 }

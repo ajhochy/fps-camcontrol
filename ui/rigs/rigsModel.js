@@ -701,6 +701,10 @@
         lines.push({ label: 'Bluetooth signal', value: sig.rating === 'good' ? 'Good' : (sig.rating === 'poor' ? 'Poor' : 'Weak') + ' — ' + sig.summary, tone: sig.rating === 'good' ? 'ok' : sig.rating === 'poor' ? 'bad' : 'warn' });
       }
       if (rig.gimbal) lines.push(bluetoothLine(rig));
+      if (rig.gimbal && rig.live && rig.live.battery && typeof rig.live.battery.percent === 'number') {
+        var pct = rig.live.battery.percent;
+        lines.push({ label: 'Gimbal battery', value: pct + '%' + (pct < 15 ? ' — charge or swap it' : ''), tone: pct >= 40 ? 'ok' : pct >= 20 ? 'warn' : 'bad' });
+      }
       lines.push({ label: 'Video to ATEM', value: rig.wired ? 'Input ' + rig.inputId : 'Not wired (control only)', tone: rig.wired ? 'ok' : 'warn' });
       var camera = rig.camera ? sonyDevice(data, rig.camera) : null;
       if (rig.builtInCamera) lines.push({ label: 'Camera', value: 'Built in', tone: 'idle' });

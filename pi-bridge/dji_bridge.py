@@ -78,6 +78,8 @@ def bridge_info(driver: GimbalDriver, port: int, clients: int, selector: Optiona
         # Which Bluetooth gimbal this bridge is set to drive and how it was chosen (bridge >= 0.6.0; see
         # gimbal_select.py). None for a driver without selection support.
         "bluetooth": selector.describe_selection() if selector is not None else None,
+        # {"percent", "ageS"} from the gimbal's passive battery frames, or None (bridge >= 0.6.0).
+        "battery": battery_info(driver),
     }
 
 
@@ -127,6 +129,17 @@ async def http_route(
     except SelectionError as exc:
         return exc.status, {"ok": False, "error": str(exc), "selected": selector.describe_selection()}
     return HTTPStatus.OK, {"ok": True, "selected": selected}
+
+
+def battery_info(driver: GimbalDriver) -> Optional[Dict[str, Any]]:
+    """The gimbal's own battery report ({"percent", "ageS"}), when the driver hears one (bridge >= 0.6.0)."""
+    measure = getattr(driver, "battery", None)
+    if not callable(measure):
+        return None
+    try:
+        return measure()
+    except Exception:  # noqa: BLE001 - battery reporting must never break a session
+        return None
 
 
 def info_request_handler(driver: GimbalDriver, port: int, sessions: "set[Any]", selector: Optional[GimbalSelector] = None):
@@ -311,6 +324,7 @@ class Session:
                 params["asleep"] = getattr(self.driver, "asleep", None)
                 if self.selector is not None:
                     params["bluetooth"] = self.selector.describe_selection()
+                params["battery"] = battery_info(self.driver)
                 await self._emit("status", params)
         except asyncio.CancelledError:
             pass

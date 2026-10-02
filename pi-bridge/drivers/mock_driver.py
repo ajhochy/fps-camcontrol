@@ -43,6 +43,14 @@ class MockDriver:
         self.nearby = [dict(g) for g in MOCK_NEARBY]
         self.scans = 0
 
+    # A fake battery report, like the RS3's passive 0x0d/0x02 frame; None reports nothing.
+    battery_percent: int | None = 76
+
+    def battery(self) -> dict[str, int] | None:
+        if not self.connected or self.battery_percent is None:
+            return None
+        return {"percent": self.battery_percent, "ageS": 0}
+
     @property
     def linked_name(self) -> str | None:
         return next((g["name"] for g in self.nearby if g["address"] == self.address), None)

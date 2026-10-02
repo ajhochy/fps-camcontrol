@@ -96,6 +96,16 @@ async function main(): Promise<void> {
     await selectBluetoothGimbal('127.0.0.1', livePort, TRIPOD);
     await wait(500);
     check('and a switch back shows up too', state.cameraGimbalBluetooth?.cam3?.address === TRIPOD);
+    // Gimbal battery (passive 0x0d/0x02 report, passed on in status).
+    check('no battery is shown before the gimbal reports one', device.battery === null && !state.cameraGimbalBattery?.cam3);
+    live.battery = 23;
+    await wait(400);
+    check('the gimbal battery lands in the app state', device.battery?.percent === 23 && state.cameraGimbalBattery?.cam3?.percent === 23);
+    live.battery = 250;
+    await wait(400);
+    check('a battery value outside 0..100 is dropped, not shown', device.battery === null && !state.cameraGimbalBattery?.cam3);
+    live.battery = 23;
+    await wait(400);
     await selectBluetoothGimbal('127.0.0.1', livePort, FAR_RIGHT);
     await wait(500);
 
@@ -110,6 +120,15 @@ async function main(): Promise<void> {
     const data = { ...buildRigs(cfg, state, 'v1', []), atemConnected: false, sony: null };
     const rig = data.rigs[0];
     check('the rig view carries the bluetooth gimbal', rig.live.bluetooth?.address === FAR_RIGHT);
+    state.cameraGimbalBattery[camId] = { percent: 23, ageS: 0 };
+    const withBattery = { ...buildRigs(cfg, state, 'v1', []), atemConnected: false, sony: null };
+    const batteryLine = model.statusFor(withBattery, 'rig:tripod').lines.find((l: any) => l.label === 'Gimbal battery');
+    check('Device Config shows "Gimbal battery 23%" as a warning (20-39%)', withBattery.rigs[0].live.battery?.percent === 23 && batteryLine?.value === '23%' && batteryLine?.tone === 'warn');
+    state.cameraGimbalBattery[camId] = { percent: 64, ageS: 0 };
+    check('64% is ok', model.statusFor({ ...buildRigs(cfg, state, 'v1', []), atemConnected: false, sony: null }, 'rig:tripod').lines.find((l: any) => l.label === 'Gimbal battery')?.tone === 'ok');
+    state.cameraGimbalBattery[camId] = { percent: 12, ageS: 0 };
+    const low = model.statusFor({ ...buildRigs(cfg, state, 'v1', []), atemConnected: false, sony: null }, 'rig:tripod').lines.find((l: any) => l.label === 'Gimbal battery');
+    check('12% is an error with what to do', low?.tone === 'bad' && /charge or swap/.test(low?.value));
     const status = model.statusFor(data, 'rig:tripod');
     const line = status.lines.find((l: any) => l.label === 'Bluetooth gimbal on this bridge');
     check('status names the gimbal on this bridge: name (address)', !!line && line.value.indexOf('DJI RS3-06UH13 (' + FAR_RIGHT + ')') === 0 && /chosen here/.test(line.value));

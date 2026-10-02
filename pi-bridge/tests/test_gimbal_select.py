@@ -309,6 +309,14 @@ class HttpRouteTests(SelectorCase):
         self.assertEqual(body["bluetooth"]["rssi"], -66)
         self.assertTrue(body["bluetooth"]["connected"])
 
+    async def test_info_carries_the_battery(self):
+        self.driver.battery_percent = 23
+        _, body = await self.route("GET", "/info")
+        self.assertEqual(body["battery"], {"percent": 23, "ageS": 0})
+        self.driver.battery_percent = None
+        _, body = await self.route("GET", "/info")
+        self.assertIsNone(body["battery"])
+
     async def test_get_gimbal_never_switches(self):
         status, body = await self.route("GET", f"/gimbal?address={TRIPOD}")
         self.assertEqual(status, 405)
@@ -398,6 +406,7 @@ class SessionTests(SelectorCase):
         finally:
             dji_bridge.STATUS_INTERVAL_S = original
         self.assertEqual(ws.sent[0]["params"]["bluetooth"]["address"], CENTER)
+        self.assertEqual(ws.sent[0]["params"]["battery"]["percent"], 76, "status carries the battery (mock reports 76%)")
 
 
 class MaintainTests(SelectorCase):
