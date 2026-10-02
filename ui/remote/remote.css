@@ -80,8 +80,13 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
 #main[data-layout="tall"] { overflow-y: auto; display: block; }
 #main[data-layout="tall"] #multiview { display: grid; grid-template-rows: none; grid-auto-rows: auto; }
 #main[data-layout="tall"] .pane-big { grid-column: span 8; aspect-ratio: 16 / 9; }
-#main[data-layout="tall"] .pane-small { grid-column: span 4; aspect-ratio: 16 / 9; }
+#main[data-layout="tall"] .pane-small { grid-column: span 4; aspect-ratio: 4 / 3; }
+.pane-small .pane-note { font-size: 13px; padding: 30px 6px 22px; }
+.pane-small .pane-title { font-size: 13px; }
+.pane-small .pane-foot { font-size: 12px; }
+#main[data-layout="tall"] { padding-bottom: 8px; }
 @media (max-width: 760px) { #hint { display: none; } }
+@media (max-width: 520px) { #topbar { flex-wrap: wrap; gap: 6px 8px; } #rtt { display: none; } }
 @media (max-height: 520px) {
   #topbar { min-height: 44px; padding: 4px 12px; font-size: 14px; }
   .pill { padding: 6px 10px; font-size: 13px; }
