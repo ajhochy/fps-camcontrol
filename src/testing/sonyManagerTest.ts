@@ -307,6 +307,7 @@ async function main(): Promise<void> {
   checkEqual('c5: manual retry resets the budget and boots again', crashy.spawns.length, 7);
   const crashyStop = crashy.manager.stop();
   await crashy.clock.advance(6000);
+  crashy.spawns[6].exit();
   await crashyStop;
   checkEqual('c5: stopping mid-boot leaves no live timers', crashy.clock.pending(), 0);
 
@@ -474,6 +475,9 @@ async function main(): Promise<void> {
   checkEqual('c9: SIGTERM follows the 3 s graceful wait', stubborn.spawns[0].killed, ['SIGTERM']);
   await stubborn.clock.advance(2000);
   checkEqual('c9: SIGKILL follows a further 2 s', stubborn.spawns[0].killed, ['SIGTERM', 'SIGKILL']);
+  // A signal request is not an exit acknowledgement (the embedded guardian
+  // sends this event only after its owned native helper has actually exited).
+  stubborn.spawns[0].exit();
   await stopping;
   await stubborn.manager.stop();
   checkEqual('c9: repeated stop makes no second shutdown request', stubborn.calls.filter((call) => call.includes('/shutdown')).length, 1);
@@ -552,6 +556,7 @@ async function main(): Promise<void> {
   check('c12: child output is never retained in status', !leakyStatus.includes('stdout') && !leakyStatus.includes('stderr'));
   const leakyStop = leaky.manager.stop();
   await leaky.clock.advance(6000);
+  leaky.spawns[0].exit();
   await leakyStop;
   checkEqual('c12: a curated shutdown leaves no live timers', leaky.clock.pending(), 0);
 

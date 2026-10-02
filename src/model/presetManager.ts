@@ -2,6 +2,7 @@ import fs from 'fs';
 import { z } from 'zod';
 import { AppState, CameraId, PresetSlot } from '../app/state';
 import { AppConfig, writeFileAtomic } from '../config/configLoader';
+import { getUserPath } from '../config/paths';
 import { shiftPresetsAfterRemoval } from './presetShift';
 import { MotionDevice, DevicePosition } from '../devices/motionDevice';
 import { logger } from '../index';
@@ -65,7 +66,7 @@ export class PresetManager {
     private config: AppConfig,
     private devices: Map<CameraId, MotionDevice>
   ) {
-    this.presetsFile = process.env.PRESETS_FILE ?? 'config/presets.json';
+    this.presetsFile = process.env.PRESETS_FILE ?? getUserPath('config/presets.json');
     this.data = this.loadPresets();
   }
 

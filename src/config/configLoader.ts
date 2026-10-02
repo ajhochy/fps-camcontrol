@@ -7,6 +7,7 @@ import path from 'path';
 import * as YAML from 'yaml';
 import { z } from 'zod';
 import { writeFileAtomic } from './atomicWrite';
+import { getUserPath } from './paths';
 import { loadWorkingProfile, setAside as setAsideWorking, workingProfilePath, WorkingProfile } from './workingProfile';
 
 // The string forms of JavaScript's nullish values. A UI that interpolates an
@@ -357,9 +358,9 @@ export function resolveProfile(
 }
 
 export function loadConfig(): AppConfig {
-  const devicesPath = process.env.DEVICES_CONFIG ?? path.join(process.cwd(), 'config/devices.yaml');
-  const speedsPath = process.env.SPEEDS_FILE ?? path.join(process.cwd(), 'config/speeds.json');
-  const mappingsPath = process.env.MAPPINGS_FILE ?? path.join(process.cwd(), 'config/mappings.yaml');
+  const devicesPath = process.env.DEVICES_CONFIG ?? getUserPath('config/devices.yaml');
+  const speedsPath = process.env.SPEEDS_FILE ?? getUserPath('config/speeds.json');
+  const mappingsPath = process.env.MAPPINGS_FILE ?? getUserPath('config/mappings.yaml');
 
   const devicesRaw = YAML.parse(fs.readFileSync(devicesPath, 'utf8'));
   const devices = DevicesSchema.parse(devicesRaw);
@@ -517,6 +518,12 @@ export function validateDevicesConfig(raw: unknown): ValidatedDevicesConfig {
   };
 }
 
+/** Whole-file import must not hydrate partial camera patches from the current installation. */
+export function validateImportedDevicesConfig(raw: unknown): z.infer<typeof DevicesSchema> {
+  const devices = DevicesSchema.parse(raw);
+  return { ...devices, sony: { enabled: false, apiUrl: 'http://127.0.0.1:8181' } };
+}
+
 /** A save was based on a version of devices.yaml that is no longer on disk (edited by hand, or by another save). */
 export class ConfigConflictError extends Error {
   constructor() {
@@ -540,13 +547,13 @@ export function devicesFileVersion(): string {
   }
 }
 
-/** Where devices.yaml is (DEVICES_CONFIG, else config/devices.yaml under the working directory). */
+/** Where devices.yaml is (DEVICES_CONFIG, else config/devices.yaml under the app home). */
 export function devicesConfigFile(): string {
   return devicesConfigPath();
 }
 
 function devicesConfigPath(): string {
-  return process.env.DEVICES_CONFIG ?? path.join(process.cwd(), 'config/devices.yaml');
+  return process.env.DEVICES_CONFIG ?? getUserPath('config/devices.yaml');
 }
 
 /** The parsed devices.yaml as it is on disk now (empty object when missing or unreadable). */
@@ -740,7 +747,7 @@ export function saveDevicesConfig(config: ValidatedDevicesConfig, expectedVersio
 }
 
 export function saveMappings(mappings: MappingConfig): void {
-  const mappingsPath = process.env.MAPPINGS_FILE ?? path.join(process.cwd(), 'config/mappings.yaml');
+  const mappingsPath = process.env.MAPPINGS_FILE ?? getUserPath('config/mappings.yaml');
   const header = '# Controller button mappings - managed by FPS CamControl UI\n';
   writeFileAtomic(mappingsPath, header + YAML.stringify(mappings));
 }

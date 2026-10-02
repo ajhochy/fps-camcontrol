@@ -25,11 +25,12 @@ import { HealthTracker, rigHealth, sonyHealth, HealthItem } from '../app/health'
 import { probeBridge, fetchBridgeInfo, mergeBridges, DEFAULT_BRIDGE_PORTS, tcpOpen, localSubnetHosts, inBatches, resolveHost, nameOf, BridgeProbe, FoundBridge } from '../devices/gimbalScan';
 import { AtemClient } from '../atem/atemClient';
 import { loadProfiles, detectConnectionType } from '../input/profileDetector';
-import { eventBus } from '../app/eventBus';
+import { eventBus, AppEvent } from '../app/eventBus';
 import { logger } from '../index';
 import { SonyManager, SonyRetryableError, SonyUpstreamError } from '../sony/sonyManager';
 import { RemoteControlHub } from '../input/remoteControl';
 import { emergencyStopAll } from '../safety/emergencyStop';
+import { getResourcePath, getUserPath } from '../config/paths';
 
 export function createStatusServer(
   state: AppState,
@@ -42,6 +43,17 @@ export function createStatusServer(
   remoteHub?: RemoteControlHub,
 ): express.Express {
   const app = express();
+  if (process.env.CAMCONTROL_EMBEDDED) app.use((req, res, next) => {
+    const origin = `http://127.0.0.1:${req.socket.localPort}`;
+    const cookie = (req.headers.cookie ?? '').split(';').map(v => v.trim());
+    if (!process.env.CAMCONTROL_SESSION || req.headers.host !== `127.0.0.1:${req.socket.localPort}` ||
+        !cookie.includes(`fps-session=${process.env.CAMCONTROL_SESSION}`) ||
+        (req.headers.origin && req.headers.origin !== origin) ||
+        (!['GET', 'HEAD'].includes(req.method) && req.headers.origin !== origin)) {
+      res.status(403).json({ error: 'Desktop session required' }); return;
+    }
+    next();
+  });
   app.use(express.json());
   // The rigs screen is plain JS/CSS files (not part of the page template) so they can be syntax-checked and
   // tested on their own. dist/ui and src/ui are both two levels below the repo root.
@@ -234,7 +246,7 @@ export function createStatusServer(
   });
 
   // ---- health: one verdict per rig (motion) and per rig's Sony camera, every second, with a change log
-  const healthTracker = new HealthTracker(process.env.HEALTH_LOG_FILE ?? path.join(__dirname, '../../logs/health-events.jsonl'));
+  const healthTracker = new HealthTracker(process.env.HEALTH_LOG_FILE ?? getUserPath('logs/health-events.jsonl'));
   const updateHealth = (): void => {
     try {
       const sonyStatus = sonyManager ? sonyManager.getStatus() : null;
@@ -627,7 +639,7 @@ export function createStatusServer(
       const HID = require('node-hid');
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const devices: any[] = HID.devices();
-      const profilesDir = process.env.PROFILES_DIR ?? path.join(process.cwd(), 'controller-profiles');
+      const profilesDir = process.env.PROFILES_DIR ?? getResourcePath('controller-profiles');
       const profiles = loadProfiles(profilesDir);
 
       // Filter for gamepad/joystick-like devices (usagePage 1 = Generic Desktop, usage 4 = Joystick, 5 = Gamepad)
@@ -899,7 +911,7 @@ export function createStatusServer(
   });
 
   app.get('/docs/sony-sidecar-setup', (_req, res) => {
-    res.type('text/plain').sendFile(path.join(process.cwd(), 'docs/sony-sidecar-setup.md'));
+    res.type('text/plain').sendFile(getResourcePath('docs/sony-sidecar-setup.md'));
   });
 
   // ---- iPad remote control: the page is static (ui/remote/), the socket is /ws/remote-controller
@@ -960,7 +972,7 @@ export function startStatusServer(
     ws.on('error', () => clients.delete(ws));
   });
 
-  eventBus.on('controllerData', (event) => {
+  const broadcastController = (event: AppEvent) => {
     if (event.type !== 'rawHidData') return;
     if (clients.size === 0) return;
     const now = Date.now();
@@ -976,7 +988,8 @@ export function startStatusServer(
     for (const ws of clients) {
       if (ws.readyState === WebSocket.OPEN) ws.send(payload);
     }
-  });
+  };
+  eventBus.on('controllerData', broadcastController);
 
   const activityClients = new Set<WebSocket>();
   const wssActivity = new WebSocketServer({ noServer: true });
@@ -989,18 +1002,37 @@ export function startStatusServer(
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'snapshot', entries: current }));
   });
 
-  activityLog.on('entry', (entry) => {
+  const broadcastActivity = (entry: unknown) => {
     const payload = JSON.stringify({ type: 'entry', entry });
     for (const ws of activityClients) {
       if (ws.readyState === WebSocket.OPEN) ws.send(payload);
     }
-  });
+  };
+  activityLog.on('entry', broadcastActivity);
 
   // The iPad remote: input comes IN on this socket, so it has its own hub (never the outbound-only controller-input one).
   const wssRemote = new WebSocketServer({ noServer: true, maxPayload: 512 });
   wssRemote.on('connection', (ws, request) => remoteHub?.handleConnection(ws, request));
 
+  const closeStreams = () => {
+    for (const ws of [...clients, ...activityClients, ...wssRemote.clients]) ws.terminate();
+    wss.close();
+    wssActivity.close();
+    wssRemote.close();
+    eventBus.removeListener('controllerData', broadcastController);
+    activityLog.removeListener('entry', broadcastActivity);
+  };
+  server.once('shutdown', closeStreams);
+  server.once('close', closeStreams);
+
   server.on('upgrade', (request, socket, head) => {
+    if (process.env.CAMCONTROL_EMBEDDED && (
+      !process.env.CAMCONTROL_SESSION ||
+      request.headers.host !== `127.0.0.1:${request.socket.localPort}` ||
+      request.headers.origin !== `http://127.0.0.1:${request.socket.localPort}` ||
+      !(request.headers.cookie ?? '').split(';').map(v => v.trim()).includes(`fps-session=${process.env.CAMCONTROL_SESSION}`))) {
+      socket.destroy(); return;
+    }
     const url = request.url ?? '';
     const pathname = url.split('?')[0];
     if (pathname === '/ws/controller-input') {
@@ -1016,11 +1048,31 @@ export function startStatusServer(
 
   // 127.0.0.1 keeps the UI on this Mac; config `server.host: 0.0.0.0` (or STATUS_HOST) opens it to the network.
   // The Sony service stays loopback-only either way: the UI reaches it through this server.
-  server.listen(port, host, () => {
-    logger.info({ port, host }, host === '127.0.0.1' ? 'status UI running (this Mac only)' : 'status UI running (open to the network)');
+  // The Electron desktop backend (CAMCONTROL_EMBEDDED) is always loopback-only: its session-cookie/Origin guard
+  // requires a 127.0.0.1 Host, so a network host setting never applies there.
+  const bindHost = process.env.CAMCONTROL_EMBEDDED ? '127.0.0.1' : host;
+  server.listen(port, bindHost, () => {
+    const address = server.address();
+    const boundPort = address && typeof address !== 'string' ? address.port : port;
+    logger.info({ port: boundPort, host: bindHost }, bindHost === '127.0.0.1' ? 'status UI running (this Mac only)' : 'status UI running (open to the network)');
   });
 
   return server;
+}
+
+/** Resolve only after the kernel has assigned the requested status port. */
+export function waitForListening(server: http.Server): Promise<void> {
+  if (server.listening) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const onListening = () => { cleanup(); resolve(); };
+    const onError = (error: Error) => { cleanup(); reject(error); };
+    const cleanup = () => {
+      server.removeListener('listening', onListening);
+      server.removeListener('error', onError);
+    };
+    server.once('listening', onListening);
+    server.once('error', onError);
+  });
 }
 
 function statusHtml(): string {
@@ -2038,12 +2090,13 @@ function verdictText(cls) { return cls === 'ok' ? 'Ready' : cls === 'warn' ? 'Ch
 
 function renderStatus(s, c) {
   const cams = c.cameras || [];
-  const camLabel = id => (cams.find(x => x.id === id) || {}).label || id;
+  const camLabel = id => cams.length ? ((cams.find(x => x.id === id) || {}).label || id) : 'Not configured';
+  const hint = text => cams.length ? text : 'Add a camera in Device Config';
 
   document.getElementById('status-bar').innerHTML =
-    signalCard('Program / Live', camLabel(s.programCamera), 'live', 'Currently on air') +
-    signalCard('Preview / Next', camLabel(s.previewCamera), 'pvw', 'Ready for transition') +
-    signalCard('PTZ Control', camLabel(s.controlledCamera), 'ctrl', 'Receiving camera input') +
+    signalCard('Program / Live', camLabel(s.programCamera), 'live', hint('Currently on air')) +
+    signalCard('Preview / Next', camLabel(s.previewCamera), 'pvw', hint('Ready for transition')) +
+    signalCard('PTZ Control', camLabel(s.controlledCamera), 'ctrl', hint('Receiving camera input')) +
     '<section class="health-stack" aria-label="Connection health">' +
       healthItem('ATEM', s.atemConnected ? 'Online' : 'Offline', s.atemConnected) +
       healthItem('Controller', s.controllerConnected ? (s.activeControllerProfile || 'Online') : 'Offline', s.controllerConnected) +

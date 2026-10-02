@@ -39,7 +39,15 @@ fps-camcontrol/
 - App: `src/index.ts` (`pnpm start` runs `dist/index.js`; `pnpm dev` runs via ts-node).
 - Smoke suite: `src/testing/smokeTest.ts` (`pnpm test:smoke`).
 - Pi bridge: `pi-bridge/dji_bridge.py --driver mock --port 7878`.
-- Status / config UI: Express on port 8080 (`STATUS_PORT`), bound to `0.0.0.0` for LAN access.
+- Status / config UI: Express on loopback port 8080 (`STATUS_PORT`); packaged app
+  uses an authenticated OS-assigned port, reported after listening.
+- Electron shell: `electron/main.cjs`; `electron/manual/main.cjs` is the shipping
+  entrypoint into that same shell. Backend: explicit `src/embed.ts` lifecycle.
+- Safe first-run files: `resources/defaults/`; never copy developer `config/`
+  into an installer. `src/config/paths.ts` separates user data and resources.
+- Packaging/runtime: `scripts/package-electron-manual.cjs`,
+  `scripts/test-electron-manual-package.cjs`, `scripts/test-electron-manual-runtime.cjs`.
+- Workflow/checks: `scripts/run_ai_workflow.py`, `scripts/checks.cjs`.
 
 ## Dependencies
 **Runtime:** `atem-connection`, `node-hid`, `express`, `js-yaml`, `zod`, `pino`, `pino-pretty`, `ws`
@@ -52,6 +60,11 @@ fps-camcontrol/
 - `PRESETS_FILE` — path to presets.json (default `config/presets.json`)
 - `SPEEDS_FILE` — path to speeds.json (default `config/speeds.json`)
 - `STATUS_PORT` — Express status UI port (default `8080`)
+- `CAMCONTROL_HOME` — mutable application data root; CLI defaults to cwd
+- `CAMCONTROL_RESOURCES` — immutable resource root; CLI defaults to cwd
+- `CAMCONTROL_NO_CONTROLLER=1` — disable real HID access during isolated checks
+- `CAMCONTROL_EMBEDDED` / `CAMCONTROL_SESSION` — shell-owned private runtime
+  settings; never expose the session in URLs, logs, or committed evidence
 - `DJI_RS3_BLE_ADDRESS` — RS3 Linux BLE address (overridden by `--ble-address`)
 
 ## Hot files (auto-generated — snapshot)

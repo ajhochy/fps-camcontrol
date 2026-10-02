@@ -1,0 +1,135 @@
+{
+  "issue": "electron-manual-package-v1",
+  "date": "2026-10-01",
+  "test_command": "node scripts/checks.cjs pr && node scripts/test-electron-manual-package.cjs && node scripts/test-electron-manual-runtime.cjs --dmg /absolute/final.dmg",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "c1",
+      "text": "Actual FULL manual arm64.app/DMG ID com.ajhochhalter.fpscamcontrol minOS13",
+      "mode": "integration",
+      "test": "scripts/test-electron-manual-package.cjs",
+      "status": "passing",
+      "reason": "Full ARM64 app and DMG pass actual identity, minimum macOS13 and local-network purpose metadata assertions.",
+      "automated_status": "passing_current_candidate"
+    },
+    {
+      "criterion_id": "c2",
+      "text": "Includes existing backend/UI/runtime/nativeHID/pinoprettyworkers/UI/controllerdefs/docs and legal notices; no user Node/Python/pnpm/Homebrew/CLT",
+      "mode": "integration",
+      "test": "scripts/test-electron-manual-package.cjs",
+      "status": "UNVERIFIED",
+      "reason": "Actual mounted app loads backend/UI/docs/controller definitions and native HID with minimal PATH and fresh HOME. Genuine clean-OS installation remains human pending.",
+      "automated_status": "passing_current_candidate"
+    },
+    {
+      "criterion_id": "c3",
+      "text": "NOT probe; no Python/model/Track/SonySDK/CameraWebApp",
+      "mode": "integration",
+      "test": "scripts/test-electron-manual-package.cjs",
+      "status": "passing",
+      "reason": "Actual resource/ASAR exclusion scan passes; full dashboard verified, not a native-only probe.",
+      "automated_status": "passing_current_candidate"
+    },
+    {
+      "criterion_id": "c4",
+      "text": "Test CAMCONTROL_NO_CONTROLLER=1 only; normal production HID preserved; one production instance/owned backend lock",
+      "mode": "manual",
+      "test": "scripts/test-electron-manual-runtime.cjs",
+      "status": "UNVERIFIED",
+      "reason": "Actual second executable exits without replacing backend; kernel shell/backend/Sony leases tested across processes. Physical production HID remains human pending.",
+      "automated_status": "passing_current_candidate"
+    },
+    {
+      "criterion_id": "c5",
+      "text": "Actual ready ephemeral 127 port + timeout/error banner not blocked missing ATEM",
+      "mode": "manual",
+      "test": "scripts/test-electron-manual-runtime.cjs",
+      "status": "passing",
+      "reason": "Actual mounted app reaches offline dashboard via authenticated ephemeral loopback readiness in under10s; crash/failure status tested.",
+      "automated_status": "passing_current_candidate"
+    },
+    {
+      "criterion_id": "c6",
+      "text": "Sandbox/context isolation/no Node integration/narrow validated IPC/no arbitrary commands/navigation/popups protected",
+      "mode": "manual",
+      "test": "scripts/test-electron-manual-runtime.cjs",
+      "status": "passing",
+      "reason": "Actual renderer sandbox/contextIsolation/noNode, popup/navigation, HttpOnly session, cross-origin denial and setup-only IPC assertions pass; independent HTTP/WS tests included.",
+      "automated_status": "passing_current_candidate"
+    },
+    {
+      "criterion_id": "c7",
+      "text": "Mutable config/mappings/presets/approvals userData; exclusive atomic generic seeds without real production IPs/approval IDs; offline empty hardware usable; second launch preserves edits",
+      "mode": "manual",
+      "test": "scripts/test-electron-manual-runtime.cjs",
+      "status": "passing",
+      "reason": "Fresh temporary HOME verified; generic configuration/API save/relaunch/import persistence pass. Source routes mutable state to app home and resources separately.",
+      "automated_status": "passing_current_candidate"
+    },
+    {
+      "criterion_id": "c8",
+      "text": "Minimal first setup/import chooser validates backup/no overwrite without consent; no UI redesign; missing Sony/Tailscale/cameras honest states",
+      "mode": "manual",
+      "test": "scripts/test-electron-manual-runtime.cjs",
+      "status": "passing",
+      "reason": "Actual setup/import tests cover cancellation, whole-document rejection, explicit consent, backups, sanitized Sony executable/approvals and next consumer; native chooser responses injected.",
+      "automated_status": "passing_current_candidate"
+    },
+    {
+      "criterion_id": "c9",
+      "text": "Quit/crash/sleep stops before close/bounded owned cleanup/no replay motion/no user-owned Sony kill/deadman unchanged",
+      "mode": "manual",
+      "test": "scripts/test-electron-manual-runtime.cjs",
+      "status": "UNVERIFIED",
+      "reason": "Actual normal quit, hung utility force-kill and exit wait, child/main SIGKILL, bounded paused recovery, managed Sony loopback guardian cleanup and external fixture survival pass. Power events simulated; physical no-motion/deadman/real sleep remain human pending.",
+      "automated_status": "passing_current_candidate"
+    },
+    {
+      "criterion_id": "c10",
+      "text": "Actual mounted DMG random cwd spaces/temp HOME/minimal PATH/offline dashboard/assets/API/persist restart; Electron Playwright durable screenshots/keyboard/console/network, no fixtures",
+      "mode": "manual",
+      "test": "scripts/test-electron-manual-runtime.cjs",
+      "status": "passing",
+      "reason": "Actual mounted app with random cwd spaces/tempHOME/minimalPATH reaches dashboard/assets/API and persistence; screenshots/keyboard/no normal console or network errors recorded. Core app is real; optional ownership tests deliberately use disposable Sony sidecar fixtures.",
+      "automated_status": "passing_current_candidate"
+    },
+    {
+      "criterion_id": "c11",
+      "text": "Build268 baseline/isolated smoke104/sandbox/pageJS/diff retest serial FPS sandbox isolated ports and CAMCONTROL_NO_CONTROLLER=1, no live hardware/config",
+      "mode": "manual",
+      "test": "scripts/checks.cjs",
+      "status": "UNVERIFIED",
+      "reason": "Prior full serial gate passed build, all focused/custom suites, smoke268 and sandbox104; final independent rerun is required after final lifecycle edits.",
+      "automated_status": "final_run_pending"
+    },
+    {
+      "criterion_id": "c12",
+      "text": "Inside-out Developer ID signing team56Q69NYP9H timestamp/strict verify/final notary Accepted/staple/rebuild ZIP; no release publication or credential logging",
+      "mode": "manual",
+      "test": "scripts/sign-electron-manual.cjs",
+      "status": "UNVERIFIED",
+      "reason": "Inside-out Developer ID strict verification passes17 ARM64 Mach-O files. Apple credentials authenticated after user agreement acceptance; final app/DMG Accepted/staple/Gatekeeper evidence pending.",
+      "automated_status": "final_run_pending"
+    },
+    {
+      "criterion_id": "c13",
+      "text": "Independent gate before final claim; artifact absolute path/hash/bytes/versions/commands/per criterion pending; preserve baseline/probe/controller drafts",
+      "mode": "manual",
+      "test": "scripts/test-electron-manual-runtime.cjs",
+      "status": "UNVERIFIED",
+      "reason": "Original probe/controller evidence preserved. Final committed-source receipt, independent gate and exact notarized-DMG runtime still required.",
+      "automated_status": "final_run_pending"
+    }
+  ],
+  "not_tested": [
+    "c4 physical HID",
+    "c9 real motion/deadman/suspend",
+    "clean macOS/TCC",
+    "c12 final Apple acceptance/staples",
+    "c13 final immutable-source independent gate"
+  ],
+  "latest_prior_runtime": "docs/ai/runs/electron-manual-evidence/runtime-2026-10-01T19-35-46-006Z/runtime.json",
+  "final_candidate_status": "Corrected candidate actual mounted runtime PASS; source frozen for final independent gate/commit, followed by committed-source rebuild and final Apple notarization.",
+  "latest_runtime": "docs/ai/runs/electron-manual-evidence/runtime-2026-10-01T19-44-46-301Z/runtime.json"
+}

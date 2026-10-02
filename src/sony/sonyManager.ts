@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { spawn as nodeSpawn } from 'child_process';
 import { SonyStateStore, ApprovedSonyCamera } from './sonyStateStore';
+import { getAppHome, getResourcePath } from '../config/paths';
 
 /** Upstream paths below are the ones already proven against the sidecar by `statusServer.ts`. */
 const HEALTH_TIMEOUT_MS = 1500;
@@ -96,6 +97,28 @@ export interface SonyChildProcess {
   stderr?: { resume(): void } | null;
 }
 
+/** A managed sidecar must survive neither its backend owner nor the desktop. */
+function spawnManagedSony(command: string, args: string[], options: SonySpawnOptions): SonyChildProcess {
+  if (process.env.CAMCONTROL_EMBEDDED !== '1') return nodeSpawn(command, args, options) as unknown as SonyChildProcess;
+  const guardian = nodeSpawn(process.execPath, [getResourcePath('electron/sony-guardian.cjs'), command, ...args], {
+    cwd: options.cwd, shell: false, stdio: ['pipe', 'pipe', 'pipe'],
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+  });
+  const heartbeat = setInterval(() => { if (!guardian.stdin.destroyed) guardian.stdin.write('heartbeat\n'); }, 500);
+  heartbeat.unref();
+  guardian.stdin.on('error', () => { /* Guardian exit owns cleanup; no raw child error reaches UI. */ });
+  guardian.once('exit', () => clearInterval(heartbeat));
+  return {
+    on: (event, listener) => guardian.on(event, listener),
+    stdout: guardian.stdout, stderr: guardian.stderr,
+    kill: signal => {
+      if (guardian.stdin.destroyed) return false;
+      // Never kill the guardian before it has reaped its own Sony child.
+      return guardian.stdin.write(signal === 'SIGKILL' ? 'kill\n' : 'stop\n');
+    },
+  };
+}
+
 type Timer = unknown;
 type CameraRecord = SonyCameraStatus & { missing: boolean; /** Until when (ms) background connects leave it to the SDK's own reconnect. */ sdkGraceUntil?: number };
 
@@ -148,6 +171,7 @@ export class SonyManager {
   private started = false;
   private stopped = false;
   private stopping?: Promise<void>;
+  private retryTicket = 0;
   private epoch = 0;
   private child?: SonyChildProcess;
   private childExited = false;
@@ -182,7 +206,7 @@ export class SonyManager {
     dependencies: SonyManagerDependencies = {},
   ) {
     this.fetcher = dependencies.fetch ?? ((url, init) => fetch(url, init));
-    this.spawn = dependencies.spawn ?? ((command, args, options) => nodeSpawn(command, args, options) as unknown as SonyChildProcess);
+    this.spawn = dependencies.spawn ?? spawnManagedSony;
     this.now = dependencies.now ?? (() => new Date());
     this.setTimer = dependencies.setTimeout ?? ((action, delay) => setTimeout(action, delay));
     this.clearTimer = dependencies.clearTimeout ?? ((timer) => clearTimeout(timer as ReturnType<typeof setTimeout>));
@@ -216,6 +240,7 @@ export class SonyManager {
   }
 
   stop(): Promise<void> {
+    this.retryTicket++;
     this.stopping ??= this.shutdown();
     return this.stopping;
   }
@@ -235,6 +260,7 @@ export class SonyManager {
     child.kill('SIGTERM');
     if (await this.waitForExit(TERM_EXIT_WAIT_MS)) { this.child = undefined; return; }
     child.kill('SIGKILL');
+    if (!await this.waitForExit(TERM_EXIT_WAIT_MS)) throw new Error('Owned Sony service exit was not confirmed');
     this.child = undefined;
   }
 
@@ -296,16 +322,28 @@ export class SonyManager {
   /** UI "Retry Sony service": clears the crash budget and boots again. */
   retryService(): void {
     if (!this.config.enabled) return;
+    // Operator Start/Retry clears an app-side Stop (PR #36). The guarded stop()
+    // below (PR #57) cancels timers and confirms any owned child has exited
+    // before boot; an adopted launchd service is never killed by it.
     this.operatorStopped = false;
-    this.epoch++;
-    this.stopped = false;
-    this.stopping = undefined;
-    this.cancelAllTimers();
-    this.restartAttempts = 0;
-    this.outageStartedAt = null;
     this.state = 'starting';
-    this.sidecarMessage = null;
-    this.track(this.boot());
+    // Never probe/adopt our own still-running guardian or overwrite its child
+    // handle. An explicit stop during this asynchronous retry cancels the boot.
+    const stopped = this.stop();
+    const ticket = ++this.retryTicket;
+    this.track(stopped.then(async () => {
+      if (ticket !== this.retryTicket) return;
+      this.epoch++;
+      this.stopped = false;
+      this.stopping = undefined;
+      this.restartAttempts = 0;
+      this.outageStartedAt = null;
+      this.sidecarMessage = null;
+      await this.boot();
+    }).catch(() => {
+      this.state = 'crashed';
+      this.sidecarMessage = 'Sony service cleanup could not be confirmed';
+    }));
   }
 
   private async boot(): Promise<void> {
@@ -314,7 +352,25 @@ export class SonyManager {
     this.approved = new Map((await this.store.load()).map((camera) => [camera.id, camera]));
     this.seedApprovedCameras();
     if (this.isStale(epoch)) return;
-    if (await this.probe()) {
+    let previousOwner: { release(): Promise<void> } | undefined;
+    if (process.env.CAMCONTROL_EMBEDDED === '1') {
+      try {
+        // Hold the same lease as the guardian across the probe. A replacement
+        // must never adopt an old managed helper while it is still stopping.
+        const { acquire } = require(getResourcePath('electron/production-lock.cjs'));
+        previousOwner = await acquire(path.dirname(getAppHome()), 'sony');
+      } catch {
+        if (this.isStale(epoch)) return;
+        this.mode = 'managed'; this.owned = false;
+        this.sidecarMessage = 'Previous Sony service is stopping';
+        this.scheduleRestart();
+        return;
+      }
+    }
+    let available = false;
+    try { available = await this.probe(); }
+    finally { await previousOwner?.release(); }
+    if (available) {
       if (this.isStale(epoch)) return;
       if (!this.owned) this.mode = 'external';
       this.state = 'healthy';
@@ -349,6 +405,7 @@ export class SonyManager {
   }
 
   private async launch(epoch: number): Promise<void> {
+    if (this.child && !this.childExited) throw new Error('An owned Sony service is still running');
     this.mode = 'managed';
     this.owned = true;
     this.state = 'starting';

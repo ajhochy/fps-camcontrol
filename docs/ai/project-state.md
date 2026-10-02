@@ -5,12 +5,76 @@ type: project
 # Project State — fps-camcontrol
 
 ## Current focus
-Prepare the combined Sony dashboard and latest PR #2 work for verification. PR #2 is the latest integration target. The merge is resolved and the combined tree passes build, smoke, Python bridge, and browser checks; it remains uncommitted and unpushed while the verification-gate documentation reconciliation is re-run.
+Integration branch `integration/combine-open-prs` combines the open PRs #36 (Sony fixes, rigs Device Config,
+health, gimbal/Pi bridge), #59 (iPad gamepad remote), #57 (Electron foundation installer) and #58 (opt-in
+Electron tracking) into one draft PR against main for review. The original PRs stay open and unchanged.
+The CLI app (`node dist/index.js`, port 8080) remains the production entry point; the Electron variants
+start the same backend through `src/embed.ts` (loopback-only, session-cookie guarded).
 
 ## Active branch / PR
+`integration/combine-open-prs` (draft, not to be merged without review and the manual hardware checks of each
+source PR). Merge order: #36, #59, #57, #58 (`git merge --no-ff`).
+
+## Electron line — state as recorded on PR #57 (feat/electron-foundation)
+
+### Current focus
+Packaging-first Electron delivery is underway on `feat/electron-foundation`.
+The production shell and explicit backend lifecycle are integrated. Independent
+review repairs and the actual mounted manual candidate runtime now pass. The
+foundation is ready to freeze; committed-source rebuilding and Apple notarization
+are separate remaining gates before final installer delivery.
+
+### Active branch / PR
+Branch: `feat/electron-foundation`, based on inherited PR36 HEAD
+`763122d5ef27097661773ccc16d4f704f950ea81`. This foundation checkpoint records
+independently verified production inputs before the final committed-source build.
+No new draft PR or Apple artifact acceptance has been recorded yet.
+
+### In progress
+- One shared production/development shell, private HTTP/WS sessions, real port IPC,
+  immutable resources, generic userData setup and consented whole-file import.
+- Actual mounted-DMG runtime and owned helper/blocked-event-loop fault tests.
+- Apple Developer ID signing and app/DMG notarization tooling. After account-holder
+  acceptance and propagation of the required agreement, read-only authentication
+  succeeds; actual artifact submission/Accepted results remain pending.
+- Tracking remains preparation only. Current issue bodies, frozen protocol,
+  permissive model and audited macOS-14-compatible runtime pins are in
+  `docs/ai/runs/2026-10-01-tracking-implementation-handoff.md`.
+
+### Risks / known issues
+- No final notarized-DMG runtime, notary Accepted/staples, genuine clean OS/TCC, or
+  physical controller/camera/gimbal acceptance yet. Developer-host isolated HOME
+  testing must not be reported as clean-Mac proof.
+- Historical probe soak failures are unchanged, not production-loop results and
+  not a blocker to implementing packaging. Unrelated controller #3–6 drafts are
+  preserved but excluded from packaging implementation.
+
+### Test status
+- `ai-workflow` now routes to the repository adapter and serial checks runner;
+  no nonexistent `npm run typecheck` fallback.
+- Independent root `ai-workflow checks --level pr` exit 0 after all production
+  repairs: 49/49 focused tests, schema/rig/profile/Sony suites, Pi tests,
+  smoke 268/268, sandbox 104/104, build, page-JS and diff. Signing tests 12/12.
+- Actual candidate mounted-DMG runtime passed with no browser/page/network errors:
+  `runs/electron-manual-evidence/runtime-2026-10-01T19-44-46-301Z/runtime.json`.
+  Includes real managed-helper faults, paused recovery, import and persistence.
+  Final source-committed/notarized artifact must rerun this exact gate.
+
+### Next step
+Commit the verified foundation, rebuild/sign/notarize it, and open its draft PR.
+Branch tracking from that exact commit after manual build inputs are copied;
+implement and test the second app, then open its stacked draft PR. Preserve PR36,
+the original checkout, existing branches/worktrees and all failed evidence.
+
+## Production line (PR #36 + #59) — state as recorded on feat/ipad-gamepad-remote
+
+### Current focus
+Prepare the combined Sony dashboard and latest PR #2 work for verification. PR #2 is the latest integration target. The merge is resolved and the combined tree passes build, smoke, Python bridge, and browser checks; it remains uncommitted and unpushed while the verification-gate documentation reconciliation is re-run.
+
+### Active branch / PR
 `feat/sony-dashboard`; updated PR #2 is the integration target. The orchestrator will inspect, verify, commit the merge, and push only after PASS.
 
-## Recently completed
+### Recently completed
 - **iPad gamepad remote (draft PR, branch `feat/ipad-gamepad-remote`).** An Xbox controller on an iPad drives the
   cameras over the network: `/remote` page (static, `ui/remote/`) streams the browser Gamepad to
   `/ws/remote-controller`; `InputArbiter` keeps the desk controller in charge (desk always wins) and every handover
@@ -49,12 +113,12 @@ Prepare the combined Sony dashboard and latest PR #2 work for verification. PR #
   controller could never come up. Reopening cannot fix denied permissions
   either.
 
-## In progress
+### In progress
 - Switch Pro Bluetooth controller support (folded from `feat/rs3-ble-bridge` 196ebad) was live-verified with the physical RS3 on 2026-08-04: BT detection, camera selection, all-direction pan/tilt, stop-on-release. Its DJI_RS3_MAX_JOYSTICK change was superseded by the per-instance clamp in the joystick-gain decision (default 80; deployed env files set 200).
 - Sony live a7S III widget, preview, properties, explicit discovery/connect cache, and lightweight nested connection checks succeeded. The four-up 4/2/1 layout awaits AJ visual recheck.
 - Manual Sony checks remain: two physical cameras, FX3 touch focus, and HDMI coexistence.
 
-## Risks / known issues
+### Risks / known issues
 - **All three gimbals now run at gain 200 (was 80) — live motion is UNVERIFIED.**
   The fix is deployed and each instance logs `max joystick gain 200 (from
   DJI_RS3_MAX_JOYSTICK…)` at startup, so the env value is provably reaching the
@@ -97,7 +161,7 @@ Prepare the combined Sony dashboard and latest PR #2 work for verification. PR #
 - Switch Pro Bluetooth support is verified only for the tested `057e:2009`
   controller and captured 49-byte `0x30` reports.
 
-## Test status
+### Test status
 - Joystick-gain fix: `python3 -m unittest discover -s pi-bridge/tests` **40/40**
   (13 new in `MaxJoystickTests` covering default, env read, per-instance read,
   clamping at both bounds, unparseable/blank fallback, the startup log line, and
@@ -141,7 +205,7 @@ Prepare the combined Sony dashboard and latest PR #2 work for verification. PR #
   Motion commands are rate-limited anyway (`shouldSendMotion`), as hygiene rather
   than as the fix.
 
-## Next step
+### Next step
 Live-verify the new gain 200 with the operator watching camera video, starting from
 small stick deflections (see the risk above) — the gimbals were powered off during
 the deploy window so nobody has felt 200 yet. Confirm the Xbox pad drives motion
@@ -155,7 +219,7 @@ interruption/recovery, reconnect/reboot, and 30-minute soak checks before live u
 ---
 **Run history:** one file per run under `docs/ai/runs/` (surfaced as `ai-runs/`). This snapshot is overwritten in place.
 
-## Consolidation 2026-09-29
+### Consolidation 2026-09-29
 - Branch `mega/2026-09-29-consolidation` (from `origin/main` dd3db16) folds all unmerged work. PR: https://github.com/ajhochy/fps-camcontrol/pull/20 (draft). Tracking issues: https://github.com/ajhochy/fps-camcontrol/issues/21 (verify and land), https://github.com/ajhochy/fps-camcontrol/issues/22 (Sony auto-connect and dashboard).
 - Folded refs (tip SHA): `fix/controller-visca-ptz-and-multi-cam` local 2fbd51f / remote 332ef15 (PR #2); `feat/sony-dashboard` remote b3715b0 / local 62f75f4 (PR #8); `feat/settings-dark-mode` remote e8b68bb / local 8cae6a1; `feat/rs3-ble-bridge` 196ebad (local only; base 2833026 merged `-s ours` since 5a99565 on PR #2 supersedes it; joystick-gain and config-save changes superseded by the PR #2 versions, Switch Pro support kept).
 - Dropped refs (fully merged into `origin/main`; preserved in `~/Documents/.consolidation-backups/fps-camcontrol-2026-09-29.bundle`): `origin/claude/peaceful-wilson-7df1fc` a721d71, `origin/claude/practical-jepsen-8235f2` c13dff2, `origin/claude/stupefied-gauss-f1b1dc` 703c350, `origin/claude/tender-swirles-a91629` aedca7c, `origin/claude/vibrant-yalow-c5d9cf` a6620d2.
