@@ -245,8 +245,8 @@ class BridgeInfoTests(unittest.TestCase):
 
     def test_legacy_api_answers_info_and_leaves_other_paths_to_websockets(self):
         hook = dji_bridge.info_request_handler(self.BleDriver(), 7880, set())
-        self.assertIsNone(hook("/", {}))
-        status, headers, body = hook("/info", {})
+        self.assertIsNone(asyncio.run(hook("/", {})))
+        status, headers, body = asyncio.run(hook("/info", {}))
         self.assertEqual(int(status), 200)
         self.assertIn(("Content-Type", "application/json"), headers)
         self.assertEqual(json.loads(body)["port"], 7880)
@@ -265,8 +265,8 @@ class BridgeInfoTests(unittest.TestCase):
                 return Response(status, text)
 
         hook = dji_bridge.info_request_handler(self.BleDriver(), 7879, {object()})
-        self.assertIsNone(hook(Connection(), types.SimpleNamespace(path="/")))
-        response = hook(Connection(), types.SimpleNamespace(path="/info"))
+        self.assertIsNone(asyncio.run(hook(Connection(), types.SimpleNamespace(path="/"))))
+        response = asyncio.run(hook(Connection(), types.SimpleNamespace(path="/info")))
         self.assertEqual(response.headers["Content-Type"], "application/json")
         self.assertEqual(json.loads(response.text)["clients"], 1)
 
@@ -306,7 +306,7 @@ class WakeDispatchTests(unittest.TestCase):
         session = Session(IdleSocket(), self.WakeDriver(), 250, 7879)
         result = asyncio.run(session._dispatch("hello", {"clientId": "app"}))
         self.assertIn("wake", result["capabilities"])
-        self.assertEqual(result["bridgeVersion"], "0.5.0")
+        self.assertEqual(result["bridgeVersion"], dji_bridge.BRIDGE_VERSION)
 
     def test_wake_dispatches_to_the_driver_and_logs_who_asked(self):
         driver = self.WakeDriver()

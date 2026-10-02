@@ -22,8 +22,8 @@ import { ActivityLog } from '../app/activityLog';
 import { ViscaDevice } from '../devices/viscaDevice';
 import { MotionDevice } from '../devices/motionDevice';
 import { createMotionDevice } from '../devices/deviceFactory';
-import { HealthTracker, rigHealth, sonyHealth, HealthItem } from '../app/health';
-import { probeBridge, fetchBridgeInfo, mergeBridges, DEFAULT_BRIDGE_PORTS, tcpOpen, localSubnetHosts, inBatches, resolveHost, nameOf, BridgeProbe, FoundBridge } from '../devices/gimbalScan';
+import { HealthTracker, rigHealth, sonyHealth, gimbalBatteryHealth, HealthItem } from '../app/health';
+import { probeBridge, fetchBridgeInfo, mergeBridges, DEFAULT_BRIDGE_PORTS, tcpOpen, localSubnetHosts, inBatches, resolveHost, nameOf, BridgeProbe, FoundBridge, fetchBluetoothGimbals, selectBluetoothGimbal, normalizeBluetoothAddress } from '../devices/gimbalScan';
 import { AtemClient } from '../atem/atemClient';
 import { loadProfiles, detectConnectionType } from '../input/profileDetector';
 import { eventBus, AppEvent } from '../app/eventBus';
@@ -187,6 +187,13 @@ export function createStatusServer(
       cameraName: rig.cameraLabel, sonyCameraId: rig.camera ? inventory[rig.camera]?.sonyCameraId ?? null : null,
     }));
   };
+  // The iPad remote's Sony writes (touch focus, camera settings) say so with X-Remote: 1 and are refused while
+  // remote control is switched off at the desk. Reads and live view are not gated.
+  app.use('/api/sony/cameras/:id', (req, res, next) => {
+    const write = (req.method === 'PUT' && req.path.startsWith('/properties/')) || (req.method === 'POST' && req.path === '/touch');
+    if (write && req.get('x-remote') === '1' && !remoteHub?.enabled) { res.status(403).json({ error: 'Remote control is off' }); return; }
+    next();
+  });
   app.get('/api/sony/status', (_req, res) => { const manager = sony(res); if (manager) { const status = manager.getStatus(); res.json({ ...status, cameras: named(status.cameras), rigs: sonyRigOrder() }); } });
   app.get('/api/sony/cameras', (_req, res) => { const manager = sony(res); if (manager) res.json({ cameras: cameraList(manager) }); });
   app.post('/api/sony/cameras/discover', async (_req, res) => { const manager = sony(res); if (!manager) return; try { await manager.discover(); res.json({ cameras: cameraList(manager) }); } catch (error) { sonyError(res, error); } });
@@ -278,6 +285,8 @@ export function createStatusServer(
       const cameraKeys: Record<string, string> = {};
       for (const cam of config.cameras) {
         items.push({ key: `rig:${cam.id}`, label: cam.label, health: rigHealth(state, { id: cam.id, label: cam.label, protocol: cam.protocol }) });
+        const battery = cam.protocol === 'dji-bridge' && state.cameraConnected[cam.id] !== undefined ? gimbalBatteryHealth(state.cameraGimbalBattery?.[cam.id]?.percent) : null;
+        if (battery) items.push({ key: `battery:${cam.id}`, label: `${cam.label} gimbal battery`, health: battery });
         const rig = view.rigs.find((r) => r.id === cam.id);
         if (rig && rig.camera && sonyManager) {
           const device = inventory[rig.camera];
@@ -296,6 +305,7 @@ export function createStatusServer(
       state.health = {
         rigs: Object.fromEntries(config.cameras.map((cam) => [cam.id, snap[`rig:${cam.id}`]]).filter(([, v]) => v)),
         cameras: Object.fromEntries(Object.entries(cameraKeys).map(([id, key]) => [id, snap[key]]).filter(([, v]) => v)),
+        batteries: Object.fromEntries(config.cameras.map((cam) => [cam.id, snap[`battery:${cam.id}`]]).filter(([, v]) => v)),
       };
     } catch (err) {
       logger.warn({ err: String(err) }, 'health update failed');
@@ -411,6 +421,37 @@ export function createStatusServer(
       logger.error({ err }, 'gimbal scan failed');
       res.status(500).json({ error: 'the gimbal scan failed' });
     }
+  });
+
+  // ---- which Bluetooth gimbal a rig's Pi bridge drives (bridge >= 0.6.0). The browser never talks to a Pi: these
+  // proxy the bridge's plain-HTTP GET /gimbals and POST /gimbal, which open no control session. A DJI gimbal takes
+  // one Bluetooth connection, so switching drops the current gimbal: the POST must say `confirm: true`.
+  const gimbalBridgeOf = (req: express.Request, res: express.Response): { key: string; host: string; port: number; label: string } | null => {
+    const key = deviceKeyOf(req, res); if (!key) return null;
+    const device = ((config.devices ?? {}) as Record<string, any>)[key];
+    if (!device) { res.status(404).json({ ok: false, error: 'no such device' }); return null; }
+    if (device.protocol !== 'dji-bridge' || !device.bridge?.host) { res.status(400).json({ ok: false, error: 'this rig is not a DJI gimbal' }); return null; }
+    return { key, host: String(device.bridge.host), port: Number(device.bridge.port ?? 7878), label: String(device.label ?? key) };
+  };
+  app.get('/api/rigs/:key/bluetooth-gimbals', async (req, res) => {
+    const target = gimbalBridgeOf(req, res); if (!target) return;
+    const result = await fetchBluetoothGimbals(target.host, target.port, req.query.scan === '1');
+    if (result.ok) res.json({ ok: true, bridge: `${target.host}:${target.port}`, ...result.body });
+    else res.status(result.status >= 400 && result.status < 600 ? result.status : 502).json({ ok: false, error: result.error });
+  });
+  app.post('/api/rigs/:key/bluetooth-gimbal', async (req, res) => {
+    const target = gimbalBridgeOf(req, res); if (!target) return;
+    const body = (typeof req.body === 'object' && req.body !== null ? req.body : {}) as Record<string, unknown>;
+    const wanted = typeof body.address === 'string' && body.address.trim().toLowerCase() === 'auto' ? 'auto' : normalizeBluetoothAddress(body.address);
+    if (!wanted) { res.status(400).json({ ok: false, error: 'address must be a Bluetooth address (AA:BB:CC:DD:EE:FF) or "auto"' }); return; }
+    if (body.confirm !== true) {
+      res.status(409).json({ ok: false, confirmationRequired: true, error: `Switching drops the gimbal ${target.label} is driving now: the camera stops and its Bluetooth link is cut while the bridge connects the other gimbal. Confirm to continue.` });
+      return;
+    }
+    const result = await selectBluetoothGimbal(target.host, target.port, wanted);
+    activityLog.addEntry({ protocol: 'DJI-BRIDGE', message: result.ok ? `Bluetooth gimbal switched to ${wanted === 'auto' ? 'the strongest in range' : wanted} (operator confirmed)` : `Bluetooth gimbal switch to ${wanted} failed: ${result.error}`, targetName: target.label, targetIp: `${target.host}:${target.port}` });
+    if (result.ok) { logger.warn({ device: target.key, gimbal: result.body.selected?.address }, 'Bluetooth gimbal switched by the operator'); res.json({ ok: true, ...result.body }); }
+    else res.status(result.status >= 400 && result.status < 600 ? result.status : 502).json({ ok: false, error: result.error });
   });
 
   // ---- rig edits. Hardware records (name, addresses, bound Sony camera) are shared by every profile and
@@ -1587,6 +1628,8 @@ function statusHtml(): string {
   .cam-card__signal { display:inline-flex; align-items:center; gap:6px; font-size:11px; letter-spacing:.04em; text-transform:uppercase; color:var(--ok-text); margin-top:2px; }
   .cam-card__signal--weak { color:var(--warn-text); }
   .cam-card__signal--poor { color:var(--err-text, #f87171); }
+  .cam-card__bt { display:flex; flex-wrap:wrap; align-items:center; gap:4px 12px; }
+  .cam-card__bt:empty { display:none; }
   .sig-bars { display:inline-flex; align-items:flex-end; gap:2px; height:10px; }
   .sig-bar { display:block; width:3px; background:currentColor; opacity:.25; }
   .sig-bar--1 { height:4px; } .sig-bar--2 { height:7px; } .sig-bar--3 { height:10px; }
@@ -1795,6 +1838,11 @@ function statusHtml(): string {
   .health-value::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: 0 0 auto; }
   .health-item--ok .health-value { color: var(--ok-text); }
   .health-item--err .health-value { color: var(--err-text); }
+  .health-item--warn .health-value { color: var(--warn-text); }
+  .health-item--idle .health-value { color: var(--text-2); }
+  .remote-toggle { font: inherit; text-align: left; border: 0; cursor: pointer; display: flex; flex-direction: column; color: inherit; }
+  .remote-toggle:hover { background: var(--surface-2, var(--surface)); }
+  .remote-toggle:focus-visible { outline: 2px solid var(--ok-text); outline-offset: -2px; }
   .tab-bar {
     gap: 0; padding-top: 0; border: 1px solid var(--border); background: #0e1214;
     overflow-x: auto; scrollbar-width: thin;
@@ -1918,7 +1966,6 @@ function statusHtml(): string {
 <div class="panel tab-panel active" id="tab-status" role="tabpanel" aria-labelledby="tab-btn-status">
   <div class="panel-heading"><div><h2>Camera Network</h2><span class="panel-kicker">Signal roles and device health</span></div></div>
   <div id="status-content"><div class="loading-state">Reading production state…</div></div>
-  <section class="remote-card" id="remote-card" aria-label="iPad remote control"></section>
   <details class="health-log" id="health-log"><summary>Health log</summary><ol id="health-log-list"><li>Loading…</li></ol></details>
   <section id="sony-cameras" aria-label="Connected Sony cameras"><div class="section-header">Sony Cameras</div><div id="sony-dashboard-status" aria-live="polite"></div><div class="sony-grid" id="sony-grid-root"></div></section>
 </div>
@@ -2052,6 +2099,17 @@ function signalCard(label, value, cls, detail) {
   '</section>';
 }
 
+// Always-visible iPad remote switch in the top bar: tap to allow or stop iPad control; shows who is driving.
+function remoteToggleItem(rc) {
+  if (!rc) return '';
+  var on = !!rc.enabled, ipad = rc.owner === 'remote';
+  var value = !on ? 'Off \u00b7 tap to allow' : ipad ? 'On \u00b7 ' + (rc.ownerName || 'iPad') + ' driving' : 'On \u00b7 desk in control';
+  return '<button type="button" class="health-item health-item--' + (!on ? 'idle' : ipad ? 'warn' : 'ok') + ' remote-toggle" aria-pressed="' + on + '"' +
+    ' title="' + (on ? 'Stop allowing iPad control (an iPad driving now is stopped)' : 'Allow an iPad to take control') + '"' +
+    ' onclick="setRemoteEnabled(' + (!on) + ')">' +
+    '<span class="health-label">iPad remote</span><span class="health-value">' + esc(value) + '</span></button>';
+}
+
 function healthItem(label, value, ok) {
   return '<div class="health-item health-item--' + (ok ? 'ok' : 'err') + '">' +
     '<span class="health-label">' + label + '</span>' +
@@ -2067,6 +2125,13 @@ function signalBadge(sig) {
   var bars = [1, 2, 3].map(function(n) { return '<i class="sig-bar sig-bar--' + n + (n <= level ? ' sig-bar--on' : '') + '"></i>'; }).join('');
   var word = sig.rating === 'good' ? 'Good' : sig.rating === 'weak' ? 'Weak' : 'Poor';
   return '<span class="cam-card__signal cam-card__signal--' + esc(sig.rating) + '" title="' + esc(sig.summary) + '"><span class="sig-bars" aria-hidden="true">' + bars + '</span>BT signal: ' + word + '</span>';
+}
+
+// The gimbal's battery line, coloured by the server's one battery rule (app/health.ts gimbalBatteryHealth).
+function batteryBadge(h) {
+  if (!h) return '';
+  var tone = h.level === 'ready' ? 'good' : h.level === 'check' ? 'weak' : 'poor';
+  return '<span class="cam-card__signal cam-card__signal--' + tone + '" title="' + esc(h.hint || 'As the gimbal reports it') + '">' + esc(h.text) + '</span>';
 }
 
 // Turn the three camera-keyed maps in /api/status into one label per camera.
@@ -2131,7 +2196,7 @@ function renderStatus(s, c) {
     '<section class="health-stack" aria-label="Connection health">' +
       healthItem('ATEM', s.atemConnected ? 'Online' : 'Offline', s.atemConnected) +
       healthItem('Controller', s.controllerConnected ? (s.activeControllerProfile || 'Online') : 'Offline', s.controllerConnected) +
-      (s.remoteControl && s.remoteControl.enabled ? healthItem('Control', s.remoteControl.owner === 'remote' ? (s.remoteControl.ownerName || 'iPad') : 'Desk', s.remoteControl.owner !== 'remote') : '') +
+      remoteToggleItem(s.remoteControl) +
     '</section>';
 
   const speed = c.speeds && c.speeds.presets && c.speeds.presets[s.speedPreset]
@@ -2147,10 +2212,12 @@ function renderStatus(s, c) {
     const cam = cams[i];
     const motion = healthOf(s.health && s.health.rigs && s.health.rigs[cam.id]) || cameraLinkState(s, cam.id);
     const camera = healthOf(s.health && s.health.cameras && s.health.cameras[cam.id]);
-    const link = worse(motion, camera);
+    const battery = healthOf(s.health && s.health.batteries && s.health.batteries[cam.id]);
+    const link = worse(worse(motion, camera), battery);
     const camName = 'CAM ' + String(i + 1).padStart(2, '0') + ' ' + cam.label;
     if (motion.cls !== 'ok') alerts.push({ cls: motion.cls, what: camName + (cam.protocol === 'dji-bridge' ? ' gimbal' : ' control'), text: motion.text, hint: motion.hint, since: motion.since });
     if (camera && camera.cls !== 'ok') alerts.push({ cls: camera.cls, what: camName + ' camera', text: camera.text, hint: camera.hint, since: camera.since });
+    if (battery && battery.cls !== 'ok') alerts.push({ cls: battery.cls, what: camName, text: battery.text, hint: battery.hint, since: battery.since });
     const isProgram = s.programCamera === cam.id;
     const isPreview = s.previewCamera === cam.id;
     const isControlled = s.controlledCamera === cam.id;
@@ -2172,7 +2239,8 @@ function renderStatus(s, c) {
         '<span class="cam-card__name">' + esc(cam.label) + '</span>' +
         '<span class="cam-card__status cam-card__line--' + motion.cls + '">' + esc(motion.text) + '</span>' +
         (motion.hint && motion.cls !== 'ok' ? '<span class="cam-card__hint">' + esc(motion.hint) + '</span>' : '') +
-        signalBadge(s.cameraGimbalSignal && s.cameraGimbalSignal[cam.id]) +
+        '<span class="cam-card__bt">' + signalBadge(s.cameraGimbalSignal && s.cameraGimbalSignal[cam.id]) +
+        batteryBadge(s.health && s.health.batteries && s.health.batteries[cam.id]) + '</span>' +
         wakeHtml(cam, motion, s) +
         (camera ? '<span class="cam-card__status cam-card__line--' + camera.cls + '" title="' + esc(camera.hint) + '">Camera: ' + esc(camera.text) + '</span>' +
           (camera.hint && camera.cls !== 'ok' ? '<span class="cam-card__hint">' + esc(camera.hint) + '</span>' : '') : '') +
@@ -2195,7 +2263,7 @@ function renderStatus(s, c) {
     return '<div class="health-alert health-alert--' + a.cls + '"><strong>' + esc(a.what) + ': ' + esc(a.text) + '</strong>' + since + (a.hint ? '<span class="health-alert__hint">' + esc(a.hint) + '</span>' : '') + '</div>';
   }).join('') + '</div>' : '';
   document.getElementById('status-content').innerHTML = banner + camGrid + '<div class="mode-row">' + modes + '</div>';
-  renderRemoteCard(s.remoteControl);
+  // (The iPad remote switch lives in the top bar: remoteToggleItem.)
 }
 
 // ---- iPad remote control card: on/off, who is driving, Take back, and a desk STOP ----

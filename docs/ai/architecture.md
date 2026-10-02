@@ -51,6 +51,7 @@ replays motion. Sony SDK/CameraWebApp is user-supplied, not redistributed.
 | Input arbiter | `src/input/inputArbiter.ts` | Who is driving: desk controller or an iPad. Desk always wins; every handover calls `machine.switchSource()` (stop + seed edge state) |
 | iPad remote | `src/input/remoteControl.ts`, `remoteFrame.ts`, `browserGamepad.ts`, `ui/remote/` | `/ws/remote-controller` hub (sessions, dead-man, ping, PIN, Origin check), frame validation, browser-gamepad to `NormalizedInput`; the page is static (`/remote`) |
 | Pi bridge | `pi-bridge/dji_bridge.py` + `drivers/` | Async websockets server translating app commands to RS3 Bluetooth LE; 250ms safety watchdog; pluggable driver |
+| Gimbal selection | `pi-bridge/gimbal_select.py` | Which Bluetooth gimbal a bridge drives: saved gimbal.json, AUTO strongest-then-saved, GET /gimbals, POST /gimbal (one Pi per gimbal: docs/pi-per-gimbal.md) |
 
 ## Key flow
 

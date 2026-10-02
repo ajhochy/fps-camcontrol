@@ -114,6 +114,61 @@ export class ControlStateMachine {
     this.sourceLabel = sourceLabel ?? null;
   }
 
+  /** The iPad picked a camera: same effects as the face-button hotkeys (stops the old one, moves the ATEM preview). */
+  selectCameraById(id: string, controller = 'iPad', movePreview = true): boolean {
+    const index = this.config.cameras.findIndex((camera) => camera.id === id);
+    if (index < 0) return false;
+    const before = this.state.controlledCamera;
+    this.cameraSelector.selectByIndex(index, movePreview);
+    if (this.state.controlledCamera !== before) {
+      const label = this.config.cameras[index].label;
+      this.activityLog?.setContext(controller, 'Pane tap', `Cam → ${label}`);
+      this.activityLog?.addSystemEntry(`Cam → ${label}`, '—');
+    }
+    return true;
+  }
+
+  /**
+   * The iPad set the ATEM PREVIEW to a camera (tap in the bottom row). Like X/A/B/Y it also makes that camera the
+   * controlled one. Refuses cleanly (and changes nothing) when there is no such camera, it has no ATEM input, or
+   * the ATEM is not connected.
+   */
+  previewCameraById(id: string, controller = 'iPad'): 'ok' | 'no-camera' | 'no-input' | 'atem-offline' {
+    const index = this.config.cameras.findIndex((camera) => camera.id === id);
+    if (index < 0) return 'no-camera';
+    const cam = this.config.cameras[index];
+    if (cam.inputId === undefined) return 'no-input';
+    if (!this.atem.connected) return 'atem-offline';
+    const before = this.state.controlledCamera;
+    this.cameraSelector.selectByIndex(index);
+    if (this.state.previewCamera !== (cam.id as CameraId)) {
+      // Already the controlled camera but the preview bus is elsewhere (changed at the desk or the ATEM panel).
+      this.state.previewCamera = cam.id as CameraId;
+      this.atem.changePreviewInput(cam.inputId).catch((err) => logger.warn({ err }, 'failed to update ATEM preview'));
+    }
+    this.activityLog?.setContext(controller, 'Camera tap', `Preview → ${cam.label}`);
+    this.activityLog?.addSystemEntry(`Preview → ${cam.label}`, this.state.controlledCamera !== before ? 'also controlled' : '—');
+    return 'ok';
+  }
+
+  /**
+   * The iPad's TRANSITION button: the same auto transition as RB, but always of what is in PREVIEW (so a pane-arrow
+   * nudge of the program camera cannot change what is taken). Refuses when preview is already on program.
+   */
+  takePreviewLive(controller = 'iPad'): 'ok' | 'nothing-to-take' | 'no-input' | 'atem-offline' {
+    const pv = this.state.previewCamera;
+    const index = this.config.cameras.findIndex((camera) => camera.id === pv);
+    const cam = index >= 0 ? this.config.cameras[index] : undefined;
+    if (!cam || pv === this.state.programCamera) return 'nothing-to-take';
+    if (cam.inputId === undefined) return 'no-input';
+    if (!this.atem.connected) return 'atem-offline';
+    if (this.state.controlledCamera !== pv) this.cameraSelector.selectByIndex(index);
+    this.activityLog?.setContext(controller, 'TRANSITION button', 'Auto Transition');
+    autoTransitionControlledCamera(this.atem, this.state, this.config.cameras, this.devices)
+      .catch((err) => logger.error({ err }, 'auto transition error'));
+    return 'ok';
+  }
+
   setSourceConnected(fn: () => boolean): void {
     this.sourceConnected = fn;
   }

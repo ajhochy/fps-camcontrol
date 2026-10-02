@@ -98,6 +98,9 @@ class _BleakTransport:
         self.client = None
         self.linked = False
         self.on_disconnect: Callable[[], None] | None = None
+        # The gimbal's advertised name and RSSI, from the scan that found it for this connect.
+        self.name: str | None = None
+        self.rssi: float | None = None
 
     async def connect(self) -> None:
         try:
@@ -111,12 +114,24 @@ class _BleakTransport:
         # Scanning first is the supported pattern and makes powering a gimbal on
         # mid-service actually reconnect. Callers serialise this (BlueZ allows
         # only one connect/scan operation at a time per adapter).
-        device = await BleakScanner.find_device_by_address(self.address, timeout=SCAN_TIMEOUT_S)
+        wanted = self.address.upper()
+
+        def match(found: object, adv: object) -> bool:
+            # Same lookup as find_device_by_address, but it also keeps the advertised name and signal strength,
+            # which /info reports (a linked gimbal stops advertising, so this is the last RSSI there is).
+            if str(getattr(found, "address", "")).upper() != wanted:
+                return False
+            self.name = getattr(adv, "local_name", None) or getattr(found, "name", None)
+            rssi = getattr(adv, "rssi", None)
+            self.rssi = rssi if isinstance(rssi, (int, float)) else None
+            return True
+
+        device = await BleakScanner.find_device_by_filter(match, timeout=SCAN_TIMEOUT_S)
         if device is None and await _release_stale_link(self.address):
             # BlueZ still held a link to it (from a connect that half-failed, or a link this process lost track
             # of). A connected gimbal does not advertise, so no scan could ever find it: let go and look again.
             await asyncio.sleep(1.5)
-            device = await BleakScanner.find_device_by_address(self.address, timeout=SCAN_TIMEOUT_S)
+            device = await BleakScanner.find_device_by_filter(match, timeout=SCAN_TIMEOUT_S)
         if device is None:
             raise GimbalError(
                 f"gimbal {self.address} is not advertising (powered off, asleep, "
@@ -223,6 +238,23 @@ async def _release_stale_link(address: str) -> bool:
         return False  # no bluetoothctl (a dev box): nothing to release
 
 
+async def bleak_scan(timeout: float) -> list[dict[str, object]]:
+    """Every BLE device heard for `timeout` seconds: [{address, name, rssi}]. Callers hold the host-wide BLE lock."""
+    try:
+        from bleak import BleakScanner
+    except ImportError as exc:
+        raise GimbalError("bleak is required to scan for gimbals") from exc
+    found = await BleakScanner.discover(timeout=timeout, return_adv=True)
+    out: list[dict[str, object]] = []
+    for device, adv in found.values():
+        out.append({
+            "address": str(device.address).upper(),
+            "name": getattr(adv, "local_name", None) or getattr(device, "name", None),
+            "rssi": getattr(adv, "rssi", None),
+        })
+    return out
+
+
 # Passive frame census (DJI_RS3_FRAME_CENSUS=0 turns it off): log the first frame of each kind and every change of
 # the status frames, so what a sleeping gimbal sends can be compared with an awake one. Listen-only: nothing is
 # written to the gimbal for it.
@@ -235,6 +267,12 @@ WAKE_PAYLOAD = bytes((0x23, 0x01, 0x00))
 # The gimbal's own "sleep status" notification (cmd_set 0x04, cmd_id 0x27): last payload byte 1 = asleep, 0 = awake
 # (jdesbonnet/dji_rs3_control rs3_ble_protocol_spec.md 4.3 / 6.4).
 SLEEP_STATUS = (0x04, 0x27)
+# Battery level, passive (listen-only): the gimbal pushes 0x0d/0x02 frames (sender 0xe5) whose LAST payload byte is
+# the battery percent. Matched on 2026-10-02 against an RS3's own screen (23% <-> ...0417, i.e. 0x17 = 23); the
+# upstream (f3+22.57)/27.19 formula gave 20.3 and is wrong. RS3 Pro frames end in 65 and 47: assumed the same
+# encoding, pending a check against an RS3 Pro screen.
+BATTERY_STATUS = (0x0D, 0x02)
+BATTERY_MIN_PAYLOAD = 17
 
 
 def _valid_frame(candidate: bytes) -> bool:
@@ -338,24 +376,25 @@ class DjiRsDriver:
         timeout: float = 15.0,
         transport_factory: Callable[[str, float], BleTransport] = _BleakTransport,
         max_joystick: str | int | None = None,
+        scanner: Callable[[float], Awaitable[list[dict[str, object]]]] | None = bleak_scan,
     ) -> None:
-        self.address = address or os.environ.get("DJI_RS3_BLE_ADDRESS")
-        if not self.address:
-            raise GimbalError("set --ble-address or DJI_RS3_BLE_ADDRESS")
+        # None is allowed: the bridge's gimbal selector (gimbal_select.py) supplies the address (the saved choice,
+        # DJI_RS3_BLE_ADDRESS, or the strongest DJI gimbal in range) through set_address() before the first connect.
+        self.address = address
+        self._transport_factory = transport_factory
+        self._scanner = scanner
         configured = max_joystick if max_joystick is not None else os.environ.get(MAX_JOYSTICK_ENV)
         self.max_joystick = resolve_max_joystick(configured)
         log.info(
             "RS3 %s max joystick gain %d (%s; safe range %d..%d)",
-            self.address,
+            self.address or "(gimbal not chosen yet)",
             self.max_joystick,
             "built-in default" if configured is None else f"from {MAX_JOYSTICK_ENV}",
             MIN_MAX_JOYSTICK,
             MAX_MAX_JOYSTICK,
         )
         self.timeout = timeout
-        self._transport = transport_factory(self.address, timeout)
-        with contextlib.suppress(AttributeError):
-            self._transport.on_disconnect = self._on_link_lost
+        self._transport: BleTransport | None = None
         self._sequence = 0x5000
         self._pose: Attitude | None = None
         self._pose_at = 0.0
@@ -374,6 +413,9 @@ class DjiRsDriver:
         self._linked_at = 0.0
         # The gimbal's own sleep report (0x04/0x27): True asleep, False awake, None not reported on this link yet.
         self.asleep: Optional[bool] = None
+        # The gimbal's own battery report (0x0d/0x02, last payload byte); None until one arrives on this link.
+        self.battery_percent: Optional[int] = None
+        self._battery_at = 0.0
         self._census_on = os.environ.get(CENSUS_ENV, "1").strip() not in ("0", "false", "off", "")
         self._census_counts: dict[tuple[int, int, int, int], int] = {}
         self._census_last: dict[tuple[int, int], bytes] = {}
@@ -383,8 +425,52 @@ class DjiRsDriver:
         self._had_link = False
         self._logged_at: dict[str, float] = {}
         self.connected = False
+        if self.address:
+            self._make_transport()
+
+    def _make_transport(self) -> None:
+        self._transport = self._transport_factory(self.address, self.timeout)
+        with contextlib.suppress(AttributeError):
+            self._transport.on_disconnect = self._on_link_lost
+
+    @property
+    def linked_name(self) -> str | None:
+        """The advertised name of the gimbal this driver connects to (seen by its last connect), if known."""
+        name = getattr(self._transport, "name", None) if self._transport is not None else None
+        return name if isinstance(name, str) else None
+
+    @property
+    def linked_rssi(self) -> float | None:
+        rssi = getattr(self._transport, "rssi", None) if self._transport is not None else None
+        return rssi if isinstance(rssi, (int, float)) and not isinstance(rssi, bool) else None
+
+    async def scan(self, timeout: float) -> list[dict[str, object]]:
+        """Advertising BLE devices nearby (the bridge keeps the DJI gimbals). The caller holds the BLE lock."""
+        if self._scanner is None:
+            raise NotSupported("this driver has no Bluetooth scanner")
+        return await self._scanner(timeout)
+
+    async def set_address(self, address: str | None) -> None:
+        """Drive a different gimbal: stop and drop the current link (a DJI gimbal accepts one connection), then
+        point at `address`; maintain_gimbal() connects it. None leaves the driver with no gimbal."""
+        if address == self.address and (address is None or self._transport is not None):
+            return
+        await self.close()
+        self.address = address
+        self._transport = None
+        self._had_link = False
+        self._linked_at = 0.0
+        self._drop_times.clear()
+        self._frame_events.clear()
+        self.asleep = None
+        self.battery_percent = None
+        if address:
+            self._make_transport()
+        log.warning("RS3 driver now set to gimbal %s", address or "(none)")
 
     async def connect(self) -> None:
+        if not self.address or self._transport is None:
+            raise GimbalError("no gimbal selected yet (choose one with POST /gimbal, or set DJI_RS3_BLE_ADDRESS)")
         self._closing = False
         if self._had_link:
             # Drop the stale client from the link we lost before building a new one.
@@ -399,6 +485,7 @@ class DjiRsDriver:
             raise GimbalError(f"failed to connect to RS3 at {self.address}: {exc}") from exc
         self._linked_at = monotonic()
         self.asleep = None  # a new link has not reported its sleep state yet
+        self.battery_percent = None  # nor its battery
         # A pose from the previous link must never be served on this one.
         self._pose = None
         self._pose_at = 0.0
@@ -576,6 +663,12 @@ class DjiRsDriver:
         if was_connected and not self._closing:
             self._throttled_warning("link-lost", "RS3 %s link lost: %s — reconnecting", self.address, reason)
 
+    def battery(self) -> dict[str, int] | None:
+        """The gimbal's last battery report on this link: {"percent", "ageS"}, or None when none has arrived."""
+        if self.battery_percent is None or not self.connected:
+            return None
+        return {"percent": int(self.battery_percent), "ageS": max(0, round(monotonic() - self._battery_at))}
+
     def link_health(self) -> dict[str, float | int | None]:
         """How well the Bluetooth link is holding up: drops in the last 10 minutes and the share of frames
         that arrived corrupt in the last minute. Raw numbers only; the app decides what counts as weak."""
@@ -635,6 +728,13 @@ class DjiRsDriver:
                 if asleep != self.asleep:
                     log.warning("RS3 %s reports it is %s", self.address, "ASLEEP" if asleep else "awake")
                 self.asleep = asleep
+            if (cmd_set, cmd_id) == BATTERY_STATUS and len(payload) >= BATTERY_MIN_PAYLOAD:
+                percent = payload[-1]
+                if 0 <= percent <= 100:
+                    if percent != self.battery_percent:
+                        log.info("RS3 %s battery %d%%", self.address, percent)
+                    self.battery_percent = percent
+                    self._battery_at = monotonic()
             if not self._census_on:
                 return
             key = (sender, receiver, cmd_set, cmd_id)

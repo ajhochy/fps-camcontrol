@@ -45,6 +45,7 @@ node dist/testing/<name>.js         # unit suites, no app needed: rigsTest rigSc
                                     # workingProfileTest sonyManagerTest sonyConfigStoreTest gimbalScanTest djiReconnectTest
                                     # viscaTransportTest healthTest gimbalWakeTest
                                     # iPad remote: browserGamepadTest remoteFrameTest inputArbiterTest remoteControlTest remoteUiModelTest
+                                    # Pi per gimbal: bluetoothGimbalTest (gimbal selection proxy + battery)
 pnpm sandbox:check                  # isolated app (8090/8191/17878+), fakes; includes the iPad remote stop paths
 pnpm test:smoke:isolated            # the smoke suite against the sandbox config
 ```

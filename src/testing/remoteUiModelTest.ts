@@ -55,7 +55,7 @@ check('a pad without the standard mapping is refused and says its mapping', (() 
 check('a disconnected pad is ignored', model.padStatus([{ ...pad([0, 0, 0, 0]), connected: false }]).kind === 'none');
 
 // ---- words
-check('denied reasons have plain wording', ['disabled', 'desk-active', 'other-remote', 'pin'].every((r) => model.deniedText(r).length > 5) && model.deniedText('weird').length > 5);
+check('denied reasons have plain wording', ['disabled', 'desk-active', 'other-remote', 'pin', 'not-owner', 'no-camera'].every((r) => model.deniedText(r).length > 5) && model.deniedText('weird').length > 5);
 check('owner pill: not connected / off / you / desk / other', model.ownerPill(null, false, true).text === 'Not connected' && model.ownerPill({ owner: 'local' }, true, false).text === 'Remote control is off' && model.ownerPill({ owner: 'remote', you: true }, true, true).text === 'You have control' && model.ownerPill({ owner: 'local' }, true, true).text === 'Desk has control' && model.ownerPill({ owner: 'remote', you: false }, true, true).text === 'Another iPad has control');
 check('losing control to the desk is explained, a plain release is not', /desk/.test(model.lostText('desk-override')) && model.lostText('release') === null && model.lostText('idle') === null);
 
@@ -67,5 +67,100 @@ const rigsPayload = { rigs: [{ id: 'cam1', camera: 'sony-a' }, { id: 'cam2', cam
 check('the preview uses the Sony camera on the controlled rig', model.previewCameraId(rigsPayload, 'cam1') === 'AA:00:00:00:00:01');
 check('no preview for a rig without a camera or one not yet bound', model.previewCameraId(rigsPayload, 'cam2') === null && model.previewCameraId(rigsPayload, 'cam3') === null && model.previewCameraId(rigsPayload, 'nope') === null);
 check('speed line from status, and from the pushed state when driving', model.speedLine({ presets: [{ name: 'Slow' }, { name: 'Normal' }] }, status, null) === 'Speed: Normal · precision' && model.speedLine(null, status, { speedName: 'Fast', precision: false }) === 'Speed: Fast');
+
+// ---- multiview
+const mvStatus = { controlledCamera: 'cam2', programCamera: 'cam1', previewCamera: 'cam2', health: { rigs: { cam1: { level: 'ready', text: 'Answering' }, cam2: { level: 'ready', text: 'Answering' }, cam3: { level: 'down', text: 'Asleep' }, cam4: { level: 'ready', text: 'Answering' } }, cameras: { cam1: { level: 'ready', text: 'Connected' }, cam4: { level: 'down', text: 'Off or Asleep' } } } };
+const mvCams = ['cam1', 'cam2', 'cam3', 'cam4'].map((id) => ({ id, label: id.toUpperCase() }));
+const mvRigs = { rigs: [{ id: 'cam1', camera: 'a' }, { id: 'cam2', camera: 'a2' }, { id: 'cam3', camera: null }, { id: 'cam4', camera: 'd' }], sonyDevices: [{ key: 'a', sonyCameraId: 'AA:01' }, { key: 'a2', sonyCameraId: 'AA:02' }, { key: 'd', sonyCameraId: 'AA:04' }] };
+const plan = model.multiviewPlan(mvCams, mvStatus, mvRigs);
+check('PVW pane is the preview camera, PGM pane the program camera', plan.pvw.rigId === 'cam2' && plan.pgm.rigId === 'cam1');
+check('small panes are the rigs in rig order', plan.small.map((p: any) => p.rigId).join() === 'cam1,cam2,cam3,cam4');
+check('tags: PGM, PVW and CTL land on the right panes', plan.small[0].tags.join() === 'PGM' && plan.small[1].tags.join() === 'PVW,CTL' && plan.small[2].tags.length === 0);
+check('tags for a camera that is all three', model.tagsFor('c', { programCamera: 'c', previewCamera: 'c', controlledCamera: 'c' }).join() === 'PGM,PVW,CTL' && model.tagsFor(null, mvStatus).length === 0);
+check('a rig without a Sony camera shows its health text, no picture', !plan.small[2].wantsPicture && plan.small[2].healthText === 'Asleep');
+check('a Sony camera the tracker calls down shows that text, no picture', !plan.small[3].wantsPicture && plan.small[3].healthText === 'Off or Asleep' && plan.small[3].sonyId === 'AA:04');
+check('a healthy rig with a camera wants a picture', plan.small[0].wantsPicture && plan.small[0].sonyId === 'AA:01' && plan.small[1].wantsPicture);
+check('a ready rig with no camera says so', model.paneView('x', 'cam2', mvCams, { health: { rigs: { cam2: { level: 'ready', text: 'Answering' } } } }, { rigs: [{ id: 'cam2', camera: null }], sonyDevices: [] }).healthText === 'No camera on this rig');
+const noPvw = model.multiviewPlan(mvCams, { ...mvStatus, previewCamera: null }, mvRigs);
+check('no preview camera gives an empty pane, not a crash', noPvw.pvw.rigId === null && !noPvw.pvw.wantsPicture);
+check('an unknown camera id gives an empty pane that says so', model.paneView('pvw', 'zzz', mvCams, mvStatus, mvRigs).healthText === 'Unknown camera');
+const fp = model.framePlan(plan);
+check('one frame loop per Sony camera, shared by the big and small pane', fp.ids.slice().sort().join() === 'AA:01,AA:02' && fp.users['AA:01'].join() === 'pgm,cam1' && fp.users['AA:02'].join() === 'pvw,cam2');
+check('no loop for panes without a wanted picture', !fp.ids.includes('AA:04'));
+const same = model.framePlan(model.multiviewPlan(mvCams, { ...mvStatus, previewCamera: 'cam1' }, mvRigs));
+check('PVW and PGM on the same camera still fetch it once', same.ids.filter((i: string) => i === 'AA:01').length === 1 && same.users['AA:01'].length === 3);
+check('layout: iPad landscape and phone on its side are wide, phone upright is tall', model.layoutFor(1180, 820) === 'wide' && model.layoutFor(812, 375) === 'wide' && model.layoutFor(375, 812) === 'tall' && model.layoutFor(820, 1180) === 'tall');
+check('frame delay: doubles on errors up to 4 s, resets after a good frame', model.nextFrameDelay(200, false) === 400 && model.nextFrameDelay(3000, false) === 4000 && model.nextFrameDelay(4000, true) === 200);
+
+// ---- touch point in a letterboxed picture
+const box = { left: 100, top: 50, width: 800, height: 400 }; // 2:1 box
+check('a 16:9 picture in a 2:1 box is pillarboxed: the left bar is outside', model.containedPoint(box, 1600, 900, 110, 250) === null);
+const mid = model.containedPoint(box, 1600, 900, 500, 250);
+check('the centre of the box is the centre of the picture', mid && Math.abs(mid.x - 0.5) < 1e-9 && Math.abs(mid.y - 0.5) < 1e-9 && mid.px === 400 && mid.py === 200);
+const tallBox = { left: 0, top: 0, width: 400, height: 800 };
+const tall = model.containedPoint(tallBox, 1600, 900, 0, 400);
+check('a wide picture in a tall box is letterboxed: left edge is x=0, vertically centred, bars are outside', tall && tall.x === 0 && Math.abs(tall.y - 0.5) < 1e-9 && model.containedPoint(tallBox, 1600, 900, 200, 10) === null);
+check('no image yet or an empty box gives null', model.containedPoint(box, 0, 0, 500, 250) === null && model.containedPoint({ left: 0, top: 0, width: 0, height: 0 }, 10, 10, 0, 0) === null);
+
+// ---- gates
+check('touch focus and settings need remote control on, not the seat', model.sonyWriteBlock(true) === null && /off/.test(model.sonyWriteBlock(false)) && model.sonyWriteBlock(null) !== null);
+check('selecting a camera needs the seat: "Take control first"', model.selectBlock(true, { owner: 'remote', you: true }) === null && model.selectBlock(true, { owner: 'local' }) === 'Take control first' && model.selectBlock(true, { owner: 'remote', you: false }) === 'Take control first' && /off/.test(model.selectBlock(false, null)));
+
+// ---- settings
+check('sonyReported reads hex strings, numbers and decimal strings', model.sonyReported({ data: { value: '0x1F' } }) === 31 && model.sonyReported({ current_value: 7 }) === 7 && model.sonyReported({ value: '12' }) === 12 && model.sonyReported({ value: 'f/2.8' }) === null && model.sonyReported(null) === null);
+const prop = { current_value: 5, current_formatted: 'f/2.8', writable: true, available_values: [{ value: 5, hex_value: '0x5', formatted: 'f/2.8' }, { value: 6, hex_value: '0x6', formatted: 'f/4' }] };
+const pv = model.propertyView('aperture', prop, undefined);
+check('a writable setting is a select with the hex to send, current selected', pv.kind === 'select' && pv.selected === 5 && model.sendValue(pv.options[1]) === '0x6' && pv.label === 'Aperture');
+check('a pending choice wins over the camera value until it is reported', model.propertyView('aperture', prop, 6).selected === 6);
+check('a setting with nothing to pick is read-only and shows its value', (() => { const r = model.propertyView('aperture', { current_formatted: 'f/1.8', available_values: [] }, undefined); return r.kind === 'readonly' && r.text === 'f/1.8 (read-only)'; })());
+check('a setting the camera does not report is unavailable; writable:false is read-only too', model.propertyView('iso', null, undefined).kind === 'unavailable' && model.propertyView('iso', { ...prop, writable: false }, undefined).kind === 'readonly');
+check('without a hex value the plain value is sent', model.sendValue({ value: 9, hex: null }) === 9);
+check('battery and overheat wording', model.batteryInfo({ battery: { percent: 82 } }).text === 'Battery 82%' && model.batteryInfo({ battery: { percent: 15 }, overheat: { state: 'pre' } }).text === 'Battery 15% · Getting hot' && model.batteryInfo({ battery: { percent: 90 }, overheat: { state: 'over' } }).level === 'down' && model.batteryInfo({}).text === 'Battery unknown' && model.batteryInfo({ battery: { percent: 50, stale: true } }).level === 'idle');
+check('Sony status entries match case-insensitively', model.sonyCameraEntry({ cameras: [{ id: 'aa:01', x: 1 }] }, 'AA:01')?.x === 1 && model.sonyCameraEntry(null, 'AA:01') === null);
+
+// ---- touch control
+{
+  const wire = (frame: { a: number[]; tr: number[]; b: number }) => {
+    const parsed = parseClientMessage(JSON.stringify({ t: 'in', s: 1, a: frame.a, tr: frame.tr, b: frame.b }), 0);
+    assert.ok(parsed.ok && parsed.msg.t === 'in', 'frame must validate');
+    return standardFrameToInput(parsed.msg as never);
+  };
+  const up = wire(model.arrowFrame(['up'], 'fast', false));
+  check('up is the right stick pushed up (-1) at full speed; left stick, triggers and buttons untouched', up.axes.rightStickY === -1 && up.axes.rightStickX === 0 && up.axes.leftStickX === 0 && up.axes.leftStickY === 0 && up.triggers.leftTrigger === 0 && up.triggers.rightTrigger === 0 && !Object.values(up.buttons).some(Boolean));
+  const dl = wire(model.arrowFrame(['down', 'left'], 'normal', false));
+  check('down+left is a diagonal: right stick x -0.6, y +0.6', dl.axes.rightStickX === -0.6 && dl.axes.rightStickY === 0.6);
+  check('right is +x', model.arrowFrame(['right'], 'fast', false).a[2] === 1);
+  check('opposite arrows cancel', !model.frameTouched(model.arrowFrame(['left', 'right'], 'fast', false)) && !model.frameTouched(model.arrowFrame(['zoomIn', 'zoomOut'], 'fast', false)));
+  const zi = wire(model.arrowFrame(['zoomIn'], 'normal', false)), zo = wire(model.arrowFrame(['zoomOut'], 'normal', false));
+  check('zoom in is the right trigger, zoom out the left', zi.triggers.rightTrigger === 0.6 && zi.triggers.leftTrigger === 0 && zo.triggers.leftTrigger === 0.6 && zo.triggers.rightTrigger === 0);
+  check('no arrows (or unknown names, even inherited ones) give the neutral frame', !model.frameTouched(model.arrowFrame([], 'fast', false)) && !model.frameTouched(model.arrowFrame(['sideways', 'constructor', '__proto__'], 'fast', false)));
+  check('speed buttons map to 0.3 / 0.6 / 1.0; an unknown name is normal', model.touchSpeed('slow', false) === 0.3 && model.touchSpeed('normal', false) === 0.6 && model.touchSpeed('fast', false) === 1 && model.touchSpeed('warp', false) === 0.6);
+  check('a camera on air moves at half speed and never below the server deadzone', model.touchSpeed('fast', true) === 0.5 && model.touchSpeed('normal', true) === 0.3 && model.touchSpeed('slow', true) >= 0.2 && model.touchSpeed('slow', true) > model.STICK_DEADZONE);
+  check('every touch speed survives the server deadzone (the camera really moves)', ['slow', 'normal', 'fast'].every((n) => [false, true].every((air) => Math.abs(wire(model.arrowFrame(['up'], n, air)).axes.rightStickY) > 0.12)));
+
+  const padIdle = model.neutralFrame(), padPushed = model.frameFromPad(pad([0, 0, 0.9, 0]));
+  const touch = model.arrowFrame(['up'], 'normal', false);
+  check('touch frame goes out when the pad is idle', model.chooseFrame(padIdle, touch).source === 'touch' && model.chooseFrame(null, touch).source === 'touch');
+  check('the pad wins while it is being touched (stick or button)', model.chooseFrame(padPushed, touch).source === 'pad' && model.chooseFrame(model.frameFromPad(pad([0, 0, 0, 0], [0])), touch).source === 'pad');
+  check('nothing held: a neutral frame (the heartbeat), from the pad when there is one', model.chooseFrame(null, null).source === 'none' && !model.frameTouched(model.chooseFrame(null, null).frame) && model.chooseFrame(padIdle, null).source === 'pad');
+
+  const plan = { pvw: { key: 'pvw', rigId: 'cam2' }, pgm: { key: 'pgm', rigId: 'cam1' }, small: [{ key: 'cam1', rigId: 'cam1' }, { key: 'cam3', rigId: null }] };
+  check('which camera a pane moves: PVW and PGM whatever they show, empty pane none', model.paneControlCamera('pvw', plan) === 'cam2' && model.paneControlCamera('pgm', plan) === 'cam1' && model.paneControlCamera('cam3', plan) === null && model.paneControlCamera('pvw', null) === null && model.paneControlCamera('nope', plan) === null);
+  const st = { programCamera: 'cam1', previewCamera: 'cam2' }, mine = { owner: 'remote', you: true };
+  check('on air means the program camera', model.onAir('cam1', st) && !model.onAir('cam2', st) && !model.onAir(null, st));
+
+  const t0 = 1000000;
+  check('PGM starts locked; unlock lasts 30 s and then re-locks', model.pgmLocked(undefined, t0) && model.pgmLocked(0, t0) && !model.pgmLocked(model.pgmUnlockUntil(t0), t0 + 29999) && model.pgmLocked(model.pgmUnlockUntil(t0), t0 + 30000) && model.PGM_UNLOCK_MS === 30000);
+  check('the toggle counts down in whole seconds', model.pgmToggleText(null, t0) === 'Unlock PGM moves' && model.pgmToggleText(t0 + 30000, t0) === 'PGM unlocked 30s' && model.pgmToggleText(t0 + 30000, t0 + 29001) === 'PGM unlocked 1s' && model.pgmToggleText(t0 + 30000, t0 + 30000) === 'Unlock PGM moves');
+  const pvw = model.arrowsView('pvw', plan, st, true, mine, null, t0), pgmLocked = model.arrowsView('pgm', plan, st, true, mine, null, t0);
+  check('PVW arrows work with the seat; PGM arrows are dimmed and refuse while locked', pvw.show && pvw.enabled && !pvw.dim && !pvw.onAir && pgmLocked.show && !pgmLocked.enabled && pgmLocked.dim && pgmLocked.onAir && /Unlock PGM/.test(pgmLocked.reason));
+  check('after unlocking, PGM arrows work (still marked on air, so gentler)', model.arrowsView('pgm', plan, st, true, mine, t0 + 30000, t0 + 1).enabled && model.arrowsView('pgm', plan, st, true, mine, t0 + 30000, t0 + 1).onAir);
+  check('the lock follows the camera, not the pane: PVW showing the program camera is locked too', !model.arrowsView('pvw', { pvw: { key: 'pvw', rigId: 'cam1' }, pgm: plan.pgm, small: [] }, st, true, mine, null, t0).enabled);
+  check('without the seat every arrow set is dimmed and says "Take control first"', ['pvw', 'pgm'].every((k) => { const v = model.arrowsView(k, plan, st, true, { owner: 'local' }, t0 + 30000, t0); return !v.enabled && v.dim && v.reason === 'Take control first'; }) && /off/.test(model.arrowsView('pvw', plan, st, false, null, null, t0).reason));
+  check('an empty pane shows no arrows', !model.arrowsView('cam3', plan, st, true, mine, null, t0).show);
+  check('a press that never reports its release expires', !model.pressExpired(t0, t0 + 19999) && model.pressExpired(t0, t0 + 20000));
+  check('TRANSITION needs the seat and something different in preview', model.transitionBlock(true, mine, st) === null && model.transitionBlock(true, { owner: 'local' }, st) === 'Take control first' && /already on program/.test(model.transitionBlock(true, mine, { programCamera: 'cam1', previewCamera: 'cam1' })));
+  check('new refusals have wording', ['no-input', 'atem-offline', 'nothing-to-take', 'too-soon'].every((r) => model.deniedText(r) !== 'Control was refused.'));
+}
 
 console.log(`remoteUiModel: ${passed} checks passed`);

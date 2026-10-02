@@ -958,6 +958,18 @@
     (status.actions || []).forEach(function (action) {
       var row = el('div', 'rigs-actions');
       var key = 'status:' + action.id;
+      if (action.kind === 'bluetooth-chooser') {
+        var open = app.bt && app.bt.rig === app.selected;
+        row.appendChild(button(open ? 'Close gimbal list' : action.label, '', function () {
+          if (app.bt && app.bt.rig === app.selected) { app.bt = null; drawStatus(); return; }
+          app.bt = { rig: app.selected, url: action.url, selectUrl: action.selectUrl, pending: false, body: null, error: null };
+          listBluetoothGimbals(false);
+        }));
+        row.appendChild(messageNode(key));
+        statusBody.appendChild(row);
+        if (open) drawBluetoothChooser(status, key);
+        return;
+      }
       row.appendChild(button(action.label, '', function (b) {
         if (action.confirm && !window.confirm(action.confirm)) return;
         act(b, action.progress || 'Working…', function () { return call(action.method, action.url, action.body); }, action.done || null, key);
@@ -965,6 +977,81 @@
       row.appendChild(messageNode(key));
       statusBody.appendChild(row);
     });
+  }
+
+  // ---- "Choose gimbal…": which Bluetooth gimbal this rig's Pi bridge drives. State lives in app.bt so the 5 s
+  // status redraw keeps it. The first look does not scan (a scan can disturb the live link); "Scan now" does.
+  async function listBluetoothGimbals(scan) {
+    var bt = app.bt;
+    if (!bt || bt.pending) return;
+    bt.pending = true; bt.error = null; bt.scanning = scan;
+    drawStatus();
+    var result;
+    try { result = await call('GET', bt.url + (scan ? '?scan=1' : '')); } catch (error) { result = { ok: false, status: 0, body: { error: String(error && error.message ? error.message : error) } }; }
+    if (app.bt !== bt) return;
+    bt.pending = false;
+    if (result.ok) bt.body = result.body; else bt.error = failureText(result);
+    drawStatus();
+  }
+  function drawBluetoothChooser(status, key) {
+    var bt = app.bt;
+    var rigData = model.findRig(app.data, app.selected);
+    var panel = el('div', 'rigs-confirm');
+    panel.setAttribute('role', 'region');
+    panel.setAttribute('aria-label', 'Bluetooth gimbals this Pi can hear');
+    panel.appendChild(el('h3', 'rigs-subheading', 'Bluetooth gimbals this Pi can hear'));
+    if (bt.pending) panel.appendChild(el('p', 'rigs-info', bt.scanning ? 'Scanning for DJI gimbals (about 5 seconds)…' : 'Asking the bridge…'));
+    if (bt.error) panel.appendChild(el('p', 'rigs-inline is-err', bt.error));
+    if (bt.body) {
+      var choices = model.bluetoothChoices(bt.body);
+      var list = el('ul', 'rigs-impact');
+      choices.rows.forEach(function (row) {
+        var item = el('li');
+        item.appendChild(el('strong', null, row.title));
+        item.appendChild(document.createTextNode(' — ' + row.detail + ' '));
+        row.chips.forEach(function (chip) { item.appendChild(tone(chip.tone, chip.text)); item.appendChild(document.createTextNode(' ')); });
+        var use = button(row.actionLabel, row.choosable ? 'is-primary' : '', function (b) {
+          if (!window.confirm(model.bluetoothSwitchQuestion(status.headline, rigData, row))) return;
+          switchBluetoothGimbal(b, row.address, key);
+        });
+        use.disabled = !row.choosable || bt.pending;
+        item.appendChild(use);
+        list.appendChild(item);
+      });
+      panel.appendChild(list);
+      choices.notes.forEach(function (note) { panel.appendChild(el('p', 'rigs-info', note)); });
+    }
+    var row = el('div', 'rigs-actions');
+    var scan = button(bt.pending && bt.scanning ? 'Scanning…' : 'Scan now', '', function () { listBluetoothGimbals(true); });
+    scan.disabled = bt.pending;
+    scan.title = 'A Bluetooth scan can briefly disturb the live link to the gimbal: avoid it while this camera is on air.';
+    row.appendChild(scan);
+    var auto = button('Use the strongest', '', function (b) {
+      if (!window.confirm(model.bluetoothSwitchQuestion(status.headline, rigData, 'auto'))) return;
+      switchBluetoothGimbal(b, 'auto', key);
+    });
+    auto.disabled = bt.pending;
+    row.appendChild(auto);
+    panel.appendChild(row);
+    panel.appendChild(el('p', 'rigs-info', 'Scanning can briefly disturb the live Bluetooth link, so the list is only refreshed when you press Scan now.'));
+    statusBody.appendChild(panel);
+  }
+  async function switchBluetoothGimbal(b, address, key) {
+    var bt = app.bt;
+    if (!bt) return;
+    bt.pending = true;
+    b.disabled = true; b.textContent = 'Switching…';
+    var result;
+    try { result = await call('POST', bt.selectUrl, { address: address, confirm: true }); } catch (error) { result = { ok: false, status: 0, body: { error: String(error && error.message ? error.message : error) } }; }
+    bt.pending = false;
+    if (result.ok) {
+      var chosen = result.body && result.body.selected;
+      app.messages[key] = { text: 'Switched to ' + ((chosen && (chosen.name || chosen.address)) || address) + '; the bridge is connecting to it', kind: 'ok' };
+      app.bt = null;
+    } else {
+      app.messages[key] = { text: failureText(result), kind: 'err' };
+    }
+    await load();
   }
 
   function drawNotice() {

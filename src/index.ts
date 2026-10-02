@@ -184,6 +184,9 @@ export async function startApplication(
   const remoteHub = new RemoteControlHub({
     state, config, arbiter, activityLog, pin: config.remoteControl?.pin ?? null,
     emergencyStop: () => emergencyStopAll(state, config, atem, devices),
+    selectCamera: (id, who, movePreview) => machine.selectCameraById(id, who, movePreview),
+    setPreview: (id, who) => machine.previewCameraById(id, who),
+    transition: (who) => machine.takePreviewLive(who),
   });
   // A suspended-input (second, non-owning Electron variant) instance never starts with remote control on.
   remoteHub.setEnabled(!controlsPaused && (config.remoteControl?.enabled ?? false));
