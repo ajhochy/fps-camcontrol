@@ -52,8 +52,14 @@
   <footer id="actions">
     <button id="claimBtn" class="btn btn-primary" type="button">Take control</button>
     <button id="releaseBtn" class="btn" type="button" hidden>Release</button>
-    <span id="hint" class="muted">Press any button on the controller to wake it. Hold Menu for 1 s to take control.</span>
+    <span id="hint" class="muted">Tap Take control to drive with touch, or wake the controller and hold Menu for 1 s.</span>
     <span class="spacer"></span>
+    <div id="speedBtns" class="seg" role="group" aria-label="Touch speed">
+      <button type="button" class="seg-btn" data-speed="slow">Slow</button>
+      <button type="button" class="seg-btn" data-speed="normal">Normal</button>
+      <button type="button" class="seg-btn" data-speed="fast">Fast</button>
+    </div>
+    <button id="transitionBtn" class="btn btn-transition" type="button" title="Take preview to program (auto transition)">TRANSITION<small>PVW to PGM</small></button>
     <button id="stopBtn" class="btn btn-stop" type="button">STOP</button>
   </footer>
   <div id="wakeHint" class="muted" hidden></div>

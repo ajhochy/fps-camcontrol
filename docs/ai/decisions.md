@@ -13,3 +13,4 @@ Index of dated architecture/workflow decisions. Full records live in
 - [2026-08-13 — Delete the unmounted config router with its destructive YAML write](decisions/2026-08-13-delete-unmounted-config-router.md)
 - [2026-10-01 — iPad remote: the desk always wins; HTTP in v1, Tailscale Serve for HTTPS](decisions/2026-10-01-ipad-remote-desk-wins-and-https.md)
 - [2026-09-30 — Auto-tracking: Python vision sidecar, TypeScript control loop](decisions/2026-09-30-auto-tracking-architecture.md)
+- [2026-10-02 — One Pi per gimbal; the bridge saves which Bluetooth gimbal it drives](decisions/2026-10-02-pi-per-gimbal-and-gimbal-selection.md)

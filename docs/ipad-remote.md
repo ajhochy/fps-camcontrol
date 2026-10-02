@@ -51,6 +51,22 @@ PIN is what protects control).
 - One iPad drives at a time; a second page can watch. The Xbox Guide/Home button belongs to iPadOS and is not used.
 - The preview shows the controlled camera's Sony camera when the rig has one; it runs only while the page is open.
 
+## Touch control (no controller needed)
+
+Tap **Take control**, then:
+
+- **Camera row (bottom):** tap a camera to set the ATEM **preview** to it. It also becomes the controlled camera, like
+  X/A/B/Y at the desk. Refused (with a message) if the ATEM is offline or the rig has no ATEM input.
+- **TRANSITION:** takes what is in **preview** to program (the same auto transition as RB). There is no confirmation;
+  a second tap within 1.5 s is ignored, and it refuses when preview is already on program.
+- **Arrows on the PVW and PGM panes:** hold to move the camera shown in that pane (left/right pan, up/down tilt,
+  +/- zoom); release to stop. Pressing an arrow controls that pane's camera without moving the ATEM preview.
+- **Speed:** Slow / Normal / Fast (touch only; the desk speed preset is separate).
+- **PGM is locked by default.** The program camera's arrows are dimmed until you tap **Unlock PGM moves**; it
+  re-locks after 30 s, and moves at half the chosen speed.
+- A controller on the same page wins while its sticks or buttons are being touched. The seat is kept alive by neutral
+  frames, and every safety stop below applies unchanged.
+
 ## Safety stops
 
 The camera stops and control returns to the desk when: the page is hidden, the iPad locks or the app is switched

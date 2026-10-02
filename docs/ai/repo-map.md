@@ -29,7 +29,9 @@ fps-camcontrol/
 ├── pi-bridge/                ← Python WebSocket→RS3 Bluetooth LE bridge (runs on a Raspberry Pi)
 │   ├── dji_bridge.py         ← async websockets server; 250ms safety watchdog
 │   ├── drivers/              ← base.py (GimbalDriver protocol), mock_driver.py, RS3 BLE driver
-│   └── systemd/              ← dji-bridge.service production unit
+│   ├── gimbal_select.py      ← which Bluetooth gimbal the bridge drives (saved gimbal.json, AUTO, /gimbals, /gimbal)
+│   ├── system/               ← persistent journal + pi-power-log (as on bridge 1)
+│   └── systemd/              ← dji-bridge.service (system), dji-bridge.user.service (no sudo), dji-bridge@.service
 ├── docs/                     ← dji-gimbal-spec.md, pi-implementation.md, Visca_command_list_new.pdf, ai/
 ├── AGENTS.md                 ← agent guidance
 └── package.json / tsconfig.json / pnpm-workspace.yaml

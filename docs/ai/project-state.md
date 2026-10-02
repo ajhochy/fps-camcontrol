@@ -11,6 +11,14 @@ Prepare the combined Sony dashboard and latest PR #2 work for verification. PR #
 `feat/sony-dashboard`; updated PR #2 is the integration target. The orchestrator will inspect, verify, commit the merge, and push only after PASS.
 
 ## Recently completed
+- **One Pi per gimbal + Bluetooth gimbal selection + gimbal battery (draft PR, branch `feat/pi-per-gimbal`, deployed
+  2026-10-02).** Tripod (RS3 PRO-0614BW 48:1C:B9:54:C6:BC) on `dji-bridge-2.local:7878`, Far Right (RS3-06UH13
+  34:D2:62:15:A5:47) on `dji-bridge-3.local:7878`, both as systemd user services (no sudo on the new Pis); bridge 1
+  keeps only `dji-bridge@rs3pro-b` (Center, 7880), `@rs3` and `@rs3pro-a` are disabled. All three run bridge 0.6.0.
+  **`config/devices.yaml` still points Tripod/Far Right at bridge 1 (7879/7878): repoint them.** Bridge saves its
+  gimbal in gimbal.json; Device Config → rig → "Choose gimbal…" lists/switches (confirmed). Battery is the last byte
+  of 0x0d/0x02 (RS3 verified on screen; RS3 Pro assumed). Runbook: `docs/pi-per-gimbal.md`. Follow-ups needing sudo
+  on the new Pis: Wi-Fi off (both on Ethernet + Wi-Fi).
 - **iPad gamepad remote (draft PR, branch `feat/ipad-gamepad-remote`).** An Xbox controller on an iPad drives the
   cameras over the network: `/remote` page (static, `ui/remote/`) streams the browser Gamepad to
   `/ws/remote-controller`; `InputArbiter` keeps the desk controller in charge (desk always wins) and every handover

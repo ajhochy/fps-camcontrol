@@ -21,8 +21,8 @@ import { ActivityLog } from '../app/activityLog';
 import { ViscaDevice } from '../devices/viscaDevice';
 import { MotionDevice } from '../devices/motionDevice';
 import { createMotionDevice } from '../devices/deviceFactory';
-import { HealthTracker, rigHealth, sonyHealth, HealthItem } from '../app/health';
-import { probeBridge, fetchBridgeInfo, mergeBridges, DEFAULT_BRIDGE_PORTS, tcpOpen, localSubnetHosts, inBatches, resolveHost, nameOf, BridgeProbe, FoundBridge } from '../devices/gimbalScan';
+import { HealthTracker, rigHealth, sonyHealth, gimbalBatteryHealth, HealthItem } from '../app/health';
+import { probeBridge, fetchBridgeInfo, mergeBridges, DEFAULT_BRIDGE_PORTS, tcpOpen, localSubnetHosts, inBatches, resolveHost, nameOf, BridgeProbe, FoundBridge, fetchBluetoothGimbals, selectBluetoothGimbal, normalizeBluetoothAddress } from '../devices/gimbalScan';
 import { AtemClient } from '../atem/atemClient';
 import { loadProfiles, detectConnectionType } from '../input/profileDetector';
 import { eventBus } from '../app/eventBus';
@@ -253,6 +253,8 @@ export function createStatusServer(
       const cameraKeys: Record<string, string> = {};
       for (const cam of config.cameras) {
         items.push({ key: `rig:${cam.id}`, label: cam.label, health: rigHealth(state, { id: cam.id, label: cam.label, protocol: cam.protocol }) });
+        const battery = cam.protocol === 'dji-bridge' && state.cameraConnected[cam.id] !== undefined ? gimbalBatteryHealth(state.cameraGimbalBattery?.[cam.id]?.percent) : null;
+        if (battery) items.push({ key: `battery:${cam.id}`, label: `${cam.label} gimbal battery`, health: battery });
         const rig = view.rigs.find((r) => r.id === cam.id);
         if (rig && rig.camera && sonyManager) {
           const device = inventory[rig.camera];
@@ -271,6 +273,7 @@ export function createStatusServer(
       state.health = {
         rigs: Object.fromEntries(config.cameras.map((cam) => [cam.id, snap[`rig:${cam.id}`]]).filter(([, v]) => v)),
         cameras: Object.fromEntries(Object.entries(cameraKeys).map(([id, key]) => [id, snap[key]]).filter(([, v]) => v)),
+        batteries: Object.fromEntries(config.cameras.map((cam) => [cam.id, snap[`battery:${cam.id}`]]).filter(([, v]) => v)),
       };
     } catch (err) {
       logger.warn({ err: String(err) }, 'health update failed');
@@ -386,6 +389,37 @@ export function createStatusServer(
       logger.error({ err }, 'gimbal scan failed');
       res.status(500).json({ error: 'the gimbal scan failed' });
     }
+  });
+
+  // ---- which Bluetooth gimbal a rig's Pi bridge drives (bridge >= 0.6.0). The browser never talks to a Pi: these
+  // proxy the bridge's plain-HTTP GET /gimbals and POST /gimbal, which open no control session. A DJI gimbal takes
+  // one Bluetooth connection, so switching drops the current gimbal: the POST must say `confirm: true`.
+  const gimbalBridgeOf = (req: express.Request, res: express.Response): { key: string; host: string; port: number; label: string } | null => {
+    const key = deviceKeyOf(req, res); if (!key) return null;
+    const device = ((config.devices ?? {}) as Record<string, any>)[key];
+    if (!device) { res.status(404).json({ ok: false, error: 'no such device' }); return null; }
+    if (device.protocol !== 'dji-bridge' || !device.bridge?.host) { res.status(400).json({ ok: false, error: 'this rig is not a DJI gimbal' }); return null; }
+    return { key, host: String(device.bridge.host), port: Number(device.bridge.port ?? 7878), label: String(device.label ?? key) };
+  };
+  app.get('/api/rigs/:key/bluetooth-gimbals', async (req, res) => {
+    const target = gimbalBridgeOf(req, res); if (!target) return;
+    const result = await fetchBluetoothGimbals(target.host, target.port, req.query.scan === '1');
+    if (result.ok) res.json({ ok: true, bridge: `${target.host}:${target.port}`, ...result.body });
+    else res.status(result.status >= 400 && result.status < 600 ? result.status : 502).json({ ok: false, error: result.error });
+  });
+  app.post('/api/rigs/:key/bluetooth-gimbal', async (req, res) => {
+    const target = gimbalBridgeOf(req, res); if (!target) return;
+    const body = (typeof req.body === 'object' && req.body !== null ? req.body : {}) as Record<string, unknown>;
+    const wanted = typeof body.address === 'string' && body.address.trim().toLowerCase() === 'auto' ? 'auto' : normalizeBluetoothAddress(body.address);
+    if (!wanted) { res.status(400).json({ ok: false, error: 'address must be a Bluetooth address (AA:BB:CC:DD:EE:FF) or "auto"' }); return; }
+    if (body.confirm !== true) {
+      res.status(409).json({ ok: false, confirmationRequired: true, error: `Switching drops the gimbal ${target.label} is driving now: the camera stops and its Bluetooth link is cut while the bridge connects the other gimbal. Confirm to continue.` });
+      return;
+    }
+    const result = await selectBluetoothGimbal(target.host, target.port, wanted);
+    activityLog.addEntry({ protocol: 'DJI-BRIDGE', message: result.ok ? `Bluetooth gimbal switched to ${wanted === 'auto' ? 'the strongest in range' : wanted} (operator confirmed)` : `Bluetooth gimbal switch to ${wanted} failed: ${result.error}`, targetName: target.label, targetIp: `${target.host}:${target.port}` });
+    if (result.ok) { logger.warn({ device: target.key, gimbal: result.body.selected?.address }, 'Bluetooth gimbal switched by the operator'); res.json({ ok: true, ...result.body }); }
+    else res.status(result.status >= 400 && result.status < 600 ? result.status : 502).json({ ok: false, error: result.error });
   });
 
   // ---- rig edits. Hardware records (name, addresses, bound Sony camera) are shared by every profile and
@@ -1491,6 +1525,26 @@ function statusHtml(): string {
   .health-alert strong { color:var(--text-1, inherit); }
   .health-alert__since { color:var(--text-2); font-size:12px; margin-left:6px; }
   .health-alert__hint { display:block; color:var(--text-2); font-size:12px; margin-top:2px; }
+  .bell { position:relative; display:inline-flex; }
+  .bell__btn { position:relative; min-width:36px; min-height:32px; display:inline-flex; align-items:center; justify-content:center; background:transparent; color:var(--text-2); border:1px solid var(--border); border-radius:2px; cursor:pointer; padding:0 8px; }
+  .bell__btn:hover, .bell__btn[aria-expanded="true"] { color:var(--text); background:var(--surface); }
+  .bell__btn:focus-visible { outline:2px solid var(--ok-text); outline-offset:1px; }
+  .bell__btn svg { width:17px; height:17px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+  .bell__badge { position:absolute; top:-6px; right:-6px; min-width:17px; height:17px; padding:0 4px; border-radius:9px; background:var(--err-text); color:#fff; font:700 .66rem/17px ui-monospace, SFMono-Regular, Menlo, monospace; text-align:center; box-sizing:border-box; }
+  .bell__badge[hidden] { display:none; }
+  .bell__panel { position:absolute; right:0; top:calc(100% + 8px); z-index:60; width:min(400px, calc(100vw - 32px)); max-height:min(70vh, 480px); display:flex; flex-direction:column; background:var(--surface); border:1px solid var(--border); border-radius:4px; box-shadow:0 10px 30px rgba(0,0,0,.5); }
+  .bell__panel[hidden] { display:none; }
+  .bell__head { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 10px; border-bottom:1px solid var(--border); font-size:13px; }
+  .bell__list { list-style:none; margin:0; padding:0; overflow:auto; }
+  .bell__empty { padding:16px 12px; color:var(--text-2); font-size:13px; }
+  .bell__item { display:block; width:100%; text-align:left; font:inherit; color:inherit; background:transparent; border:0; border-bottom:1px solid var(--border); border-left:4px solid var(--border); padding:8px 10px; cursor:pointer; font-size:13px; }
+  .bell__item:hover { background:rgba(255,255,255,.04); }
+  .bell__item--warn { border-left-color:var(--warn-text); } .bell__item--err { border-left-color:var(--err-text); } .bell__item--ok { border-left-color:var(--ok-text); }
+  .bell__item--resolved { opacity:.55; }
+  .bell__item--unread strong::before { content:""; display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--err-text); margin-right:6px; }
+  .bell__meta { display:block; color:var(--text-2); font-size:12px; margin-top:2px; }
+  .bell__tag { font-size:11px; letter-spacing:.05em; text-transform:uppercase; margin-left:6px; color:var(--ok-text); }
+  @media (max-width: 640px) { .bell__panel { position:fixed; left:8px; right:8px; top:64px; width:auto; } }
   .health-log { margin-top:16px; font-size:13px; }
   .health-log summary { cursor:pointer; color:var(--text-2); min-height:32px; }
   .health-log ol { list-style:none; padding:0; margin:6px 0 0; max-height:260px; overflow:auto; }
@@ -1512,6 +1566,8 @@ function statusHtml(): string {
   .cam-card__signal { display:inline-flex; align-items:center; gap:6px; font-size:11px; letter-spacing:.04em; text-transform:uppercase; color:var(--ok-text); margin-top:2px; }
   .cam-card__signal--weak { color:var(--warn-text); }
   .cam-card__signal--poor { color:var(--err-text, #f87171); }
+  .cam-card__bt { display:flex; flex-wrap:wrap; align-items:center; gap:4px 12px; }
+  .cam-card__bt:empty { display:none; }
   .sig-bars { display:inline-flex; align-items:flex-end; gap:2px; height:10px; }
   .sig-bar { display:block; width:3px; background:currentColor; opacity:.25; }
   .sig-bar--1 { height:4px; } .sig-bar--2 { height:7px; } .sig-bar--3 { height:10px; }
@@ -1830,6 +1886,16 @@ function statusHtml(): string {
   <div class="header-meta" aria-label="System clock and update status">
     <span class="sync-state"><span class="sync-dot" aria-hidden="true"></span><span id="sync-label">Monitoring</span></span>
     <a class="btn-sm" id="remote-link" href="/remote" target="_blank" rel="noopener">iPad remote</a>
+    <div class="bell" id="bell">
+      <button type="button" class="bell__btn" id="bell-btn" aria-haspopup="true" aria-expanded="false" aria-controls="bell-panel" aria-label="Notifications" title="Notifications" onclick="bellToggle()">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+        <span class="bell__badge" id="bell-badge" hidden>0</span>
+      </button>
+      <div class="bell__panel" id="bell-panel" role="region" aria-label="Notifications" hidden>
+        <div class="bell__head"><strong>Notifications</strong><button type="button" class="btn-sm" id="bell-mark-read" onclick="bellMarkAll()">Mark read</button></div>
+        <ol class="bell__list" id="bell-list"><li class="bell__empty">Loading...</li></ol>
+      </div>
+    </div>
     <time class="clock" id="system-clock"></time>
   </div>
 </header>
@@ -1848,7 +1914,6 @@ function statusHtml(): string {
 <div class="panel tab-panel active" id="tab-status" role="tabpanel" aria-labelledby="tab-btn-status">
   <div class="panel-heading"><div><h2>Camera Network</h2><span class="panel-kicker">Signal roles and device health</span></div></div>
   <div id="status-content"><div class="loading-state">Reading production state…</div></div>
-  <section class="remote-card" id="remote-card" aria-label="iPad remote control"></section>
   <details class="health-log" id="health-log"><summary>Health log</summary><ol id="health-log-list"><li>Loading…</li></ol></details>
   <section id="sony-cameras" aria-label="Connected Sony cameras"><div class="section-header">Sony Cameras</div><div id="sony-dashboard-status" aria-live="polite"></div><div class="sony-grid" id="sony-grid-root"></div></section>
 </div>
@@ -2009,6 +2074,13 @@ function signalBadge(sig) {
   return '<span class="cam-card__signal cam-card__signal--' + esc(sig.rating) + '" title="' + esc(sig.summary) + '"><span class="sig-bars" aria-hidden="true">' + bars + '</span>BT signal: ' + word + '</span>';
 }
 
+// The gimbal's battery line, coloured by the server's one battery rule (app/health.ts gimbalBatteryHealth).
+function batteryBadge(h) {
+  if (!h) return '';
+  var tone = h.level === 'ready' ? 'good' : h.level === 'check' ? 'weak' : 'poor';
+  return '<span class="cam-card__signal cam-card__signal--' + tone + '" title="' + esc(h.hint || 'As the gimbal reports it') + '">' + esc(h.text) + '</span>';
+}
+
 // Turn the three camera-keyed maps in /api/status into one label per camera.
 // A camera reached through a Pi bridge has two things that can be broken and
 // they need different remedies, so "Disconnected" alone is not good enough:
@@ -2059,6 +2131,8 @@ function agoText(ms) {
 // The tile's one-word verdict, from the most specific state: can this camera be used right now?
 function verdictText(cls) { return cls === 'ok' ? 'Ready' : cls === 'warn' ? 'Check' : 'Down'; }
 
+var alertFirstSeen = {};
+var alertBaselineDone = false;
 function renderStatus(s, c) {
   const cams = c.cameras || [];
   const camLabel = id => (cams.find(x => x.id === id) || {}).label || id;
@@ -2086,10 +2160,12 @@ function renderStatus(s, c) {
     const cam = cams[i];
     const motion = healthOf(s.health && s.health.rigs && s.health.rigs[cam.id]) || cameraLinkState(s, cam.id);
     const camera = healthOf(s.health && s.health.cameras && s.health.cameras[cam.id]);
-    const link = worse(motion, camera);
+    const battery = healthOf(s.health && s.health.batteries && s.health.batteries[cam.id]);
+    const link = worse(worse(motion, camera), battery);
     const camName = 'CAM ' + String(i + 1).padStart(2, '0') + ' ' + cam.label;
     if (motion.cls !== 'ok') alerts.push({ cls: motion.cls, what: camName + (cam.protocol === 'dji-bridge' ? ' gimbal' : ' control'), text: motion.text, hint: motion.hint, since: motion.since });
     if (camera && camera.cls !== 'ok') alerts.push({ cls: camera.cls, what: camName + ' camera', text: camera.text, hint: camera.hint, since: camera.since });
+    if (battery && battery.cls !== 'ok') alerts.push({ cls: battery.cls, what: camName, text: battery.text, hint: battery.hint, since: battery.since });
     const isProgram = s.programCamera === cam.id;
     const isPreview = s.previewCamera === cam.id;
     const isControlled = s.controlledCamera === cam.id;
@@ -2111,7 +2187,8 @@ function renderStatus(s, c) {
         '<span class="cam-card__name">' + esc(cam.label) + '</span>' +
         '<span class="cam-card__status cam-card__line--' + motion.cls + '">' + esc(motion.text) + '</span>' +
         (motion.hint && motion.cls !== 'ok' ? '<span class="cam-card__hint">' + esc(motion.hint) + '</span>' : '') +
-        signalBadge(s.cameraGimbalSignal && s.cameraGimbalSignal[cam.id]) +
+        '<span class="cam-card__bt">' + signalBadge(s.cameraGimbalSignal && s.cameraGimbalSignal[cam.id]) +
+        batteryBadge(s.health && s.health.batteries && s.health.batteries[cam.id]) + '</span>' +
         wakeHtml(cam, motion, s) +
         (camera ? '<span class="cam-card__status cam-card__line--' + camera.cls + '" title="' + esc(camera.hint) + '">Camera: ' + esc(camera.text) + '</span>' +
           (camera.hint && camera.cls !== 'ok' ? '<span class="cam-card__hint">' + esc(camera.hint) + '</span>' : '') : '') +
@@ -2129,12 +2206,21 @@ function renderStatus(s, c) {
     s.lastPresetNotification ? '<span class="mode-chip mode-chip--on">Preset: ' + esc(s.lastPresetNotification) + '</span>' : '',
   ].filter(Boolean).join('');
 
-  const banner = alerts.length ? '<div class="health-alerts" role="alert">' + alerts.map(function(a) {
+  // A new alert shows here for 30 s, then lives only in the bell. Alerts already present when the page loaded go
+  // straight to the bell, so a reload does not flood this area.
+  const nowMs = Date.now();
+  const liveAlerts = alerts.filter(function(a) {
+    const id = a.what + '|' + a.text + '|' + (a.since || '');
+    if (!(id in alertFirstSeen)) alertFirstSeen[id] = alertBaselineDone ? nowMs : 0;
+    return alertFirstSeen[id] > 0 && nowMs - alertFirstSeen[id] < 30000;
+  });
+  alertBaselineDone = true;
+  const banner = liveAlerts.length ? '<div class="health-alerts" role="alert">' + liveAlerts.map(function(a) {
     var since = a.since ? ' <span class="health-alert__since">since ' + esc(new Date(a.since).toLocaleTimeString()) + '</span>' : '';
     return '<div class="health-alert health-alert--' + a.cls + '"><strong>' + esc(a.what) + ': ' + esc(a.text) + '</strong>' + since + (a.hint ? '<span class="health-alert__hint">' + esc(a.hint) + '</span>' : '') + '</div>';
   }).join('') + '</div>' : '';
   document.getElementById('status-content').innerHTML = banner + camGrid + '<div class="mode-row">' + modes + '</div>';
-  renderRemoteCard(s.remoteControl);
+  // (The iPad remote switch lives in the top bar: remoteToggleItem.)
 }
 
 // ---- iPad remote control card: on/off, who is driving, Take back, and a desk STOP ----
@@ -2176,6 +2262,77 @@ async function stopAllCameras() {
   try { await fetch('/api/emergency-stop', { method: 'POST' }); } catch (e) { /* see above */ }
   lastRemoteSig = ''; refresh();
 }
+
+// ---- Notification bell: the health events as a list with per-browser read state ----
+var BELL_KEY = 'fps-bell-read-v1';
+var bellRead = {};
+var bellItems = [];
+try { bellRead = JSON.parse(localStorage.getItem(BELL_KEY) || '{}') || {}; } catch (e) { bellRead = {}; }
+function bellSave() { try { localStorage.setItem(BELL_KEY, JSON.stringify(bellRead)); } catch (e) { /* read state is per page load then */ } }
+function bellId(e) { return e.key + '|' + e.text + '|' + e.at; }
+function bellTime(iso) {
+  var when = new Date(iso);
+  return when.toLocaleDateString() === new Date().toLocaleDateString() ? when.toLocaleTimeString() : when.toLocaleString();
+}
+// Events arrive newest first. A problem is active only while it is the latest event for its device.
+function bellBuild(events) {
+  var items = [];
+  for (var j = 0; j < events.length; j++) {
+    var ev = events[j];
+    var recovery = ev.to === 'ready';
+    var next = null;
+    for (var k = j - 1; k >= 0; k--) if (events[k].key === ev.key) { next = events[k]; break; }
+    items.push({
+      id: bellId(ev), ev: ev, recovery: recovery,
+      resolved: !recovery && !!next,
+      resolvedAt: !recovery && next && next.to === 'ready' ? next.at : null,
+      cls: recovery ? 'ok' : ev.to === 'check' ? 'warn' : 'err'
+    });
+  }
+  return items;
+}
+function bellUnread(it) { return !it.recovery && !bellRead[it.id]; }
+function bellRender() {
+  var unread = bellItems.filter(bellUnread).length;
+  var badge = document.getElementById('bell-badge');
+  if (badge) { badge.hidden = unread === 0; badge.textContent = unread > 99 ? '99+' : String(unread); }
+  var btn = document.getElementById('bell-btn');
+  if (btn) btn.setAttribute('aria-label', unread ? 'Notifications, ' + unread + ' unread' : 'Notifications');
+  var list = document.getElementById('bell-list'); if (!list) return;
+  list.innerHTML = bellItems.length ? bellItems.map(function(it) {
+    var e = it.ev;
+    var cls = 'bell__item bell__item--' + it.cls + (it.resolved || it.recovery ? ' bell__item--resolved' : '') + (bellUnread(it) ? ' bell__item--unread' : '');
+    var tag = it.recovery ? '<span class="bell__tag">Resolved</span>' : it.resolved ? '<span class="bell__tag">' + (it.resolvedAt ? 'Resolved ' + esc(new Date(it.resolvedAt).toLocaleTimeString()) : 'Changed') + '</span>' : '';
+    return '<li><button type="button" class="' + cls + '" data-bell-id="' + esc(it.id) + '" onclick="bellMarkOne(this)">' +
+      '<strong>' + esc(e.label) + '</strong>: ' + esc(e.text) + tag +
+      (e.hint ? '<span class="bell__meta">' + esc(e.hint) + '</span>' : '') +
+      '<span class="bell__meta">' + esc(bellTime(e.at)) + '</span></button></li>';
+  }).join('') : '<li class="bell__empty">No notifications.</li>';
+  var mark = document.getElementById('bell-mark-read'); if (mark) mark.disabled = unread === 0;
+}
+async function refreshBell() {
+  try {
+    var body = await fetch('/api/health/events', { cache: 'no-store' }).then(function(r) { if (!r.ok) throw new Error(); return r.json(); });
+    bellItems = bellBuild(body.events || []);
+    var live = {}; bellItems.forEach(function(it) { live[it.id] = 1; });
+    var pruned = false;
+    Object.keys(bellRead).forEach(function(id) { if (!live[id]) { delete bellRead[id]; pruned = true; } });
+    if (pruned) bellSave();
+    bellRender();
+  } catch (_) { /* keep the last list */ }
+}
+function bellMarkOne(el) { var id = el.getAttribute('data-bell-id'); if (id) { bellRead[id] = 1; bellSave(); bellRender(); } }
+function bellMarkAll() { bellItems.forEach(function(it) { bellRead[it.id] = 1; }); bellSave(); bellRender(); }
+function bellToggle(force) {
+  var panel = document.getElementById('bell-panel'), btn = document.getElementById('bell-btn');
+  if (!panel) return;
+  var open = typeof force === 'boolean' ? force : panel.hidden;
+  panel.hidden = !open; btn.setAttribute('aria-expanded', String(open));
+  if (open) refreshBell();
+}
+document.addEventListener('click', function(ev) { var b = document.getElementById('bell'); if (b && !b.contains(ev.target)) bellToggle(false); });
+document.addEventListener('keydown', function(ev) { if (ev.key === 'Escape') bellToggle(false); });
+setInterval(refreshBell, 3000); refreshBell();
 
 // ---- Health log: every change in a device's state, newest first (kept on the server across restarts) ----
 async function refreshHealthLog() {

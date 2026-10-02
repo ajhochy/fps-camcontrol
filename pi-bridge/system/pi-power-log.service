@@ -1,0 +1,10 @@
+[Unit]
+Description=Log Pi power state every 30 s (fps-camcontrol)
+After=systemd-journald.service
+
+[Service]
+ExecStart=/usr/local/bin/pi-power-log
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

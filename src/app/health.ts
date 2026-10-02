@@ -9,6 +9,20 @@ import type { AppState } from './state';
  * Levels: ready (usable), check (works, needs attention), down (not usable).
  */
 export type HealthLevel = 'ready' | 'check' | 'down';
+/** Gimbal battery thresholds (percent, as the gimbal reports it): below LOW the rig needs attention, below DOWN it is down. */
+export const GIMBAL_BATTERY_LOW = 25;
+export const GIMBAL_BATTERY_DOWN = 8;
+
+/**
+ * The one rule for a gimbal's battery, used for its own tile line, its colour, the tile verdict and the alert.
+ * Kept separate from the link verdict so the link line always says how the gimbal is linked.
+ */
+export function gimbalBatteryHealth(percent: number | null | undefined): Health | null {
+  if (typeof percent !== 'number') return null;
+  if (percent < GIMBAL_BATTERY_DOWN) return { level: 'down', text: `Gimbal battery ${percent}%`, hint: 'Nearly empty: it will switch off soon. Swap or charge it now' };
+  if (percent < GIMBAL_BATTERY_LOW) return { level: 'check', text: `Gimbal battery ${percent}%`, hint: 'Low: charge it (USB-C PD) or swap it before the next service' };
+  return { level: 'ready', text: `Gimbal battery ${percent}%`, hint: '' };
+}
 export interface Health { level: HealthLevel; text: string; hint: string }
 
 export interface RigCamera { id: string; label: string; protocol: string }
@@ -42,6 +56,7 @@ export function rigHealth(state: AppState, cam: RigCamera): Health {
   if (state.cameraGimbalResponding[id] === false) {
     return { level: 'down', text: 'Asleep / Not Moving', hint: 'Linked but ignoring moves: asleep (often from imbalance), motors off, or overloaded. Press its power button once to wake it' + (weak ? `; ${signal.summary}` : '') };
   }
+  // (The gimbal's battery has its own verdict, gimbalBatteryHealth, so this line always describes the link.)
   if (weak) return { level: signal.rating === 'poor' ? 'down' : 'check', text: signal.rating === 'poor' ? 'Poor Signal' : 'Weak Signal', hint: `${signal.summary}; move the Pi or the gimbal closer` };
   return { level: 'ready', text: 'Gimbal Linked', hint: '' };
 }

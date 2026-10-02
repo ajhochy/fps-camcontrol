@@ -202,6 +202,43 @@ async function selfTest(): Promise<number> {
     check('GET /api/gimbals finds every fake bridge with its model and gimbal link', DJI_PORTS.every((port) => onPort(port)?.reachable === true && onPort(port)?.model === reported && onPort(port)?.gimbalConnected === true));
     check('the gimbal the app drives is reported from its live connection, not probed', onPort(17878)?.drivenBy === 'cam4' && onPort(17878)?.usedBy?.[0]?.deviceKey === 'rs3' && onPort(17879)?.drivenBy === null);
     check('the scan is safe for the driven gimbal: it stays connected', (await api('/api/rigs')).body.rigs?.find((r: any) => r.deviceKey === 'rs3')?.live?.connected === true);
+
+    // Which Bluetooth gimbal a rig's Pi bridge drives (bridge 0.6.0): shown, listed and switched through the app.
+    {
+      const rs3Bridge = fakes.bridges[0];
+      const ownAddress = String(rs3Bridge.info().gimbalAddress);
+      const rs3Live = async () => (await api('/api/rigs')).body.rigs?.find((r: any) => r.deviceKey === 'rs3')?.live;
+      check('a gimbal rig reports which Bluetooth gimbal its bridge drives', !!(await waitFor('the bridge\'s bluetooth block', async () => (await rs3Live())?.bluetooth?.address === ownAddress)));
+      const sessions = rs3Bridge.sessionsOpened;
+      const listed = await api('/api/rigs/rs3/bluetooth-gimbals');
+      check('GET /api/rigs/:key/bluetooth-gimbals lists the gimbal in use without scanning a live link', listed.status === 200 && listed.body.scanned === false && listed.body.gimbals?.[0]?.address === ownAddress && listed.body.gimbals?.[0]?.connected === true && rs3Bridge.scans === 0);
+      const scannedBt = await api('/api/rigs/rs3/bluetooth-gimbals?scan=1');
+      check('?scan=1 scans and marks the strongest DJI gimbal (the phone is never offered)', scannedBt.status === 200 && scannedBt.body.scanned === true && scannedBt.body.gimbals.some((g: any) => g.strongest) && !scannedBt.body.gimbals.some((g: any) => /phone/i.test(g.name ?? '')));
+      check('listing Bluetooth gimbals opens no session on the bridge', rs3Bridge.sessionsOpened === sessions);
+      const unconfirmed = await post('/api/rigs/rs3/bluetooth-gimbal', { address: 'AA:BB:CC:99:99:01' });
+      check('a gimbal switch without confirm: true is refused (409) and says the current gimbal is dropped', unconfirmed.status === 409 && unconfirmed.body.confirmationRequired === true && /drops the gimbal/.test(unconfirmed.body.error) && rs3Bridge.switches.length === 0);
+      check('a switch to a junk address is refused before the Pi is asked', (await post('/api/rigs/rs3/bluetooth-gimbal', { address: 'nope', confirm: true })).status === 400 && rs3Bridge.switches.length === 0);
+      check('only a gimbal rig has Bluetooth gimbals', (await api('/api/rigs/vbot/bluetooth-gimbals')).status === 400 && (await api('/api/rigs/ghost/bluetooth-gimbals')).status === 404);
+      const switchedBt = await post('/api/rigs/rs3/bluetooth-gimbal', { address: 'aa:bb:cc:99:99:01', confirm: true });
+      check('a confirmed switch goes to the Pi and the rig shows the new gimbal, still linked', switchedBt.status === 200 && rs3Bridge.switches.join() === 'AA:BB:CC:99:99:01'
+        && !!(await waitFor('the rig to show the new gimbal', async () => { const l = await rs3Live(); return l?.bluetooth?.address === 'AA:BB:CC:99:99:01' && l?.bluetooth?.connected === true && l?.connected === true; })));
+      const back = await post('/api/rigs/rs3/bluetooth-gimbal', { address: ownAddress, confirm: true });
+      // Gimbal battery: the gimbal's own report, passed on by the bridge in status.
+      rs3Bridge.battery = 23;
+      check('a gimbal\'s battery shows on its rig (state, rig view)', !!(await waitFor('the battery report', async () => (await rs3Live())?.battery?.percent === 23))
+        && (await api('/api/status')).body.cameraGimbalBattery?.cam4?.percent === 23);
+      rs3Bridge.battery = 12;
+      check('a low gimbal battery has its own verdict (Check, with what to do) and the link line stays Gimbal Linked', !!(await waitFor('the low-battery verdict', async () => { const b = (await api('/api/status')).body.health; return b?.batteries?.cam4?.level === 'check' && b?.batteries?.cam4?.text === 'Gimbal battery 12%' && /charge/.test(b?.batteries?.cam4?.hint) && b?.rigs?.cam4?.text === 'Gimbal Linked'; })));
+      check('the Status page draws the gimbal battery next to the BT signal, from the server verdict', /function batteryBadge/.test(String((await api('/')).body)) && /health\.batteries/.test(String((await api('/')).body)) && /cam-card__bt/.test(String((await api('/')).body)));
+      rs3Bridge.battery = null;
+      check('no report, no battery shown', !!(await waitFor('the battery to clear', async () => !(await rs3Live())?.battery)));
+
+      // Regression: the 1 s watchdog re-applied link state without the bluetooth block and wiped it until the
+      // next change, so a switch back to the same gimbal was never shown.
+      const backOk = back.status === 200 && !!(await waitFor('the original gimbal', async () => (await rs3Live())?.bluetooth?.address === ownAddress, 8000).catch(() => false));
+      await sleep(2500); // let the watchdog run a couple of times
+      check('and back to the original gimbal, which stays shown across watchdog ticks', backOk && (await rs3Live())?.bluetooth?.address === ownAddress, `POST ${back.status}; live ${JSON.stringify((await rs3Live())?.bluetooth)}`);
+    }
     const toGeneric = await patch('/api/rigs/birddog2', { controller: 'generic' });
     check('a BirdDog can be changed to another VISCA-IP camera and stays connected', toGeneric.status === 200 && toGeneric.body.rigs?.find((r: any) => r.deviceKey === 'birddog2')?.controller === 'generic'
       && !!(await waitFor('the changed camera to reconnect', async () => (await api('/api/rigs')).body.rigs?.find((r: any) => r.deviceKey === 'birddog2')?.live?.connected === true)));
@@ -278,6 +315,7 @@ async function selfTest(): Promise<number> {
     const health = (await api('/api/status')).body.health;
     check('every rig has a health verdict, and rigs with a Sony camera have one for the camera too', !!health && Object.keys(health.rigs).length === 4 && Object.keys(health.cameras).length >= 1);
     check('the Status page shows an alert banner and a health log', pageHtml.includes('health-alerts') && pageHtml.includes('id="health-log"') && pageHtml.includes("'/api/health/events'"));
+    check('the top bar has a notification bell with an unread badge, a Mark read action and per-browser read state', pageHtml.includes('id="bell-btn"') && pageHtml.includes('id="bell-badge"') && pageHtml.includes('bellMarkAll') && pageHtml.includes('fps-bell-read-v1') && pageHtml.includes('alertFirstSeen'));
     const rigsForHealth = (await api('/api/rigs')).body;
     const mountedOnVbot = rigsForHealth.sonyDevices.find((d: any) => d.key === rigsForHealth.rigs[0].camera);
     if (mountedOnVbot?.sonyCameraId) {
@@ -503,15 +541,22 @@ async function selfTest(): Promise<number> {
         return remote;
       };
       const ownerNow = async (): Promise<string> => (await api('/api/status')).body.remoteControl?.owner;
-      const claimed = async (r: Remote): Promise<boolean> => { r.send({ t: 'claim' }); return waitFor('the claim to be granted', async () => r.msgs.some((m) => m.t === 'owner' && m.you === true), 3000, 40).then(() => true, () => false); };
+      // Only a grant that arrives after THIS claim counts (an earlier grant in r.msgs made a re-claim look instant and
+      // let the test race ahead of the server), and the server must agree that a remote now owns control.
+      const claimed = async (r: Remote): Promise<boolean> => {
+        const from = r.msgs.length;
+        r.send({ t: 'claim' });
+        return waitFor('the claim to be granted', async () => r.msgs.slice(from).some((m) => m.t === 'owner' && m.you === true) && (await ownerNow()) === 'remote', 3000, 40).then(() => true, () => false);
+      };
       const stoppedSince = async (mark: number, ms = 600): Promise<boolean> => waitFor('the gimbal to stop', async () => rs3.velPan === 0 && rs3.log.slice(mark).includes('stop {}'), ms, 10).then(() => true, () => false);
 
       check('remote control is off by default', (await api('/api/status')).body.remoteControl?.enabled === false);
       check('GET /remote serves the page, and it loads remote.js', await (async () => { const r = await fetch(`${base}/remote`); const t = await r.text(); return r.status === 200 && t.includes('/ui/remote/remote.js'); })());
       check('remote.js, remoteModel.js and remote.css are served, and the page loads the model before the script', (await fetch(`${base}/ui/remote/remote.js`)).status === 200 && (await fetch(`${base}/ui/remote/remoteModel.js`)).status === 200 && (await fetch(`${base}/ui/remote/remote.css`)).status === 200 && await (async () => { const t = await (await fetch(`${base}/remote`)).text(); return t.indexOf('remoteModel.js') > 0 && t.indexOf('remoteModel.js') < t.indexOf('/ui/remote/remote.js'); })());
-      check('the desk page has the Remote control card, its switch, Take back, STOP and the /remote link', await (async () => { const t = await (await fetch(`${base}/`)).text(); return ['id="remote-card"', 'setRemoteEnabled', 'remoteTakeBack', 'stopAllCameras', 'href="/remote"', 'id="remote-enabled"'].every((marker) => t.includes(marker)); })());
+      check('the desk page has the iPad remote switch in the top bar (no separate card) and the /remote link', await (async () => { const t = await (await fetch(`${base}/`)).text(); return ['function remoteToggleItem', 'setRemoteEnabled', 'href="/remote"'].every((marker) => t.includes(marker)) && !t.includes('id="remote-card"'); })());
       check('the remote enabled switch rejects a non-boolean (400)', (await post('/api/remote/enabled', { enabled: 'yes' })).status === 400);
       check('the remote page serves the multiview markup (PVW, PGM, small panes, camera sheet)', await (async () => { const t = await (await fetch(`${base}/remote`)).text(); return ['id="pane-pvw"', 'id="pane-pgm"', 'id="smallPanes"', 'id="sheet"', 'id="multiview"'].every((marker) => t.includes(marker)); })());
+      check('the remote page has the TRANSITION button and the touch speed buttons, and the script builds the arrows', await (async () => { const t = await (await fetch(`${base}/remote`)).text(); const js = await (await fetch(`${base}/ui/remote/remote.js`)).text(); return ['id="transitionBtn"', 'id="speedBtns"', 'data-speed="slow"', 'data-speed="fast"'].every((marker) => t.includes(marker)) && js.includes("t: 'preview'") && js.includes("t: 'transition'") && js.includes('buildTouchPad'); })());
       // Touch focus and camera settings from the remote (X-Remote: 1) are refused while remote control is off; the desk page is not affected.
       const asRemote = (method: string, p: string, body: unknown) => api(p, { method, headers: { 'content-type': 'application/json', 'x-remote': '1' }, body: JSON.stringify(body) });
       check('touch focus from the remote is refused while remote control is off (403)', (await asRemote('POST', `/api/sony/cameras/${A}/touch`, { normalized: { x: 0.5, y: 0.5 } })).status === 403);
@@ -570,6 +615,51 @@ async function selfTest(): Promise<number> {
         const setOn = hexTarget ? await asRemote('PUT', `/api/sony/cameras/${A}/properties/iso`, { value: hexTarget }) : { status: -1 };
         check('a camera setting from the remote is accepted while remote control is on', setOn.status === 200, `status=${setOn.status}`);
       }
+      {
+        // Touch control, as the page does it. The sandbox has no ATEM: preview and transition must refuse cleanly.
+        const cams = (await api('/api/config')).body.cameras as any[];
+        const rs3Id = cams[rigIndex].id as string;
+        const wired = cams.find((c) => c.inputId !== undefined && c.id !== rs3Id);
+        const hold = (ms: number) => r1.stream(ms, [0, 0, 0, 0]);
+        const lastDenied = (from: number): string | undefined => r1.msgs.slice(from).reverse().find((m) => m.t === 'denied')?.reason;
+        await hold(100);
+        const st0 = (await api('/api/status')).body;
+        let from = r1.msgs.length;
+        r1.send({ t: 'preview', camera: wired.id });
+        await hold(150);
+        check('a bottom-row tap (preview) with no ATEM is refused cleanly: atem-offline', lastDenied(from) === 'atem-offline');
+        const st1 = (await api('/api/status')).body;
+        check('and the preview and controlled camera did not change', st1.previewCamera === st0.previewCamera && st1.controlledCamera === st0.controlledCamera && st1.programCamera === st0.programCamera);
+        from = r1.msgs.length;
+        r1.send({ t: 'preview', camera: 'no-such-camera' });
+        await hold(150);
+        check('preview of an unknown camera is refused: no-camera', lastDenied(from) === 'no-camera');
+        from = r1.msgs.length;
+        r1.send({ t: 'preview', camera: 'cam 1; drop' });
+        r1.send({ t: 'preview' });
+        await hold(150);
+        check('a malformed preview is dropped by validation (no answer, nothing changed)', lastDenied(from) === undefined && (await api('/api/status')).body.previewCamera === st0.previewCamera);
+        from = r1.msgs.length;
+        r1.send({ t: 'transition' });
+        await hold(150);
+        check('TRANSITION with no ATEM is refused cleanly and takes nothing', ['atem-offline', 'nothing-to-take', 'no-input'].includes(lastDenied(from) ?? '') && (await api('/api/status')).body.programCamera === st0.programCamera);
+        check('the activity log records the refusal', ((await api('/api/activity')).body.entries ?? []).some((e: any) => /^(Preview|Transition) refused: (atem-offline|no-input|nothing-to-take|no-camera)/.test(e.message ?? '')));
+
+        // Hold an arrow on the RS3's pane: select it for control only (preview stays), then right-stick frames; release stops it.
+        r1.send({ t: 'select', camera: rs3Id, preview: false });
+        await hold(150);
+        const st2 = (await api('/api/status')).body;
+        check('select with preview:false controls the camera but leaves the preview where it was', st2.controlledCamera === rs3Id && st2.previewCamera === st0.previewCamera);
+        const arrowMark = rs3.log.length;
+        const holding = r1.stream(700, [0, 0, 0.6, 0]);
+        await sleep(400);
+        check('holding the right arrow pans the gimbal', rs3.velPan > 0, `velPan=${rs3.velPan}`);
+        await holding;
+        r1.frame([0, 0, 0, 0]);
+        check('releasing the arrow (neutral frame) stops the gimbal within 300 ms', await stoppedSince(arrowMark, 300));
+        await hold(300);
+        check('the page keeps the seat on neutral heartbeat frames after the release', (await ownerNow()) === 'remote');
+      }
       const streaming = r1.stream(900, [0, 0, 0.8, 0]);
       await sleep(500);
       check('the right stick pans the gimbal (velPan > 0)', rs3.velPan > 0, `velPan=${rs3.velPan}`);
@@ -619,7 +709,11 @@ async function selfTest(): Promise<number> {
       check('frames sent after idle (no longer the owner) move nothing', rs3.velPan === 0);
 
       // the desk wins: Take back; and frames from a non-owner are ignored
-      await claimed(r3);
+      const before = r3.msgs.length;
+      check('an iPad that went idle can take control again', await claimed(r3), JSON.stringify(r3.msgs.slice(before).slice(-4)));
+      // The owner keeps sending (neutral) frames while the spectator is set up, as a real iPad does; without them
+      // the dead-man rightly revokes it after 1 s of silence.
+      const keepAlive = r3.stream(2600, [0, 0, 0, 0]);
       const spectator = await connect(base, 'Spectator');
       await waitFor('welcome', async () => spectator.msgs.some((m) => m.t === 'welcome'), 3000, 40);
       spectator.send({ t: 'claim' });
@@ -629,8 +723,15 @@ async function selfTest(): Promise<number> {
       spectator.send({ t: 'select', camera: ((await api('/api/config')).body.cameras as any[]).map((c) => c.id).find((id: string) => id !== controlledBefore) });
       await sleep(150);
       check('a page that does not hold control cannot select a camera: not-owner', spectator.msgs.some((m) => m.t === 'denied' && m.reason === 'not-owner') && (await api('/api/status')).body.controlledCamera === controlledBefore);
+      spectator.send({ t: 'preview', camera: ((await api('/api/config')).body.cameras as any[])[0].id });
+      spectator.send({ t: 'transition' });
+      spectator.send({ t: 'select', camera: ((await api('/api/config')).body.cameras as any[])[0].id, preview: false });
+      await sleep(150);
+      check('a page that does not hold control cannot set preview, transition or control-only select: not-owner each time', spectator.msgs.filter((m) => m.t === 'denied' && m.reason === 'not-owner').length >= 4 && (await api('/api/status')).body.controlledCamera === controlledBefore);
       await spectator.stream(400, [0, 0, 0.8, 0]);
       check('frames from the spectator move nothing', rs3.velPan === 0);
+      await keepAlive;
+      check('the owner kept control while a second iPad tried to take it', (await ownerNow()) === 'remote');
       const move4 = r3.stream(1500, [0, 0, 0.8, 0]);
       await sleep(300);
       const takeMark = rs3.log.length;

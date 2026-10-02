@@ -613,6 +613,74 @@
     return 'Wake ' + label + '? Its motors switch back on and it holds its position; if it is unbalanced it can jerk the camera. Make sure nobody is touching it.';
   }
 
+  // ---- which Bluetooth gimbal a rig's Pi bridge drives (bridge >= 0.6.0; one Pi per gimbal, but every Pi hears
+  // every DJI gimbal in the room, and a DJI gimbal takes one connection only).
+  var CHOSEN_BY = { operator: 'chosen here', 'auto-strongest': 'picked as the strongest signal', installer: 'set at install', config: 'from the bridge settings', saved: 'saved on the Pi' };
+  function rssiText(rssi) { return typeof rssi === 'number' ? 'signal ' + Math.round(rssi) + ' dBm' : 'signal not measured'; }
+  function gimbalName(name, address) { return (name || 'DJI gimbal') + (address ? ' (' + address + ')' : ''); }
+
+  /** The status line: "<name> (<address>)", its last signal and how it was chosen. */
+  function bluetoothLine(rig) {
+    var bt = rig.live && rig.live.bluetooth;
+    if (!bt) {
+      var reachable = rig.live && rig.live.bridgeReachable === true;
+      return { label: 'Bluetooth gimbal on this bridge', value: reachable ? 'Not reported (the Pi bridge is older than 0.6.0)' : 'Unknown while the bridge is not reachable', tone: 'idle' };
+    }
+    if (!bt.address) {
+      return { label: 'Bluetooth gimbal on this bridge', value: 'None chosen yet: the bridge takes the strongest DJI gimbal it hears' + (bt.error ? ' (' + bt.error + ')' : ''), tone: 'warn' };
+    }
+    var parts = [gimbalName(bt.name, bt.address)];
+    if (typeof bt.rssi === 'number') parts.push(rssiText(bt.rssi));
+    if (bt.chosenBy && CHOSEN_BY[bt.chosenBy]) parts.push(CHOSEN_BY[bt.chosenBy]);
+    if (bt.saved === false) parts.push('not saved on the Pi: forgotten at restart');
+    var value = parts.join(' — ');
+    if (bt.switching) return { label: 'Bluetooth gimbal on this bridge', value: value + ' — switching…', tone: 'warn' };
+    if (bt.connected === false) return { label: 'Bluetooth gimbal on this bridge', value: value + ' — not linked' + (bt.error ? ': ' + bt.error : ''), tone: 'warn' };
+    return { label: 'Bluetooth gimbal on this bridge', value: value, tone: 'ok' };
+  }
+
+  /**
+   * The "Choose gimbal…" list from GET /api/rigs/:key/bluetooth-gimbals. Strongest signal first, the strongest one
+   * marked; the gimbal in use cannot be chosen again; one that is not advertising is linked somewhere (to this bridge
+   * or to another Pi) and is named as such.
+   */
+  function bluetoothChoices(body) {
+    var list = (body && body.gimbals) || [];
+    var rows = list.slice().sort(function (a, b) {
+      if (a.connected !== b.connected) return a.connected ? -1 : 1;
+      var ra = typeof a.rssi === 'number' ? a.rssi : -999, rb = typeof b.rssi === 'number' ? b.rssi : -999;
+      return rb - ra || String(a.address).localeCompare(String(b.address));
+    }).map(function (g) {
+      var chips = [];
+      if (g.strongest) chips.push({ text: 'strongest', tone: 'ok' });
+      if (g.connected) chips.push({ text: 'in use on this bridge', tone: 'ok' });
+      else if (g.selected) chips.push({ text: 'chosen, not linked yet', tone: 'warn' });
+      if (!g.advertising && !g.connected) chips.push({ text: g.selected ? 'not heard in this scan' : 'not advertising (linked to another Pi?)', tone: 'warn' });
+      return {
+        address: g.address,
+        title: g.name || 'DJI gimbal',
+        detail: g.address + ' — ' + rssiText(g.rssi),
+        chips: chips,
+        choosable: !g.connected,
+        actionLabel: g.connected ? 'In use' : 'Use this gimbal',
+      };
+    });
+    var notes = [];
+    if (body && body.note) notes.push(body.note);
+    if (body && body.error) notes.push(body.error);
+    if (!rows.some(function (r) { return r.choosable; })) notes.push(body && body.scanned ? 'No other DJI gimbal is advertising. A gimbal connected to another Pi does not advertise: stop that Pi’s bridge first.' : 'Scan to see the other DJI gimbals in range.');
+    notes.push('The strongest signal is usually the gimbal next to this Pi, but not always: check the name before you choose.');
+    return { rows: rows, notes: notes, scanned: !!(body && body.scanned) };
+  }
+
+  /** Asked before a switch: the camera stops and the current gimbal's link is cut. */
+  function bluetoothSwitchQuestion(rigLabel, rig, choice) {
+    var bt = rig && rig.live && rig.live.bluetooth;
+    var from = bt && bt.address ? gimbalName(bt.name, bt.address) : 'no gimbal';
+    var to = choice === 'auto' ? 'the strongest DJI gimbal it can hear' : gimbalName(choice.title, choice.address);
+    return 'Switch ' + rigLabel + ' from ' + from + ' to ' + to + '? The camera stops and its current Bluetooth link is cut (a DJI gimbal takes one connection), so do not do this while it is on air. The choice is saved on the Pi.';
+  }
+
   /** The right column: live state of the selected item. */
   function statusFor(data, key) {
     if (!key) return null;
@@ -632,6 +700,11 @@
         var sig = rig.live.signal;
         lines.push({ label: 'Bluetooth signal', value: sig.rating === 'good' ? 'Good' : (sig.rating === 'poor' ? 'Poor' : 'Weak') + ' — ' + sig.summary, tone: sig.rating === 'good' ? 'ok' : sig.rating === 'poor' ? 'bad' : 'warn' });
       }
+      if (rig.gimbal) lines.push(bluetoothLine(rig));
+      if (rig.gimbal && rig.live && rig.live.battery && typeof rig.live.battery.percent === 'number') {
+        var pct = rig.live.battery.percent;
+        lines.push({ label: 'Gimbal battery', value: pct + '%' + (pct < 15 ? ' — charge or swap it' : ''), tone: pct >= 40 ? 'ok' : pct >= 20 ? 'warn' : 'bad' });
+      }
       lines.push({ label: 'Video to ATEM', value: rig.wired ? 'Input ' + rig.inputId : 'Not wired (control only)', tone: rig.wired ? 'ok' : 'warn' });
       var camera = rig.camera ? sonyDevice(data, rig.camera) : null;
       if (rig.builtInCamera) lines.push({ label: 'Camera', value: 'Built in', tone: 'idle' });
@@ -640,6 +713,7 @@
       var cameraInfo = camera ? cameraStatus(data, camera.sonyCameraId) : null;
       if (cameraInfo && cameraInfo.message) lines.push({ label: 'Last message', value: cameraInfo.message, tone: camera.state === 'error' ? 'bad' : 'idle' });
       var actions = [{ id: 'reconnect-controller', label: rig.gimbal ? 'Reconnect gimbal' : 'Reconnect camera control', method: 'POST', url: '/api/reconnect/camera/' + encodeURIComponent(rig.id), progress: 'Reconnecting…', done: 'Reconnect requested' }];
+      if (rig.gimbal && rig.deviceKey) actions.push({ id: 'choose-bluetooth-gimbal', kind: 'bluetooth-chooser', label: 'Choose gimbal…', url: '/api/rigs/' + encodeURIComponent(rig.deviceKey) + '/bluetooth-gimbals', selectUrl: '/api/rigs/' + encodeURIComponent(rig.deviceKey) + '/bluetooth-gimbal' });
       if (gimbalWakeable(rig)) actions.push({ id: 'wake-gimbal', label: 'Wake gimbal', method: 'POST', url: '/api/cameras/' + encodeURIComponent(rig.id) + '/wake', body: { confirm: true }, progress: 'Waking…', done: 'Wake sent — waiting for it to report awake', confirm: wakeQuestion(rig.label || rig.id) });
       if (camera && camera.sonyCameraId && camera.state === 'discovered_unapproved') actions.push({ id: 'connect-sony', label: 'Connect Sony camera', method: 'POST', url: '/api/sony/cameras/' + encodeURIComponent(camera.sonyCameraId) + '/connect', progress: 'Connecting…', done: 'Connected' });
       if (camera && camera.sonyCameraId && RETRYABLE[camera.state]) actions.push({ id: 'retry-sony', label: 'Retry Sony camera', method: 'POST', url: '/api/sony/cameras/' + encodeURIComponent(camera.sonyCameraId) + '/retry', progress: 'Retrying…', done: 'Retry requested' });
@@ -673,6 +747,7 @@
   return {
     itemsOf: itemsOf, flatItems: flatItems, findItem: findItem, resolveSelection: resolveSelection,
     inspectorFor: inspectorFor, statusFor: statusFor, sonyStateText: sonyStateText,
+    bluetoothLine: bluetoothLine, bluetoothChoices: bluetoothChoices, bluetoothSwitchQuestion: bluetoothSwitchQuestion, findRig: findRig,
     buildNewRigPayload: buildNewRigPayload, impactLines: impactLines,
     profileInfo: profileInfo, changeLines: changeLines, switchImpact: switchImpact, saveAsSuggestion: saveAsSuggestion,
   };

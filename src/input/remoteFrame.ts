@@ -16,7 +16,9 @@ export type ClientMessage =
   | { t: 'release' }
   | { t: 'idle' }
   | { t: 'stop' }
-  | { t: 'select'; camera: string }
+  | { t: 'select'; camera: string; movePreview: boolean }
+  | { t: 'preview'; camera: string }
+  | { t: 'transition' }
   | { t: 'ping'; ts: number }
   | { t: 'in'; s: number; a: number[]; tr: number[]; b: number };
 
@@ -58,12 +60,17 @@ export function parseClientMessage(raw: string | Buffer, lastSeq: number): Parse
       }
       return { ok: true, msg: { t: 'hello', v: 1, name: cleanLabel(m.name, 40), pin, pad } };
     }
-    case 'claim': case 'release': case 'idle': case 'stop':
+    case 'claim': case 'release': case 'idle': case 'stop': case 'transition':
       return { ok: true, msg: { t: m.t } };
     case 'select':
       // Which camera the owning iPad wants to control: a plain id (cam1..), nothing else.
       if (typeof m.camera !== 'string' || !/^[A-Za-z0-9_-]{1,32}$/.test(m.camera)) return fail('bad camera');
-      return { ok: true, msg: { t: 'select', camera: m.camera } };
+      // preview:false = control only, leave the ATEM preview alone (the pane arrows).
+      return { ok: true, msg: { t: 'select', camera: m.camera, movePreview: m.preview !== false } };
+    case 'preview':
+      // Set the ATEM preview to this camera (also makes it the controlled one, like X/A/B/Y).
+      if (typeof m.camera !== 'string' || !/^[A-Za-z0-9_-]{1,32}$/.test(m.camera)) return fail('bad camera');
+      return { ok: true, msg: { t: 'preview', camera: m.camera } };
     case 'ping':
       if (!isFiniteNumber(m.ts)) return fail('bad ping');
       return { ok: true, msg: { t: 'ping', ts: m.ts } };

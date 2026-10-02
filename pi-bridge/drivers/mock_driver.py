@@ -12,6 +12,12 @@ import time
 from .base import Attitude, GimbalDriver, NotSupported
 
 FULL_SCALE_DEG_PER_SEC = 30.0
+# Fake Bluetooth neighbourhood for --driver mock: two DJI gimbals and a phone (which must never be offered).
+MOCK_NEARBY = (
+    {"address": "AA:00:00:00:00:01", "name": "DJI RS3 PRO-MOCK01", "rssi": -52},
+    {"address": "AA:00:00:00:00:02", "name": "DJI RS3-MOCK02", "rssi": -74},
+    {"address": "AA:00:00:00:00:03", "name": "Someone's phone", "rssi": -40},
+)
 
 
 class MockDriver:
@@ -32,6 +38,39 @@ class MockDriver:
         self._lock = asyncio.Lock()
         self.asleep: bool | None = None
         self.wakes = 0
+        # Bluetooth gimbal selection, simulated: which fake gimbal this "bridge" drives, and what a scan hears.
+        self.address: str | None = None
+        self.nearby = [dict(g) for g in MOCK_NEARBY]
+        self.scans = 0
+
+    # A fake battery report, like the RS3's passive 0x0d/0x02 frame; None reports nothing.
+    battery_percent: int | None = 76
+
+    def battery(self) -> dict[str, int] | None:
+        if not self.connected or self.battery_percent is None:
+            return None
+        return {"percent": self.battery_percent, "ageS": 0}
+
+    @property
+    def linked_name(self) -> str | None:
+        return next((g["name"] for g in self.nearby if g["address"] == self.address), None)
+
+    @property
+    def linked_rssi(self) -> float | None:
+        return next((g["rssi"] for g in self.nearby if g["address"] == self.address), None)
+
+    async def scan(self, timeout: float) -> list[dict[str, object]]:
+        """What a BLE scan hears: every nearby device except the one linked to us (a linked gimbal stops advertising)."""
+        self.scans += 1
+        await asyncio.sleep(min(timeout, 0.05))
+        return [dict(g) for g in self.nearby if not (self.connected and g["address"] == self.address)]
+
+    async def set_address(self, address: str | None) -> None:
+        if address == self.address:
+            return
+        await self.stop()
+        self.connected = False
+        self.address = address
 
     async def connect(self) -> None:
         self.connected = True
