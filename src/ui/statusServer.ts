@@ -1884,7 +1884,6 @@ function statusHtml(): string {
 <div class="panel tab-panel active" id="tab-status" role="tabpanel" aria-labelledby="tab-btn-status">
   <div class="panel-heading"><div><h2>Camera Network</h2><span class="panel-kicker">Signal roles and device health</span></div></div>
   <div id="status-content"><div class="loading-state">Reading production state…</div></div>
-  <section class="remote-card" id="remote-card" aria-label="iPad remote control"></section>
   <details class="health-log" id="health-log"><summary>Health log</summary><ol id="health-log-list"><li>Loading…</li></ol></details>
   <section id="sony-cameras" aria-label="Connected Sony cameras"><div class="section-header">Sony Cameras</div><div id="sony-dashboard-status" aria-live="polite"></div><div class="sony-grid" id="sony-grid-root"></div></section>
 </div>
@@ -2180,7 +2179,7 @@ function renderStatus(s, c) {
     return '<div class="health-alert health-alert--' + a.cls + '"><strong>' + esc(a.what) + ': ' + esc(a.text) + '</strong>' + since + (a.hint ? '<span class="health-alert__hint">' + esc(a.hint) + '</span>' : '') + '</div>';
   }).join('') + '</div>' : '';
   document.getElementById('status-content').innerHTML = banner + camGrid + '<div class="mode-row">' + modes + '</div>';
-  renderRemoteCard(s.remoteControl);
+  // (The iPad remote switch lives in the top bar: remoteToggleItem.)
 }
 
 // ---- iPad remote control card: on/off, who is driving, Take back, and a desk STOP ----
