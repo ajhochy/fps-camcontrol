@@ -69,6 +69,7 @@ pnpm test:tracking
 node --test -r ts-node/register/transpile-only tests/tracking/*.cjs tests/tracking/*.ts
 dist/tracking-runtime/python/bin/python3 -I -B -m unittest discover -s tracker-sidecar/tests -v
 node dist/testing/trackingSim.js
+node dist/testing/trackingViscaTest.js   # VISCA dead-man, stop on every end path, speed map, derivation
 node dist/testing/trackingIntegrationTest.js
 node scripts/test-tracking-ui.cjs
 node --test scripts/test-tracking-docs.cjs scripts/test-tracking-runtime-staging.cjs

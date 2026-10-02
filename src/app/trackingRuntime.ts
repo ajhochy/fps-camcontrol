@@ -72,7 +72,7 @@ export function startTrackingRuntime(state: AppState, config: AppConfig, devices
     const refreshSources=()=>client?.configure(resolveTrackingSources(config).map(source=>({sourceId:source.sourceId,frameUrl:backendOrigin+'/api/sony/cameras/'+encodeURIComponent(source.sonyCameraId)+'/live-view/frame'})));
     refreshSources();
     const ledger=new MotionLedger();
-    manager=new TrackingManager({config:config.tracking!,sources:resolveTrackingSources(config),devices,client,ledger});
+    manager=new TrackingManager({config:config.tracking!,sources:resolveTrackingSources(config),devices,client,ledger,viscaAnswering:id=>state.cameraAnswering[id]===true});
     registerTracking(state,{manager,client,ledger,refreshSources});
     manager.start();
     if(developer){client.start();status({state:'running'});return;}

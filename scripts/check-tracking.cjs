@@ -10,6 +10,7 @@ for(const key of ['CAMCONTROL_HOME','CAMCONTROL_RESOURCES','CAMCONTROL_EMBEDDED'
 function run(command,args){console.log(`$ ${command} ${args.join(' ')}`);const r=spawnSync(command,args,{cwd:root,env,stdio:'inherit'});if(r.error||r.status!==0)process.exit(r.status||1);}
 run(python,['-I','-B','-m','unittest','discover','-s','tracker-sidecar/tests','-v']);
 run(process.execPath,['dist/testing/trackingSim.js']);
+run(process.execPath,['dist/testing/trackingViscaTest.js']);
 run(process.execPath,['dist/testing/trackingIntegrationTest.js']);
 run(process.execPath,['--test','scripts/test-tracking-docs.cjs','scripts/test-tracking-runtime-staging.cjs','scripts/test-tracking-runtime-fixtures.cjs']);
 run(process.execPath,['scripts/test-tracking-ui.cjs']);

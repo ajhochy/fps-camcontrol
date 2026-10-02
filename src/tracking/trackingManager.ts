@@ -5,6 +5,7 @@ import type { TrackingConfig } from './configSchema';
 import { parseFromTracker, TrackMessage } from './protocol';
 import { MotionLedger } from './motionLedger';
 import { TrackingController } from './trackingController';
+import { ViscaTrackingDriver } from './viscaTrackingDriver';
 import type { ResolvedTrackingSource, TrackingSourceStatus, TrackingState } from './types';
 export type { TrackingSourceStatus } from './types';
 
@@ -20,11 +21,15 @@ export interface TrackingPeer extends EventEmitter {
 interface Session {
   status: TrackingSourceStatus; controller: TrackingController; device?: MotionDevice;
   halted: boolean; seq: number; lostAt: number | null;
+  /** Present for VISCA heads: owns the app-side dead-man and the discrete speed mapping. */
+  visca?: ViscaTrackingDriver;
 }
 export interface TrackingManagerOptions {
   config: TrackingConfig; sources: ResolvedTrackingSource[]; devices: Map<string, MotionDevice>; client: TrackingPeer;
   ledger?: MotionLedger; now?: () => number; setInterval?: (fn: () => void, ms: number) => unknown; clearInterval?: (timer: unknown) => void;
   onStatus?: (status: Record<string, TrackingSourceStatus>) => void;
+  /** Is this camera's VISCA head answering inquiries (state.cameraAnswering)? Without it a VISCA head is never ready. */
+  viscaAnswering?: (cameraId: string) => boolean;
 }
 export class TrackingManager extends EventEmitter {
   private config: TrackingConfig;
@@ -36,6 +41,7 @@ export class TrackingManager extends EventEmitter {
   private readonly interval: NonNullable<TrackingManagerOptions['setInterval']>;
   private readonly clear: NonNullable<TrackingManagerOptions['clearInterval']>;
   private readonly onStatus?: TrackingManagerOptions['onStatus'];
+  private readonly viscaAnswering: (cameraId: string) => boolean;
   private sessions = new Map<string, Session>();
   private lastSelect = new Map<string, number>();
   private timer: unknown;
@@ -46,13 +52,24 @@ export class TrackingManager extends EventEmitter {
     this.ledger = options.ledger ?? new MotionLedger(); this.now = options.now ?? Date.now;
     this.interval = options.setInterval ?? ((fn, ms) => setInterval(fn, ms));
     this.clear = options.clearInterval ?? (timer => clearInterval(timer as NodeJS.Timeout)); this.onStatus = options.onStatus;
+    this.viscaAnswering = options.viscaAnswering ?? (() => false);
     this.populate();
   }
   private populate(): void {
     for (const source of this.sources) {
       const device = source.cameraId ? this.devices.get(source.cameraId) : undefined;
-      this.sessions.set(source.sourceId, { status: { ...source, sessionId: null, state: !this.config.enabled ? 'disabled' : device ? 'idle' : 'unavailable', reason: null, observation: null, pan: 0, tilt: 0 },
-        controller: new TrackingController({ ...this.config, ...source }), device, halted: true, seq: -1, lostAt: null });
+      const visca = device?.protocol === 'visca';
+      // VISCA gain differs from a gimbal's and its speed steps are coarse: the effective cap is the lower of the two.
+      const maxSpeed = visca ? Math.min(this.config.maxSpeed, this.config.viscaMaxSpeed) : this.config.maxSpeed;
+      const session: Session = { status: { ...source, sessionId: null, state: !this.config.enabled ? 'disabled' : device ? 'idle' : 'unavailable', reason: null, observation: null, pan: 0, tilt: 0 },
+        controller: new TrackingController({ ...this.config, ...source, maxSpeed }), device, halted: true, seq: -1, lostAt: null };
+      if (device && visca) {
+        session.visca = new ViscaTrackingDriver(device, this.ledger, { now: this.now, setInterval: this.interval, clearInterval: this.clear }, maxSpeed, () => {
+          // The dead-man fired (no fresh velocity for >300 ms): the head is already stopped.
+          session.halted = true; session.status.pan = session.status.tilt = 0; this.emit('deadman', { sourceId: source.sourceId });
+        });
+      }
+      this.sessions.set(source.sourceId, session);
     }
   }
   start(): void {
@@ -74,15 +91,29 @@ export class TrackingManager extends EventEmitter {
     session.status.state = state; session.status.reason = reason;
     this.emit('state', { ...session.status }); this.onStatus?.(this.getStatus());
   }
-  private ready(session: Session): boolean {
-    return !!session.device && session.device.protocol === 'dji-bridge' && session.device.connected && session.device.gimbalAttached !== false;
+  private ready(session: Session): boolean { return this.unavailableReason(session) === null; }
+  /** Why this source cannot be driven right now, or null when it can. A VISCA head must be answering: never drive blind. */
+  private unavailableReason(session: Session): string | null {
+    const device = session.device;
+    if (!device) return 'source_unavailable';
+    if (device.protocol === 'dji-bridge') return device.connected && device.gimbalAttached !== false ? null : 'device_unavailable';
+    if (device.protocol === 'visca') {
+      if (!device.connected) return 'No VISCA link';
+      const cameraId = session.status.cameraId;
+      return cameraId && this.viscaAnswering(cameraId) ? null : 'VISCA head is not answering';
+    }
+    return 'device_unavailable';
   }
   private get(sourceId: string): Session {
     const session = this.sessions.get(sourceId);
     if (!session) throw new TrackingError(404, 'unknown_source', 'Tracking source not found'); return session;
   }
   private halt(session: Session, force = false, stopDevices = true): void {
-    if (session.device && (force || !session.halted) && stopDevices) this.ledger.stop(session.device);
+    if (session.visca) {
+      // A VISCA head never stops by itself. With stopDevices false (emergency stop) the caller sends the stop right now.
+      if (!stopDevices) session.visca.release();
+      else if (force || !session.halted || session.visca.moving) session.visca.stop();
+    } else if (session.device && (force || !session.halted) && stopDevices) this.ledger.stop(session.device);
     session.halted = true; session.status.pan = session.status.tilt = 0;
   }
   select(sourceId: string, x: number, y: number): void {
@@ -91,7 +122,7 @@ export class TrackingManager extends EventEmitter {
     if (![x, y].every(value => Number.isFinite(value) && value >= 0 && value <= 1)) throw new TrackingError(400, 'invalid_point', 'Select a point inside the preview');
     if (!this.config.enabled || !this.started) throw new TrackingError(409, 'tracking_disabled', 'Tracking is disabled');
     if (!session.device) { this.transition(session, 'unavailable', 'source_unavailable'); throw new TrackingError(409, 'source_unavailable', 'Tracking source is not assigned to an active camera'); }
-    if (!this.ready(session)) throw new TrackingError(409, 'device_unavailable', 'Tracking device is unavailable');
+    if (!this.ready(session)) throw new TrackingError(409, 'device_unavailable', session.visca ? `Tracking device is unavailable: ${this.unavailableReason(session)}` : 'Tracking device is unavailable');
     if (!this.client.connected) throw new TrackingError(409, 'sidecar_offline', 'Tracking sidecar is offline');
     const now = this.now(), previous = this.lastSelect.get(sourceId);
     if (previous !== undefined && now - previous < 250) throw new TrackingError(429, 'select_rate_limited', 'Wait before selecting another target');
@@ -137,7 +168,7 @@ export class TrackingManager extends EventEmitter {
   emergencyStop(options: { stopDevices?: boolean } = {}): void { this.invalidateAll('emergency_stop', options); }
   acquireCalibration(sourceId: string, stop: () => void): () => void {
     const session = this.get(sourceId);
-    if (!this.started || !this.config.enabled || !this.client.connected || !this.ready(session) || !session.status.cameraId) throw new TrackingError(409, 'calibration_unavailable', 'Healthy tracking and gimbal are required');
+    if (!this.started || !this.config.enabled || !this.client.connected || !this.ready(session) || session.device?.protocol !== 'dji-bridge' || !session.status.cameraId) throw new TrackingError(409, 'calibration_unavailable', 'Healthy tracking and gimbal are required');
     if (this.calibration || [...this.sessions.values()].some(item => item.status.sessionId) || [...this.devices.values()].some(device => this.ledger.isMoving(device))) throw new TrackingError(409, 'calibration_busy', 'Stop tracking and manual motion before calibration');
     const owned = { sourceId, cameraId: session.status.cameraId, stop }; this.calibration = owned;
     return () => { if (this.calibration === owned) this.calibration = undefined; };
@@ -149,6 +180,7 @@ export class TrackingManager extends EventEmitter {
   reconcile(config: TrackingConfig, sources: ResolvedTrackingSource[], devices: Map<string, MotionDevice>): void {
     this.invalidateAll('binding_changed');
     const wasStarted = this.started; this.stop();
+    for (const session of this.sessions.values()) session.visca?.dispose();
     this.config = config; this.sources = sources; this.devices = devices; this.sessions.clear(); this.populate(); this.onStatus?.(this.getStatus());
     if (wasStarted && config.enabled) this.start();
   }
@@ -185,11 +217,23 @@ export class TrackingManager extends EventEmitter {
       if (now - obs.frameTs >= 500 || obs.frameTs > now + 50) { this.halt(session); this.transition(session, 'stale', 'stale_video'); continue; }
       const output = session.controller.update(obs, now);
       session.status.pan = output.pan; session.status.tilt = output.tilt;
-      if (output.pan === 0 && output.tilt === 0) this.halt(session);
+      if (session.visca) {
+        // The driver applies the minimum command, the discrete speeds, de-duplication and the dead-man timer.
+        session.halted = !session.visca.drive(output.pan, output.tilt, now);
+        if (session.halted) { session.status.pan = session.status.tilt = 0; }
+      } else if (output.pan === 0 && output.tilt === 0) this.halt(session);
       else if (session.device && this.ledger.send(session.device, output.pan, output.tilt, now)) session.halted = false;
     }
   }
   getStatus(): Record<string, TrackingSourceStatus> {
-    return Object.fromEntries([...this.sessions].map(([key, session]) => [key, { ...session.status, observation: session.status.observation ? { ...session.status.observation } : null }]));
+    return Object.fromEntries([...this.sessions].map(([key, session]) => {
+      const status = { ...session.status, observation: session.status.observation ? { ...session.status.observation } : null };
+      // A VISCA head that is not answering is shown unavailable, with the reason, rather than idle.
+      if (session.visca && !session.status.sessionId && status.state === 'idle') {
+        const reason = this.unavailableReason(session);
+        if (reason) { status.state = 'unavailable'; status.reason = reason; }
+      }
+      return [key, status];
+    }));
   }
 }

@@ -8,12 +8,13 @@ export interface ResolvedSource {
 }
 
 const MAX_SOURCES = 8;
+const TRACKABLE = new Set(['dji-bridge', 'visca']);
 
 /**
  * Tracking sources: explicit `tracking.sources` entries (kept as written, they override per device),
  * plus - unless `tracking.autoSources` is false - one per rig in the active profile whose controller is a
- * DJI gimbal (dji-bridge) and which has a Sony camera with a known camera id bound. VISCA heads are not
- * supported by the tracking motion path and never become sources. Physical inventory identity
+ * DJI gimbal (dji-bridge) or a VISCA head and which has a Sony camera with a known camera id bound. VISCA
+ * heads are driven through the dead-man ViscaTrackingDriver (the head keeps moving until told to stop). Physical inventory identity
  * (device key) is the source id; it survives profile/working-copy slot changes.
  */
 export function resolveTrackingSources(config: AppConfig): ResolvedSource[] {
@@ -27,8 +28,8 @@ export function resolveTrackingSources(config: AppConfig): ResolvedSource[] {
   for (const camera of config.cameras) {
     if (sources.length >= MAX_SOURCES) break;
     const device = camera.deviceKey;
-    if (!device || camera.protocol !== 'dji-bridge' || !camera.camera || takenDevices.has(device)) continue;
-    if (devices[device]?.protocol !== 'dji-bridge') continue;
+    if (!device || !TRACKABLE.has(camera.protocol) || !camera.camera || takenDevices.has(device)) continue;
+    if (devices[device]?.protocol !== camera.protocol) continue;
     const sony = devices[camera.camera];
     const sonyCameraId = sony?.protocol === 'sony' ? sony.sonyCameraId : undefined;
     if (!sonyCameraId || takenCameras.has(sonyCameraId.toUpperCase())) continue;

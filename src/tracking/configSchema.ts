@@ -11,6 +11,8 @@ export const TrackingSchema = z.object({
   autoSources: z.boolean().default(true),
   sidecarUrl: SidecarUrl.default('ws://127.0.0.1:7900'),
   maxSpeed: z.number().finite().min(.05).max(1).default(.35),
+  /** Extra cap for VISCA heads (their speed steps are coarse and unfiltered); the effective cap is min(maxSpeed, viscaMaxSpeed). */
+  viscaMaxSpeed: z.number().finite().min(.05).max(1).default(.3),
   deadzone: z.number().finite().min(0).max(.3).default(.04),
   lostHoldMs: z.number().int().min(0).max(30000).default(3000),
   reacquireMs: z.number().int().min(100).max(5000).default(1000),
@@ -31,7 +33,7 @@ export function collectTrackingIssues(tracking: TrackingConfig | undefined, devi
   const deviceKeys = new Set<string>(), sonyIds = new Set<string>();
   for (const [i, source] of (tracking?.sources ?? []).entries()) {
     const device = devices[source.device];
-    if (!device || device.protocol !== 'dji-bridge') issues.push({message:`Tracking source ${source.device} requires an existing dji-bridge inventory device`,path:['tracking','sources',i,'device']});
+    if (!device || !['dji-bridge', 'visca'].includes(device.protocol)) issues.push({message:`Tracking source ${source.device} requires an existing dji-bridge or visca inventory device`,path:['tracking','sources',i,'device']});
     if (deviceKeys.has(source.device) || sonyIds.has(source.sonyCameraId.toUpperCase())) issues.push({message:`Duplicate tracking source ${source.device}: each device and Sony camera may be mapped only once`,path:['tracking','sources',i]});
     deviceKeys.add(source.device); sonyIds.add(source.sonyCameraId.toUpperCase());
   }

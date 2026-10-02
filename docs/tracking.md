@@ -16,8 +16,9 @@ Physical calibration and safety drills are still MANUAL_PENDING; see the
 - Your own legally obtained Sony CameraWebApp/SDK and paired camera for live
   preview. Follow [Sony setup](sony-sidecar-setup.md). Neither Sony software nor
   acceptance of Sony terms is included in either installer.
-- A configured DJI bridge/gimbal, good BLE range and a matching active rig slot.
-  The bridge keeps its existing 250 ms dead-man protection.
+- A configured DJI bridge/gimbal (good BLE range) or a VISCA head (e.g. V-BOT) and a matching
+  active rig slot. The DJI bridge keeps its 250 ms dead-man; a VISCA head has none, so the app
+  supplies one (see **VISCA heads** below).
 
 The apps have separate identities and settings directories (`FPS CamControl`
 and `FPS CamControl Tracking` under Application Support). Their shared hardware
@@ -39,6 +40,7 @@ tracking:
   autoSources: true              # default: every gimbal rig with a Sony camera becomes a source
   sidecarUrl: ws://127.0.0.1:7900 # developer mode only (TRACKER_WS_TOKEN set); the app-owned helper is private
   maxSpeed: 0.35                 # start lower until physical gain is verified
+  viscaMaxSpeed: 0.3             # extra cap for VISCA heads; the effective cap is min(maxSpeed, viscaMaxSpeed)
   deadzone: 0.04
   lostHoldMs: 3000
   reacquireMs: 1000
@@ -54,10 +56,10 @@ tracking:
 
 **Automatic sources.** With `autoSources` (default `true`) you do not need to list
 sources. Every rig in the active profile (or unsaved working copy) whose controller
-is a DJI gimbal (`protocol: dji-bridge`) and that has a Sony camera bound (the slot's
-`camera:` with a `sonyCameraId`) becomes a source, with `sourceId` = the controller's
-inventory key. A gimbal without a Sony camera, and VISCA heads (V-BOT, BirdDog), are not
-sources: the tracking motion path supports DJI bridges only. An explicit `sources`
+is a DJI gimbal (`protocol: dji-bridge`) or a VISCA head (`protocol: visca`, e.g. V-BOT or
+BirdDog) and that has a Sony camera bound (the slot's `camera:` with a `sonyCameraId`) becomes
+a source, with `sourceId` = the controller's inventory key. A rig without a Sony camera is not
+a source. An explicit `sources`
 entry for the same device overrides the derived one (use it for `invertPan` /
 `invertTilt`); a Sony camera already claimed by an explicit entry is never derived onto a
 second gimbal. Set `autoSources: false` to use only the explicit list. Derived sources
@@ -65,13 +67,45 @@ follow profile and rig edits, with the same stop-and-clear on any change. The mi
 setup is just `tracking: { enabled: true, maxSpeed: 0.45 }`.
 
 `device` is the stable inventory key, not a mutable cam1/cam2 slot number. It
-must resolve to a DJI device in the current profile. A missing active slot is
+must resolve to a DJI or VISCA device in the current profile. A missing active slot is
 shown unavailable. Source rebinding/profile changes stop and clear every target;
 they never transfer the old target to another physical rig. Duplicate gimbal
-bindings and invalid Sony IDs are rejected. Limits: eight sources, maxSpeed
-0.05–1, deadzone 0–0.3, lostHoldMs 0–30000, reacquireMs 100–5000,
+bindings and invalid Sony IDs are rejected. Limits: eight sources, maxSpeed and
+viscaMaxSpeed 0.05–1, deadzone 0–0.3, lostHoldMs 0–30000, reacquireMs 100–5000,
 pipelineDelayMs 0–2000, kp 0–5 and kd 0–2. Raising maxSpeed is not advised until
 the human gain/calibration gate has passed.
+
+## VISCA heads (V-BOT, BirdDog)
+
+A VISCA head keeps moving at its last commanded speed until it is told to stop; unlike the DJI
+bridge it has no dead-man of its own. Tracking therefore drives a VISCA head through a driver
+(`src/tracking/viscaTrackingDriver.ts`) that adds the protection in the app:
+
+- **Dead-man.** While the head is being driven, a timer owned by that source (independent of the
+  tracking loop) sends an explicit pan/tilt stop when no fresh velocity has been issued for more
+  than 300 ms: stalled loop, stale or lost observation, helper silent. It is checked every 50 ms.
+- **Explicit stop on every end path.** Cancel, target lost, stale video, operator override,
+  emergency stop, profile/source/rig change, device reconnect, helper disconnect or exit, the head
+  ceasing to answer, and app shutdown (SIGINT/SIGTERM and normal stop) all send a VISCA stop. A
+  stop is never rate-limited and is repeated once ~120 ms later in case the datagram is lost
+  (skipped if an operator has started moving the head meanwhile; zoom is never stopped by it).
+- **Speed mapping.** Tracking's normalized velocity is capped at `min(maxSpeed, viscaMaxSpeed)`
+  (default 0.3 = pan step 7 of 24, tilt step 6 of 20), then mapped by the same VISCA code manual
+  control uses (pan 1–24, tilt 1–20). Any axis under 0.05 becomes a stop for that axis, and a
+  command with both axes under it becomes an explicit stop, never a speed-1 creep.
+- **Rate.** A command is sent only when its discrete speed/direction changes (at most every
+  100 ms) and re-sent every 200 ms while held. VISCA does not need the refresh; the resend only
+  recovers a lost UDP datagram quickly, at the same order of rate as the manual heartbeat.
+- **Readiness.** The head must be answering VISCA inquiries (the same signal as the Status page's
+  *Answering*). Otherwise the source shows **unavailable** with the reason (for example "VISCA
+  head is not answering"), selecting is refused, and an active session ends with a stop.
+  "Replies Not Heard" (port 52381 held by another app) also counts as not answering.
+- **Operator override** works as for gimbals: the stick (desk gamepad or the iPad touch arrows,
+  which arrive as the same input frames) on the same camera stops the head and leaves tracking
+  **Paused — stick moved**; **Resume** is required.
+- Direction follows the VISCA convention (pan right and tilt up are positive). If the head or
+  image is mirrored/inverted, set `invertPan`/`invertTilt` in an explicit `sources` entry.
+- Calibration remains DJI-only.
 
 ## Operation
 

@@ -1,12 +1,12 @@
 import { ViscaClient } from './viscaClient';
 
 // Pan speed: VISCA spec 0x01–0x18 (1–24)
-function toPanSpeed(normalized: number): number {
+export function toPanSpeed(normalized: number): number {
   return Math.max(1, Math.min(0x18, Math.round(Math.abs(normalized) * 0x18)));
 }
 
 // Tilt speed: VISCA spec 0x01–0x14 (1–20)
-function toTiltSpeed(normalized: number): number {
+export function toTiltSpeed(normalized: number): number {
   return Math.max(1, Math.min(0x14, Math.round(Math.abs(normalized) * 0x14)));
 }
 

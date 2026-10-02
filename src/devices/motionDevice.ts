@@ -41,6 +41,8 @@ export interface MotionDevice {
   setPanTilt(panSpeed: number, tiltSpeed: number): void;
   setZoom(zoomSpeed: number): void;
   stop(): void;
+  /** Optional: stop pan/tilt only, leaving zoom alone (VISCA). Used by tracking so a stop never interrupts an operator's zoom. */
+  stopPanTilt?(): void;
 
   getPosition(): Promise<DevicePosition>;
   moveTo(pos: DevicePosition): Promise<void>;

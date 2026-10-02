@@ -14,8 +14,11 @@ start the same backend through `src/embed.ts` (loopback-only, session-cookie gua
 ## Tracking autostart + auto sources (integration branch)
 With `tracking.enabled` the app now launches/owns its helper even when not packaged (`dist/tracking-runtime`,
 restart with backoff, unavailable+reason when missing; `TRACKER_WS_TOKEN` keeps the manual developer path).
-Sources are derived from rigs (dji-bridge controller + bound Sony camera) unless `tracking.autoSources: false`;
-explicit `tracking.sources` override per device. VISCA heads are not supported by tracking motion. See docs/tracking.md.
+Sources are derived from rigs (dji-bridge or visca controller + bound Sony camera) unless `tracking.autoSources: false`;
+explicit `tracking.sources` override per device. VISCA heads (V-BOT) are tracked through `ViscaTrackingDriver`
+(app-side 300 ms dead-man, explicit stop on every end path, discrete speed map, `tracking.viscaMaxSpeed` default 0.3,
+readiness = head answering). Tests: `dist/testing/trackingViscaTest.js` (in `pnpm test:tracking`). Physical V-BOT
+direction/gain/killed-app-stops-head checks are MANUAL_PENDING. Calibration stays DJI-only. See docs/tracking.md.
 
 ## Active branch / PR
 `integration/combine-open-prs` (draft, not to be merged without review and the manual hardware checks of each

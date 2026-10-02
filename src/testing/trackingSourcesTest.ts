@@ -18,8 +18,10 @@ function config(cameras: ReturnType<typeof cam>[], tracking: unknown = {}): AppC
 // gimbal + Sony => source; sourceId is the inventory key; camera slot follows the profile
 let sources = resolveTrackingSources(config([cam(1, 'rs3', 'dji-bridge', 'sonyA')]));
 assert.deepEqual(sources.map(s => [s.sourceId, s.sonyCameraId, s.cameraId, s.invertPan]), [['rs3', 'AA:01', 'cam1', false]]);
-// gimbal without Sony, Sony without id, VISCA with Sony => none
-assert.deepEqual(resolveTrackingSources(config([cam(1, 'rs3', 'dji-bridge'), cam(2, 'rs3b', 'dji-bridge', 'sonyNoId'), cam(3, 'vbot', 'visca', 'sonyV')])), []);
+// gimbal without Sony, Sony without id, VISCA without Sony => none
+assert.deepEqual(resolveTrackingSources(config([cam(1, 'rs3', 'dji-bridge'), cam(2, 'rs3b', 'dji-bridge', 'sonyNoId'), cam(3, 'vbot', 'visca')])), []);
+// a VISCA head with a bound Sony camera is a source (driven through the dead-man VISCA driver)
+assert.deepEqual(resolveTrackingSources(config([cam(3, 'vbot', 'visca', 'sonyV')])).map(s => [s.sourceId, s.sonyCameraId, s.cameraId]), [['vbot', 'AA:03', 'cam3']]);
 // a device that is not in the active profile never becomes a source
 assert.deepEqual(resolveTrackingSources(config([cam(1, 'rs3b', 'dji-bridge', 'sonyB')])).map(s => s.sourceId), ['rs3b']);
 assert.deepEqual(resolveTrackingSources(config([])), []);
