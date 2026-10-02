@@ -23,6 +23,10 @@ sony:
   enabled: true
   apiUrl: "http://127.0.0.1:8191"
 
+# iPad remote control (/remote): off until switched on from the desk page or POST /api/remote/enabled.
+remoteControl:
+  enabled: false
+
 devices:
   vbot:
     label: "V-BOT"

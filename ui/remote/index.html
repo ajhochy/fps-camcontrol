@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0b0e10">
+<title>CamControl Remote</title>
+<link rel="stylesheet" href="/ui/remote/remote.css">
+</head>
+<body>
+<div id="app">
+  <header id="topbar">
+    <span id="conn" class="dot dot-off" title="Connection"></span>
+    <span id="connText">Connecting…</span>
+    <span id="rtt" class="muted"></span>
+    <span id="ownerPill" class="pill pill-wait">Connecting</span>
+    <span id="padPill" class="pill pill-wait">No controller</span>
+    <span class="spacer"></span>
+    <button id="nameBtn" class="link" type="button" title="Name shown on the desk">iPad</button>
+  </header>
+
+  <div id="banner" class="banner" hidden></div>
+
+  <main id="main">
+    <section id="previewPane">
+      <div id="previewBox">
+        <img id="previewImg" alt="Live preview of the controlled camera" hidden>
+        <div id="previewNote" class="preview-note">Waiting for the camera list…</div>
+      </div>
+      <div id="controlInfo" class="muted"></div>
+    </section>
+
+    <aside id="side">
+      <h2>Cameras</h2>
+      <ul id="cams"></ul>
+      <div id="speedLine" class="muted"></div>
+    </aside>
+  </main>
+
+  <form id="pinRow" class="pin-row" hidden onsubmit="return false">
+    <label for="pinInput">PIN</label>
+    <input id="pinInput" type="password" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="4-8 digits">
+    <button id="pinBtn" class="btn" type="button">Unlock</button>
+  </form>
+
+  <footer id="actions">
+    <button id="claimBtn" class="btn btn-primary" type="button">Take control</button>
+    <button id="releaseBtn" class="btn" type="button" hidden>Release</button>
+    <span id="hint" class="muted">Press any button on the controller to wake it. Hold Menu for 1 s to take control.</span>
+    <span class="spacer"></span>
+    <button id="stopBtn" class="btn btn-stop" type="button">STOP</button>
+  </footer>
+  <div id="wakeHint" class="muted" hidden></div>
+</div>
+
+<script src="/ui/remote/remoteModel.js"></script>
+<script src="/ui/remote/remote.js"></script>
+</body>
+</html>

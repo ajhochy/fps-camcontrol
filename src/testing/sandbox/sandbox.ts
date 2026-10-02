@@ -1,4 +1,5 @@
 import { spawn, ChildProcess } from 'child_process';
+import { WebSocket } from 'ws';
 import fs from 'fs';
 import path from 'path';
 import { FakeSonySidecar } from './fakeSonySidecar';
@@ -475,6 +476,179 @@ async function selfTest(): Promise<number> {
     check('a draft whose profile no longer exists is not applied', view.profile?.modified === false && view.rigs?.[0]?.inputId === 6);
     check('the operator is told, and the draft is kept aside', /no longer exists/.test(view.profile?.notice ?? '') && fs.readdirSync(runDir).some((name) => name.startsWith('working-profile.json.orphaned-')));
     await post('/api/profiles/revert');
+
+    // --- iPad remote control: a WebSocket client plays the iPad; the DJI bridge fake is the camera
+    {
+      const wsBase = `ws://127.0.0.1:${APP_PORT}/ws/remote-controller`;
+      const rs3 = fakes.bridges[0];
+      const rigIndex = ((await api('/api/config')).body.cameras as any[]).findIndex((c) => c.label === 'DJI RS3');
+      const faceBit = [2, 0, 1, 3][rigIndex]; // X, A, B, Y pick cameras 1-4
+      check('the RS3 rig is a face-button camera', rigIndex >= 0 && rigIndex <= 3);
+
+      interface Remote { ws: WebSocket; msgs: any[]; closed: { code: number } | null; seq: number; send: (o: unknown) => void; frame: (a: number[], tr?: number[], b?: number) => void; stream: (ms: number, a: number[], tr?: number[], b?: number) => Promise<void>; close: () => void }
+      const connect = async (origin: string | null = base, name = 'Test iPad'): Promise<Remote> => {
+        const ws = new WebSocket(wsBase, origin === null ? {} : { headers: { Origin: origin } });
+        const remote: Remote = {
+          ws, msgs: [], closed: null, seq: 0,
+          send: (o) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(o)); },
+          frame: (a, tr = [0, 0], b = 0) => remote.send({ t: 'in', s: ++remote.seq, a, tr, b }),
+          stream: async (ms, a, tr = [0, 0], b = 0) => { const end = Date.now() + ms; while (Date.now() < end) { remote.frame(a, tr, b); await sleep(33); } },
+          close: () => ws.close(),
+        };
+        ws.on('message', (d) => remote.msgs.push(JSON.parse(String(d))));
+        ws.on('close', (code) => { remote.closed = { code }; });
+        ws.on('error', () => { remote.closed = remote.closed ?? { code: 0 }; });
+        await new Promise<void>((resolve) => { ws.once('open', () => resolve()); ws.once('error', () => resolve()); ws.once('close', () => resolve()); });
+        if (ws.readyState === WebSocket.OPEN) remote.send({ t: 'hello', v: 1, name, pad: { id: 'Xbox', mapping: 'standard' } });
+        return remote;
+      };
+      const ownerNow = async (): Promise<string> => (await api('/api/status')).body.remoteControl?.owner;
+      const claimed = async (r: Remote): Promise<boolean> => { r.send({ t: 'claim' }); return waitFor('the claim to be granted', async () => r.msgs.some((m) => m.t === 'owner' && m.you === true), 3000, 40).then(() => true, () => false); };
+      const stoppedSince = async (mark: number, ms = 600): Promise<boolean> => waitFor('the gimbal to stop', async () => rs3.velPan === 0 && rs3.log.slice(mark).includes('stop {}'), ms, 10).then(() => true, () => false);
+
+      check('remote control is off by default', (await api('/api/status')).body.remoteControl?.enabled === false);
+      check('GET /remote serves the page, and it loads remote.js', await (async () => { const r = await fetch(`${base}/remote`); const t = await r.text(); return r.status === 200 && t.includes('/ui/remote/remote.js'); })());
+      check('remote.js, remoteModel.js and remote.css are served, and the page loads the model before the script', (await fetch(`${base}/ui/remote/remote.js`)).status === 200 && (await fetch(`${base}/ui/remote/remoteModel.js`)).status === 200 && (await fetch(`${base}/ui/remote/remote.css`)).status === 200 && await (async () => { const t = await (await fetch(`${base}/remote`)).text(); return t.indexOf('remoteModel.js') > 0 && t.indexOf('remoteModel.js') < t.indexOf('/ui/remote/remote.js'); })());
+      check('the desk page has the Remote control card, its switch, Take back, STOP and the /remote link', await (async () => { const t = await (await fetch(`${base}/`)).text(); return ['id="remote-card"', 'setRemoteEnabled', 'remoteTakeBack', 'stopAllCameras', 'href="/remote"', 'id="remote-enabled"'].every((marker) => t.includes(marker)); })());
+      check('the remote enabled switch rejects a non-boolean (400)', (await post('/api/remote/enabled', { enabled: 'yes' })).status === 400);
+
+      // disabled: a claim is refused and nothing moves
+      let r1 = await connect();
+      await waitFor('welcome', async () => r1.msgs.some((m) => m.t === 'welcome'), 3000, 40);
+      check('welcome reports remote control as disabled', r1.msgs.find((m) => m.t === 'welcome')?.enabled === false);
+      r1.send({ t: 'claim' });
+      await sleep(150);
+      check('a claim while remote control is off is denied: disabled', r1.msgs.some((m) => m.t === 'denied' && m.reason === 'disabled') && (await ownerNow()) === 'local');
+      r1.close();
+
+      const evil = await connect('http://evil.example');
+      await sleep(150);
+      check('a WebSocket opened by a page from another site (wrong Origin) is closed at once (1008)', evil.closed?.code === 1008 && evil.msgs.length === 0);
+      const bare = await connect(null);
+      await waitFor('welcome', async () => bare.msgs.some((m) => m.t === 'welcome'), 3000, 40);
+      check('a non-browser client with no Origin is allowed in', bare.msgs.some((m) => m.t === 'welcome'));
+      bare.close();
+
+      check('switching remote control on', (await post('/api/remote/enabled', { enabled: true })).body.remoteControl?.enabled === true);
+
+      // claim, select the RS3 with its face button, pan it
+      r1 = await connect();
+      check('a claim is granted when enabled and the desk is quiet', await claimed(r1) && (await ownerNow()) === 'remote');
+      check('the status names the iPad as the owner', /Test iPad/.test((await api('/api/status')).body.remoteControl?.ownerName ?? ''));
+      await r1.stream(150, [0, 0, 0, 0]);
+      await r1.stream(150, [0, 0, 0, 0], [0, 0], 1 << faceBit);
+      await r1.stream(150, [0, 0, 0, 0]);
+      check('the iPad selects the RS3 rig with its face button', (await api('/api/status')).body.controlledCamera === ((await api('/api/config')).body.cameras as any[])[rigIndex].id);
+      check('selecting the rig moved nothing', rs3.velPan === 0);
+      const streaming = r1.stream(900, [0, 0, 0.8, 0]);
+      await sleep(500);
+      check('the right stick pans the gimbal (velPan > 0)', rs3.velPan > 0, `velPan=${rs3.velPan}`);
+      await streaming;
+
+      // (a) the socket drops mid-move: an explicit stop, well inside the dead-man window
+      const streaming2 = r1.stream(2000, [0, 0, 0.8, 0]);
+      await sleep(400);
+      const movingBefore = rs3.velPan;
+      const logMark = rs3.log.length;
+      const closeAt = Date.now();
+      r1.ws.terminate();
+      const stopped = await waitFor('the gimbal to be stopped', async () => rs3.velPan === 0 && rs3.log.slice(logMark).includes('stop {}'), 1000, 10).then(() => Date.now() - closeAt, () => -1);
+      await streaming2;
+      check('the gimbal was moving before the socket dropped', movingBefore > 0);
+      check('(a) the socket dropping stops the gimbal explicitly (stop sent) within 150 ms', stopped >= 0 && stopped < 150, `stopped after ${stopped} ms`);
+      check('(a) the app stopped it, not the bridge watchdog (no safety-stop)', !rs3.log.slice(logMark).includes('safety-stop'));
+      await sleep(100);
+      check('(d) the owner returns to the desk after the socket closes', (await ownerNow()) === 'local');
+
+      // (b) the iPad goes silent with the socket still open
+      const r2 = await connect();
+      check('(b) the iPad can claim again after a drop', await claimed(r2));
+      await r2.stream(150, [0, 0, 0, 0]);
+      const move2 = r2.stream(500, [0, 0, 0.8, 0]);
+      await sleep(300);
+      const moving2 = rs3.velPan;
+      await move2;
+      const silentAt = Date.now();
+      const stopped2 = await waitFor('the gimbal to stop on silence', async () => rs3.velPan === 0, 1500, 10).then(() => Date.now() - silentAt, () => -1);
+      check('(b) the gimbal was moving', moving2 > 0);
+      check('(b) going silent with the socket open stops the gimbal within 400 ms', stopped2 >= 0 && stopped2 < 400, `stopped after ${stopped2} ms`);
+      check('(b) the owner is revoked after 1 s of silence', await waitFor('owner to revert', async () => (await ownerNow()) === 'local', 2500, 100).then(() => true, () => false));
+      check('(b) the iPad is told it lost control', r2.msgs.some((m) => m.t === 'owner' && m.you === false && m.reason === 'timeout'));
+      r2.close();
+      await sleep(100);
+
+      // idle (page hidden) stops at once and releases the seat
+      const r3 = await connect();
+      await claimed(r3);
+      const move3 = r3.stream(2000, [0, 0, 0.8, 0]);
+      await sleep(300);
+      const idleMark = rs3.log.length;
+      r3.send({ t: 'idle' });
+      check('an idle message (page hidden) stops the gimbal at once and releases the seat', await stoppedSince(idleMark) && (await ownerNow()) === 'local');
+      await move3;
+      check('frames sent after idle (no longer the owner) move nothing', rs3.velPan === 0);
+
+      // the desk wins: Take back; and frames from a non-owner are ignored
+      await claimed(r3);
+      const spectator = await connect(base, 'Spectator');
+      await waitFor('welcome', async () => spectator.msgs.some((m) => m.t === 'welcome'), 3000, 40);
+      spectator.send({ t: 'claim' });
+      await sleep(150);
+      check('a second iPad is refused while one owns: other-remote', spectator.msgs.some((m) => m.t === 'denied' && m.reason === 'other-remote'));
+      await spectator.stream(400, [0, 0, 0.8, 0]);
+      check('frames from the spectator move nothing', rs3.velPan === 0);
+      const move4 = r3.stream(1500, [0, 0, 0.8, 0]);
+      await sleep(300);
+      const takeMark = rs3.log.length;
+      const taken = await post('/api/remote/release');
+      check('Take back answers ok and the desk owns again', taken.status === 200 && taken.body.wasRemote === true && (await ownerNow()) === 'local');
+      check('Take back stops the gimbal', await stoppedSince(takeMark));
+      await move4;
+      check('the iPad is told the desk took control back', r3.msgs.some((m) => m.t === 'owner' && m.you === false && m.reason === 'taken-back'));
+      spectator.close();
+
+      // STOP from the iPad
+      await claimed(r3);
+      const move5 = r3.stream(1500, [0, 0, 0.8, 0]);
+      await sleep(300);
+      const stopMark = rs3.log.length;
+      r3.send({ t: 'stop' });
+      check('STOP from the iPad stops the gimbal and releases the seat', await stoppedSince(stopMark) && (await ownerNow()) === 'local');
+      await move5;
+      r3.close();
+      await sleep(100);
+
+      // HTTP STOP
+      const emer = await post('/api/emergency-stop');
+      check('POST /api/emergency-stop answers ok', emer.status === 200 && emer.body.ok === true);
+
+      // (c) junk frames
+      const r4 = await connect();
+      await claimed(r4);
+      for (const junk of ['not json', '[]', '{"t":"in"}', '{"t":"in","s":1,"a":[1e999,0,0,0],"tr":[0,0],"b":0}', '{"t":"in","s":2,"a":[0,0,"x",0],"tr":[0,0],"b":0}', '{"t":"in","s":3,"a":[0,0,1,0],"tr":[0,0],"b":99999999}', '{"t":"in","s":4,"a":[0,0,1],"tr":[0,0],"b":0}', '{"t":"nope"}']) r4.ws.send(junk);
+      await sleep(250);
+      check('(c) junk frames do not move anything', rs3.velPan === 0);
+      for (let i = 0; i < 40; i++) r4.ws.send('junk');
+      await waitFor('close on abuse', async () => r4.closed, 2000, 40).catch(() => undefined);
+      check('(c) a flood of invalid messages gets the socket closed (1008)', r4.closed?.code === 1008);
+      await sleep(100);
+      check('(d) the owner is back to the desk after the abuse', (await ownerNow()) === 'local');
+
+      // switching it off while an iPad is driving
+      const r5 = await connect();
+      await claimed(r5);
+      const move6 = r5.stream(1500, [0, 0, 0.8, 0]);
+      await sleep(300);
+      const offMark = rs3.log.length;
+      await post('/api/remote/enabled', { enabled: false });
+      check('switching remote control off stops the gimbal and releases the seat', await stoppedSince(offMark) && (await ownerNow()) === 'local');
+      await move6;
+      r5.send({ t: 'claim' });
+      await sleep(150);
+      check('and a new claim is denied: disabled', r5.msgs.some((m) => m.t === 'denied' && m.reason === 'disabled'));
+      r5.close();
+      await sleep(100);
+    }
   } catch (error) {
     check('the self-test ran to completion', false, String(error instanceof Error ? error.message : error));
   }

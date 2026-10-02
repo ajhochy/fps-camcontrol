@@ -198,6 +198,8 @@ const DevicesSchema = z.object({
   sony: SonySchema.optional(),
   // The status UI's network address. Absent = this Mac only (127.0.0.1); "0.0.0.0" = everyone on the network.
   server: z.object({ host: z.string().regex(/^[0-9a-fA-F.:]{2,45}$/).optional() }).optional(),
+  // Driving the cameras from an iPad with a game controller (/remote). Off unless switched on here or on the desk page.
+  remoteControl: z.object({ enabled: z.boolean().default(false), pin: z.preprocess((v) => (typeof v === 'number' ? String(v) : v), z.string().regex(/^\d{4,8}$/, 'pin must be 4-8 digits (quote it in the YAML to keep leading zeros)')).optional() }).optional(),
 }).superRefine((cfg, ctx) => {
   if (cfg.profiles && cfg.devices) {
     for (const issue of collectRigIssues(cfg.devices, cfg.profiles)) ctx.addIssue({ code: 'custom', ...issue });
@@ -290,6 +292,8 @@ export interface AppConfig {
   sony?: SonyRuntimeConfig;
   /** Where the status UI listens (STATUS_HOST overrides; default 127.0.0.1, this Mac only). */
   serverHost?: string;
+  /** iPad remote control (the /remote page): whether it starts switched on, and an optional PIN. */
+  remoteControl?: { enabled: boolean; pin?: string };
   /** Unsaved rig edits of the active profile, applied on top of it (see workingProfile.ts). */
   working?: WorkingProfile;
   /** Something to tell the operator about the working copy (a draft that could not be restored, an outside edit). */
@@ -415,6 +419,7 @@ export function loadConfig(): AppConfig {
     activeProfile: devices.activeProfile,
     sony: resolveSonyConfig(devices.sony, devicesPath),
     serverHost: process.env.STATUS_HOST ?? devices.server?.host ?? '127.0.0.1',
+    remoteControl: devices.remoteControl,
     working,
     workingNotice,
   };
