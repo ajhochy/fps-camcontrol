@@ -1,0 +1,13 @@
+[Unit]
+# The same power logger as a systemd USER service, for a Pi where the install has no sudo
+# (scripts/install-pi-bridge.sh --user-service). Needs the account in the `video` group for vcgencmd and
+# lingering (loginctl enable-linger) so it runs from boot without a login.
+Description=Log Pi power state every 30 s (fps-camcontrol, user service)
+
+[Service]
+ExecStart=%h/.local/bin/pi-power-log
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
