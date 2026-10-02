@@ -228,8 +228,8 @@ async function selfTest(): Promise<number> {
       check('a gimbal\'s battery shows on its rig (state, rig view)', !!(await waitFor('the battery report', async () => (await rs3Live())?.battery?.percent === 23))
         && (await api('/api/status')).body.cameraGimbalBattery?.cam4?.percent === 23);
       rs3Bridge.battery = 12;
-      check('below 15% the rig health says "Gimbal battery low" (check, not down)', !!(await waitFor('the low-battery verdict', async () => { const h = (await api('/api/status')).body.health?.rigs?.cam4; return h?.text === 'Gimbal battery low' && h?.level === 'check'; })));
-      check('the Status page draws the gimbal battery next to the BT signal', /Gimbal battery /.test(String((await api('/')).body)) && /cam-card__bt/.test(String((await api('/')).body)));
+      check('a low gimbal battery has its own verdict (Check, with what to do) and the link line stays Gimbal Linked', !!(await waitFor('the low-battery verdict', async () => { const b = (await api('/api/status')).body.health; return b?.batteries?.cam4?.level === 'check' && b?.batteries?.cam4?.text === 'Gimbal battery 12%' && /charge/.test(b?.batteries?.cam4?.hint) && b?.rigs?.cam4?.text === 'Gimbal Linked'; })));
+      check('the Status page draws the gimbal battery next to the BT signal, from the server verdict', /function batteryBadge/.test(String((await api('/')).body)) && /health\.batteries/.test(String((await api('/')).body)) && /cam-card__bt/.test(String((await api('/')).body)));
       rs3Bridge.battery = null;
       check('no report, no battery shown', !!(await waitFor('the battery to clear', async () => !(await rs3Live())?.battery)));
 

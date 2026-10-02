@@ -21,7 +21,7 @@ import { ActivityLog } from '../app/activityLog';
 import { ViscaDevice } from '../devices/viscaDevice';
 import { MotionDevice } from '../devices/motionDevice';
 import { createMotionDevice } from '../devices/deviceFactory';
-import { HealthTracker, rigHealth, sonyHealth, HealthItem } from '../app/health';
+import { HealthTracker, rigHealth, sonyHealth, gimbalBatteryHealth, HealthItem } from '../app/health';
 import { probeBridge, fetchBridgeInfo, mergeBridges, DEFAULT_BRIDGE_PORTS, tcpOpen, localSubnetHosts, inBatches, resolveHost, nameOf, BridgeProbe, FoundBridge, fetchBluetoothGimbals, selectBluetoothGimbal, normalizeBluetoothAddress } from '../devices/gimbalScan';
 import { AtemClient } from '../atem/atemClient';
 import { loadProfiles, detectConnectionType } from '../input/profileDetector';
@@ -253,6 +253,8 @@ export function createStatusServer(
       const cameraKeys: Record<string, string> = {};
       for (const cam of config.cameras) {
         items.push({ key: `rig:${cam.id}`, label: cam.label, health: rigHealth(state, { id: cam.id, label: cam.label, protocol: cam.protocol }) });
+        const battery = cam.protocol === 'dji-bridge' && state.cameraConnected[cam.id] !== undefined ? gimbalBatteryHealth(state.cameraGimbalBattery?.[cam.id]?.percent) : null;
+        if (battery) items.push({ key: `battery:${cam.id}`, label: `${cam.label} gimbal battery`, health: battery });
         const rig = view.rigs.find((r) => r.id === cam.id);
         if (rig && rig.camera && sonyManager) {
           const device = inventory[rig.camera];
@@ -271,6 +273,7 @@ export function createStatusServer(
       state.health = {
         rigs: Object.fromEntries(config.cameras.map((cam) => [cam.id, snap[`rig:${cam.id}`]]).filter(([, v]) => v)),
         cameras: Object.fromEntries(Object.entries(cameraKeys).map(([id, key]) => [id, snap[key]]).filter(([, v]) => v)),
+        batteries: Object.fromEntries(config.cameras.map((cam) => [cam.id, snap[`battery:${cam.id}`]]).filter(([, v]) => v)),
       };
     } catch (err) {
       logger.warn({ err: String(err) }, 'health update failed');
@@ -2042,11 +2045,11 @@ function signalBadge(sig) {
   return '<span class="cam-card__signal cam-card__signal--' + esc(sig.rating) + '" title="' + esc(sig.summary) + '"><span class="sig-bars" aria-hidden="true">' + bars + '</span>BT signal: ' + word + '</span>';
 }
 
-// The gimbal's own battery report (bridge 0.6.0+): ok from 40%, warn 20-39%, error below 20%.
-function batteryBadge(b) {
-  if (!b || typeof b.percent !== 'number') return '';
-  var tone = b.percent >= 40 ? 'good' : b.percent >= 20 ? 'weak' : 'poor';
-  return '<span class="cam-card__signal cam-card__signal--' + tone + '" title="As the gimbal reports it">Gimbal battery ' + esc(String(b.percent)) + '%</span>';
+// The gimbal's battery line, coloured by the server's one battery rule (app/health.ts gimbalBatteryHealth).
+function batteryBadge(h) {
+  if (!h) return '';
+  var tone = h.level === 'ready' ? 'good' : h.level === 'check' ? 'weak' : 'poor';
+  return '<span class="cam-card__signal cam-card__signal--' + tone + '" title="' + esc(h.hint || 'As the gimbal reports it') + '">' + esc(h.text) + '</span>';
 }
 
 // Turn the three camera-keyed maps in /api/status into one label per camera.
@@ -2126,10 +2129,12 @@ function renderStatus(s, c) {
     const cam = cams[i];
     const motion = healthOf(s.health && s.health.rigs && s.health.rigs[cam.id]) || cameraLinkState(s, cam.id);
     const camera = healthOf(s.health && s.health.cameras && s.health.cameras[cam.id]);
-    const link = worse(motion, camera);
+    const battery = healthOf(s.health && s.health.batteries && s.health.batteries[cam.id]);
+    const link = worse(worse(motion, camera), battery);
     const camName = 'CAM ' + String(i + 1).padStart(2, '0') + ' ' + cam.label;
     if (motion.cls !== 'ok') alerts.push({ cls: motion.cls, what: camName + (cam.protocol === 'dji-bridge' ? ' gimbal' : ' control'), text: motion.text, hint: motion.hint, since: motion.since });
     if (camera && camera.cls !== 'ok') alerts.push({ cls: camera.cls, what: camName + ' camera', text: camera.text, hint: camera.hint, since: camera.since });
+    if (battery && battery.cls !== 'ok') alerts.push({ cls: battery.cls, what: camName, text: battery.text, hint: battery.hint, since: battery.since });
     const isProgram = s.programCamera === cam.id;
     const isPreview = s.previewCamera === cam.id;
     const isControlled = s.controlledCamera === cam.id;
@@ -2152,7 +2157,7 @@ function renderStatus(s, c) {
         '<span class="cam-card__status cam-card__line--' + motion.cls + '">' + esc(motion.text) + '</span>' +
         (motion.hint && motion.cls !== 'ok' ? '<span class="cam-card__hint">' + esc(motion.hint) + '</span>' : '') +
         '<span class="cam-card__bt">' + signalBadge(s.cameraGimbalSignal && s.cameraGimbalSignal[cam.id]) +
-        batteryBadge(s.cameraGimbalBattery && s.cameraGimbalBattery[cam.id]) + '</span>' +
+        batteryBadge(s.health && s.health.batteries && s.health.batteries[cam.id]) + '</span>' +
         wakeHtml(cam, motion, s) +
         (camera ? '<span class="cam-card__status cam-card__line--' + camera.cls + '" title="' + esc(camera.hint) + '">Camera: ' + esc(camera.text) + '</span>' +
           (camera.hint && camera.cls !== 'ok' ? '<span class="cam-card__hint">' + esc(camera.hint) + '</span>' : '') : '') +

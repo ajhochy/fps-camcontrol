@@ -68,7 +68,7 @@ export interface AppState {
   /** Whether VISCA replies sent to port 52381 can be heard (the app holds that port); null before it binds. */
   viscaRepliesHeard: boolean | null;
   /** Per-rig health (motion side, and the Sony camera on it), recomputed every second; see app/health.ts. */
-  health: { rigs: Record<string, unknown>; cameras: Record<string, unknown> } | null;
+  health: { rigs: Record<string, unknown>; cameras: Record<string, unknown>; batteries?: Record<string, unknown> } | null;
   /** Who is driving (desk controller or an iPad) and whether iPad control is switched on; see input/remoteControl.ts. */
   remoteControl: RemoteControlStatus;
   controllerConnected: boolean;

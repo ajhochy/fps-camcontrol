@@ -3,7 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { createInitialState } from '../app/state';
-import { rigHealth, sonyHealth, HealthTracker } from '../app/health';
+import { rigHealth, sonyHealth, HealthTracker, gimbalBatteryHealth } from '../app/health';
 
 /** Device health verdicts and the health log (app/health.ts). Run: npx ts-node src/testing/healthTest.ts */
 let passed = 0;
@@ -36,16 +36,11 @@ delete st.cameraGimbalResponding.cam2;
 st.cameraGimbalSignal.cam2 = { rating: 'weak', drops10m: 2, corruptPct: 0, summary: '2 Bluetooth drops in 10 min' };
 check('a weak signal is Check', rigHealth(st, gimbal).level === 'check' && rigHealth(st, gimbal).text === 'Weak Signal');
 delete st.cameraGimbalSignal.cam2;
-st.cameraGimbalBattery = { cam2: { percent: 23, ageS: 0 } };
-check('a gimbal at 23% battery is still Ready (warned on the tile, not in health)', rigHealth(st, gimbal).level === 'ready');
-st.cameraGimbalBattery.cam2 = { percent: 12, ageS: 0 };
-check('below 15% battery is Check: "Gimbal battery low", not Down', (() => { const h = rigHealth(st, gimbal); return h.level === 'check' && h.text === 'Gimbal battery low' && /12%/.test(h.hint); })());
-st.cameraGimbalBattery.cam2 = { percent: 7, ageS: 0 };
-check('below 8% the rig is Down for battery alone', (() => { const h = rigHealth(st, gimbal); return h.level === 'down' && /7%/.test(h.text); })());
-st.cameraGimbalSignal.cam2 = { rating: 'weak', drops10m: 2, corruptPct: 0, summary: '2 Bluetooth drops in 10 min' };
-st.cameraGimbalBattery.cam2 = { percent: 12, ageS: 0 };
-check('a weak signal outranks a low battery (both are Check; the signal needs the operator first)', rigHealth(st, gimbal).text === 'Weak Signal');
+st.cameraGimbalBattery = { cam2: { percent: 12, ageS: 0 } };
+check('the link verdict never changes for battery: a low gimbal still reads Gimbal Linked', rigHealth(st, gimbal).text === 'Gimbal Linked' && rigHealth(st, gimbal).level === 'ready');
 delete st.cameraGimbalBattery.cam2;
+check('gimbal battery: one rule — 25% and up Ready, 8-24% Check, under 8% Down', gimbalBatteryHealth(25)!.level === 'ready' && gimbalBatteryHealth(24)!.level === 'check' && gimbalBatteryHealth(19)!.level === 'check' && gimbalBatteryHealth(8)!.level === 'check' && gimbalBatteryHealth(7)!.level === 'down');
+check('gimbal battery text is the same at every level, with what to do when low', gimbalBatteryHealth(43)!.text === 'Gimbal battery 43%' && gimbalBatteryHealth(14)!.text === 'Gimbal battery 14%' && /charge/.test(gimbalBatteryHealth(14)!.hint) && gimbalBatteryHealth(null) === null);
 
 check('Sony: service off', sonyHealth(undefined, false, true).text === 'Sony Service Off');
 check('Sony: a connected camera is Ready and shows its battery', (() => { const h = sonyHealth({ state: 'connected', battery: { percent: 64 } }, true, true); return h.level === 'ready' && /64%/.test(h.text); })());
