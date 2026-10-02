@@ -28,8 +28,11 @@ from typing import Any, Dict, Optional
 import websockets
 from websockets.server import WebSocketServerProtocol
 
+from urllib.parse import parse_qs, urlsplit
+
 from drivers.base import GimbalDriver, GimbalError, NotSupported
 from drivers.mock_driver import MockDriver
+from gimbal_select import GimbalSelector, SelectionError, SelectionStore, normalize_address, state_path
 
 PROTOCOL_VERSION = 1
 DEFAULT_SAFETY_TIMEOUT_MS = 250
@@ -43,11 +46,16 @@ GIMBAL_POLL_S = 2.0
 
 log = logging.getLogger("dji-bridge")
 
-BRIDGE_VERSION = "0.5.0"
+BRIDGE_VERSION = "0.6.0"
 INFO_PATH = "/info"
+GIMBALS_PATH = "/gimbals"
+GIMBAL_PATH = "/gimbal"
+# A GET /gimbals?scan=1 or POST /gimbal holds the HTTP request open for a scan (and possibly a wait for the BLE lock
+# another bridge holds while connecting), so the handshake timeout must be longer than websockets' 10 s default.
+OPEN_TIMEOUT_S = 30
 
 
-def bridge_info(driver: GimbalDriver, port: int, clients: int) -> Dict[str, Any]:
+def bridge_info(driver: GimbalDriver, port: int, clients: int, selector: Optional[GimbalSelector] = None) -> Dict[str, Any]:
     """Who this bridge is: lets the app recognise one gimbal under any of the Pi's addresses.
 
     Served on plain HTTP (GET /info) as well as in the `hello` ack. The HTTP form opens no
@@ -67,6 +75,9 @@ def bridge_info(driver: GimbalDriver, port: int, clients: int) -> Dict[str, Any]
         "clients": clients,
         "link": link_health(driver),
         "asleep": getattr(driver, "asleep", None),
+        # Which Bluetooth gimbal this bridge is set to drive and how it was chosen (bridge >= 0.6.0; see
+        # gimbal_select.py). None for a driver without selection support.
+        "bluetooth": selector.describe_selection() if selector is not None else None,
     }
 
 
@@ -81,21 +92,59 @@ def link_health(driver: GimbalDriver) -> Optional[Dict[str, Any]]:
         return None
 
 
-def info_request_handler(driver: GimbalDriver, port: int, sessions: "set[Any]"):
-    """A websockets `process_request` hook answering GET /info, for the old and the new websockets API."""
+async def http_route(
+    method: str, path: str, driver: GimbalDriver, port: int, sessions: "set[Any]", selector: Optional[GimbalSelector]
+) -> Optional["tuple[int, Dict[str, Any]]"]:
+    """Plain-HTTP requests on the bridge port; None hands the request on to the WebSocket handshake.
 
-    def body() -> bytes:
-        return json.dumps(bridge_info(driver, port, len(sessions))).encode()
+    None of these opens a control session, so none can trigger the stop-on-disconnect in Session.run.
+      GET  /info                     who this bridge is, and which Bluetooth gimbal it drives
+      GET  /gimbals[?scan=1]         DJI gimbals in range (scans only when asked or while nothing is linked)
+      POST /gimbal?address=<addr|auto>  switch gimbal: persist, drop the current link, connect the new one
+    The address travels in the query string: websockets' HTTP parser refuses request bodies.
+    """
+    parts = urlsplit(path)
+    route = parts.path.rstrip("/") or "/"
+    query = {k: v[-1] for k, v in parse_qs(parts.query).items()}
+    if route == INFO_PATH:
+        return HTTPStatus.OK, bridge_info(driver, port, len(sessions), selector)
+    if route not in (GIMBALS_PATH, GIMBAL_PATH):
+        return None
+    if selector is None:
+        return HTTPStatus.NOT_IMPLEMENTED, {"ok": False, "error": "this bridge has no gimbal selection"}
+    if route == GIMBALS_PATH:
+        if method != "GET":
+            return HTTPStatus.METHOD_NOT_ALLOWED, {"ok": False, "error": "use GET /gimbals"}
+        return HTTPStatus.OK, await selector.gimbals_body(scan=query.get("scan") in ("1", "true", "yes"))
+    if method != "POST":
+        # Never change the gimbal on a GET: a prefetch or a stray link must not cut a live camera's link.
+        return HTTPStatus.METHOD_NOT_ALLOWED, {"ok": False, "error": "use POST /gimbal?address=<address|auto> to switch gimbals"}
+    target = query.get("address")
+    if not target:
+        return HTTPStatus.BAD_REQUEST, {"ok": False, "error": "address is required (?address=AA:BB:CC:DD:EE:FF or ?address=auto)"}
+    try:
+        selected = await selector.select(target)
+    except SelectionError as exc:
+        return exc.status, {"ok": False, "error": str(exc), "selected": selector.describe_selection()}
+    return HTTPStatus.OK, {"ok": True, "selected": selected}
 
-    def process_request(*args: Any) -> Any:
-        if len(args) == 2 and isinstance(args[0], str):  # legacy API: (path, request_headers)
-            if args[0].split("?")[0] != INFO_PATH:
+
+def info_request_handler(driver: GimbalDriver, port: int, sessions: "set[Any]", selector: Optional[GimbalSelector] = None):
+    """A websockets `process_request` hook for the plain-HTTP routes, for the old and the new websockets API."""
+
+    async def process_request(*args: Any) -> Any:
+        if len(args) == 2 and isinstance(args[0], str):  # legacy API: (path, request_headers); GET only
+            answer = await http_route("GET", args[0], driver, port, sessions, selector)
+            if answer is None:
                 return None
-            return (HTTPStatus.OK, [("Content-Type", "application/json"), ("Cache-Control", "no-store")], body())
+            status, payload = answer
+            return (HTTPStatus(status), [("Content-Type", "application/json"), ("Cache-Control", "no-store")], json.dumps(payload).encode())
         connection, request = args  # websockets >= 14: (connection, request)
-        if request.path.split("?")[0] != INFO_PATH:
+        answer = await http_route(getattr(request, "method", "GET") or "GET", request.path, driver, port, sessions, selector)
+        if answer is None:
             return None
-        response = connection.respond(HTTPStatus.OK, body().decode())
+        status, payload = answer
+        response = connection.respond(HTTPStatus(status), json.dumps(payload))
         del response.headers["Content-Type"]
         response.headers["Content-Type"] = "application/json"
         response.headers["Cache-Control"] = "no-store"
@@ -113,9 +162,11 @@ class Session:
         driver: GimbalDriver,
         safety_timeout_ms: int,
         port: int = 0,
+        selector: Optional[GimbalSelector] = None,
     ):
         self.ws = ws
         self.port = port
+        self.selector = selector
         self.driver = driver
         self.safety_timeout_ms = safety_timeout_ms
         self.client_id: Optional[str] = None
@@ -167,9 +218,12 @@ class Session:
     async def _dispatch(self, method: str, params: Dict[str, Any]) -> Dict[str, Any]:
         if method == "hello":
             self.client_id = params.get("clientId")
-            identity = bridge_info(self.driver, self.port, 1)
+            identity = bridge_info(self.driver, self.port, 1, self.selector)
             del identity["clients"]
-            return {**identity, "capabilities": list(self.driver.capabilities)}
+            capabilities = list(self.driver.capabilities)
+            if self.selector is not None:
+                capabilities.append("gimbalSelect")  # GET /gimbals and POST /gimbal on this port
+            return {**identity, "capabilities": capabilities}
         if method == "ping":
             await self._emit("pong", {"ts": int(time.time() * 1000)})
             return {}
@@ -255,6 +309,8 @@ class Session:
                     params["link"] = link
                 # The gimbal's own sleep report (None when it has not sent one on this link).
                 params["asleep"] = getattr(self.driver, "asleep", None)
+                if self.selector is not None:
+                    params["bluetooth"] = self.selector.describe_selection()
                 await self._emit("status", params)
         except asyncio.CancelledError:
             pass
@@ -304,7 +360,7 @@ def _release_ble_lock(fh: Any) -> None:
         fh.close()
 
 
-async def maintain_gimbal(driver: GimbalDriver) -> None:
+async def maintain_gimbal(driver: GimbalDriver, selector: Optional[GimbalSelector] = None) -> None:
     """Keep the gimbal connected, retrying forever, without killing the server.
 
     The bridge must stay reachable even when the gimbal is off: the app treats a
@@ -323,38 +379,68 @@ async def maintain_gimbal(driver: GimbalDriver) -> None:
             was_connected = True
             await asyncio.sleep(GIMBAL_POLL_S)
             continue
+        if selector is not None and selector.switching:
+            # A gimbal switch owns the link right now; reconnecting the old gimbal would undo it.
+            was_connected = False
+            await asyncio.sleep(GIMBAL_POLL_S)
+            continue
         if was_connected:
             # Dropped after a good connect: reconnect immediately, no backoff.
             log.warning("gimbal link lost — reconnecting")
             was_connected = False
             backoff = GIMBAL_RETRY_MIN_S
+        if selector is not None and not getattr(driver, "address", None) and selector.can_scan:
+            # AUTO mode and nothing chosen yet: nothing is linked, so scanning cannot disturb a link.
+            try:
+                picked = await selector.auto_pick()
+            except Exception as exc:  # noqa: BLE001
+                selector.last_error = f"scan failed: {exc}"
+                picked = False
+            if not picked:
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, GIMBAL_RETRY_MAX_S)
+                continue
         lock = await _hold_ble_lock()
         try:
             await driver.connect()
         except Exception as exc:  # noqa: BLE001
             log.warning("gimbal connect failed: %s (retry in %.0fs)", exc, backoff)
+            if selector is not None:
+                selector.last_error = str(exc)
             _release_ble_lock(lock)
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, GIMBAL_RETRY_MAX_S)
             continue
         else:
             _release_ble_lock(lock)
-            log.info("gimbal connected (%s)", driver.model)
+            log.info("gimbal connected (%s %s)", driver.model, getattr(driver, "address", None) or "")
+            if selector is not None:
+                selector.last_error = None
             was_connected = True
             backoff = GIMBAL_RETRY_MIN_S
         await asyncio.sleep(GIMBAL_POLL_S)
 
 
-async def serve(host: str, port: int, driver: GimbalDriver, safety_timeout_ms: int) -> None:
+def make_selector(driver: GimbalDriver, configured_address: Optional[str], state_dir: Optional[str] = None) -> Optional[GimbalSelector]:
+    """The gimbal selector for drivers that can be pointed at another gimbal (both shipped drivers can)."""
+    if not callable(getattr(driver, "set_address", None)):
+        return None
+    store = SelectionStore(state_path(os.environ.get("BRIDGE_INSTANCE") or None, state_dir))
+    return GimbalSelector(driver, store, configured_address, _hold_ble_lock, _release_ble_lock)
+
+
+async def serve(host: str, port: int, driver: GimbalDriver, safety_timeout_ms: int, selector: Optional[GimbalSelector] = None) -> None:
+    if selector is not None and selector.address:
+        await driver.set_address(selector.address)  # type: ignore[attr-defined]
     # Bind the listener FIRST, then bring the gimbal up in the background, so the
     # bridge is always reachable and reports gimbal state instead of vanishing.
-    connector = asyncio.create_task(maintain_gimbal(driver))
+    connector = asyncio.create_task(maintain_gimbal(driver, selector))
 
     sessions: "set[Session]" = set()
 
     async def handler(ws: WebSocketServerProtocol) -> None:
         log.info("client connected: %s", ws.remote_address)
-        session = Session(ws, driver, safety_timeout_ms, port)
+        session = Session(ws, driver, safety_timeout_ms, port, selector)
         sessions.add(session)
         try:
             await session.run()
@@ -364,7 +450,11 @@ async def serve(host: str, port: int, driver: GimbalDriver, safety_timeout_ms: i
 
     log.info("DJI bridge listening on ws://%s:%d (driver=%s)", host, port, driver.name)
     try:
-        async with websockets.serve(handler, host, port, process_request=info_request_handler(driver, port, sessions)):
+        async with websockets.serve(
+            handler, host, port,
+            process_request=info_request_handler(driver, port, sessions, selector),
+            open_timeout=OPEN_TIMEOUT_S,
+        ):
             stop = asyncio.Event()
             loop = asyncio.get_running_loop()
             for sig in (signal.SIGINT, signal.SIGTERM):
@@ -389,9 +479,24 @@ def build_driver(name: str, args: argparse.Namespace) -> GimbalDriver:
         except ImportError as e:
             print(f"dji-rs3-ble driver unavailable: {e}", file=sys.stderr)
             sys.exit(2)
-        return DjiRsDriver(address=args.ble_address)
+        # No address here: the selector decides (saved choice > --ble-address/DJI_RS3_BLE_ADDRESS > strongest).
+        return DjiRsDriver(address=None)
     print(f"unknown driver: {name}", file=sys.stderr)
     sys.exit(2)
+
+
+def save_selection(address: str, state_dir: Optional[str]) -> int:
+    """--select-gimbal: write gimbal.json and exit (the installer pre-sets the gimbal this way). No Bluetooth."""
+    normalized = normalize_address(address)
+    if not normalized:
+        print(f"not a Bluetooth address: {address!r}", file=sys.stderr)
+        return 2
+    store = SelectionStore(state_path(os.environ.get("BRIDGE_INSTANCE") or None, state_dir))
+    os.makedirs(os.path.dirname(store.path), exist_ok=True)
+    if not store.save({"address": normalized, "name": None, "rssi": None, "chosenBy": "installer", "chosenAt": time.time()}):
+        return 1
+    print(f"saved gimbal {normalized} to {store.path}")
+    return 0
 
 
 def main() -> None:
@@ -400,15 +505,20 @@ def main() -> None:
     ap.add_argument("--port", type=int, default=7878)
     ap.add_argument("--driver", default="mock", choices=["mock", "dji-rs3-ble"])
     ap.add_argument("--safety-timeout-ms", type=int, default=DEFAULT_SAFETY_TIMEOUT_MS)
-    ap.add_argument("--ble-address", help="RS3 BLE address (or DJI_RS3_BLE_ADDRESS)")
+    ap.add_argument("--ble-address", help="default RS3 BLE address (or DJI_RS3_BLE_ADDRESS); a saved choice in gimbal.json wins")
+    ap.add_argument("--state-dir", help="where gimbal.json lives (or DJI_BRIDGE_STATE_DIR; default /var/lib/dji-bridge)")
+    ap.add_argument("--select-gimbal", metavar="ADDRESS", help="save ADDRESS as the gimbal to drive, then exit")
     ap.add_argument("--log-level", default="INFO")
     args = ap.parse_args()
 
     logging.basicConfig(level=args.log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    if args.select_gimbal:
+        sys.exit(save_selection(args.select_gimbal, args.state_dir))
 
     driver = build_driver(args.driver, args)
+    selector = make_selector(driver, args.ble_address or os.environ.get("DJI_RS3_BLE_ADDRESS"), args.state_dir)
     try:
-        asyncio.run(serve(args.host, args.port, driver, args.safety_timeout_ms))
+        asyncio.run(serve(args.host, args.port, driver, args.safety_timeout_ms, selector))
     except KeyboardInterrupt:
         pass
 
