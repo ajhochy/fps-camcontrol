@@ -324,8 +324,9 @@
     head.appendChild(title); head.appendChild(menu);
     var foot = div('pane-foot');
     root.appendChild(pic); root.appendChild(head); root.appendChild(foot);
-    var n = { key: key, big: big, root: root, img: img, cross: cross, note: note, title: title, menu: menu, foot: foot, sig: '', crossTimer: null, url: '', pad: null, lock: null };
+    var n = { key: key, big: big, root: root, img: img, cross: cross, note: note, title: title, menu: menu, foot: foot, sig: '', crossTimer: null, url: '', pad: null, lock: null, track: null };
     if (big) buildTouchPad(n, root, head);
+    if (big) buildTrackBar(n, pic, head);
     menu.addEventListener('click', function (e) { e.stopPropagation(); var pane = paneFor(key); if (pane) openSheet(pane); });
     if (big) img.addEventListener('pointerup', function (e) { onBigTap(n, e); });
     else root.addEventListener('click', function () { var pane = paneFor(key); if (pane && pane.rigId) onSmallTap(pane); });
@@ -399,6 +400,7 @@
     syncLoops();
     ['pvw', 'pgm'].concat(plan.small.map(function (p) { return p.key; })).forEach(function (k) { var pane = paneFor(k); if (pane && nodes[k]) { updatePaneText(nodes[k], pane); updatePaneMedia(nodes[k], pane); } });
     updateTouchUi();
+    updateTrackUi();
   }
 
   function onFrame(sonyId) {
@@ -594,6 +596,7 @@
     if (!pane || !pane.sonyId) return;
     var pt = M.containedPoint(n.img.getBoundingClientRect(), n.img.naturalWidth, n.img.naturalHeight, ev.clientX, ev.clientY);
     if (!pt) return;
+    if (trackModes[pane.sonyId] && trackSource(pane.sonyId)) { trackSelect(n, pane, pt); return; }
     var block = M.sonyWriteBlock(enabled);
     if (block) { showBanner(block, true, 3000); return; }
     n.cross.style.left = pt.px + 'px'; n.cross.style.top = pt.py + 'px';
@@ -604,6 +607,127 @@
       .then(function (r) { if (!r.ok) return apiError(r); })
       .catch(function (e) { showBanner('Touch focus failed: ' + (e && e.message ? e.message : 'unknown error'), true, 3500); });
   }
+
+  // ---- person tracking (docs/tracking.md): the desk page's Focus / Track choice on the big panes. In Track mode a
+  // tap on the picture picks the person to follow; Stop always works, even with remote control off.
+  var trackSnap = { enabled: false, sidecar: { state: 'offline' }, sources: [] };
+  var trackModes = {};         // Sony camera id -> true while that camera's taps pick a person (not saved)
+  var TRACK_LABELS = { idle: 'Tap a person to track', locking: 'Locking…', tracking: 'Tracking', holding: 'Holding', lost: 'Target lost', sidecar_offline: 'Tracker offline', stale: 'Stale video', operator_override: 'Paused — stick moved', unavailable: 'Gimbal unavailable', disabled: 'Tracking is off' };
+
+  function trackSource(sonyId) {
+    if (!sonyId) return null;
+    for (var i = 0; i < trackSnap.sources.length; i++) {
+      var src = trackSnap.sources[i];
+      if (String(src.sonyCameraId).toUpperCase() === String(sonyId).toUpperCase() && src.cameraId) return src;
+    }
+    return null;
+  }
+
+  function trackButton(text, cls, action) {
+    var b = document.createElement('button');
+    b.type = 'button'; b.className = 'track-btn ' + cls; b.textContent = text;
+    b.addEventListener('click', function (e) { e.stopPropagation(); action(); });
+    return b;
+  }
+
+  function buildTrackBar(n, pic, head) {
+    var bar = div('track-bar');
+    var toggle = trackButton('Track', 'track-toggle', function () {
+      var pane = paneFor(n.key);
+      if (!pane || !pane.sonyId) return;
+      trackModes[pane.sonyId] = !trackModes[pane.sonyId];
+      updateTrackUi();
+    });
+    var stop = trackButton('Stop', 'track-stop', function () { var pane = paneFor(n.key); trackCommand(n, pane, 'cancel'); });
+    var resume = trackButton('Resume', 'track-resume', function () { var pane = paneFor(n.key); trackCommand(n, pane, 'resume'); });
+    var state = div('track-state');
+    bar.appendChild(toggle); bar.appendChild(stop); bar.appendChild(resume); bar.appendChild(state);
+    var box = div('track-box');
+    pic.appendChild(box);
+    head.insertBefore(bar, n.lock || n.menu);
+    n.track = { bar: bar, toggle: toggle, stop: stop, resume: resume, state: state, box: box, said: '' };
+  }
+
+  function trackSelect(n, pane, pt) {
+    var block = M.sonyWriteBlock(enabled);
+    if (block) { showBanner(block, true, 3000); return; }
+    var src = trackSource(pane.sonyId);
+    if (!src || trackSnap.sidecar.state !== 'connected') { showBanner('Tracking is not available for this camera right now.', true, 3000); return; }
+    n.cross.style.left = pt.px + 'px'; n.cross.style.top = pt.py + 'px';
+    n.cross.classList.add('on');
+    clearTimeout(n.crossTimer);
+    n.crossTimer = setTimeout(function () { n.cross.classList.remove('on'); }, 900);
+    trackCommand(n, pane, 'select', { x: pt.x, y: pt.y });
+  }
+
+  function trackCommand(n, pane, action, point) {
+    var src = pane && trackSource(pane.sonyId);
+    if (!src) return;
+    var body = { sourceId: src.sourceId };
+    if (point) { body.x = point.x; body.y = point.y; }
+    // Stopping is never gated (like the emergency stop); picking and resuming need remote control on.
+    var headers = action === 'cancel' ? { 'content-type': 'application/json' } : REMOTE_JSON;
+    fetch('/api/tracking/' + action, { method: 'POST', headers: headers, body: JSON.stringify(body) })
+      .then(function (r) { if (!r.ok) return apiError(r); })
+      .then(function () {
+        if (action === 'select') n.track.state.textContent = 'Locking…';
+        if (action === 'cancel') { n.track.state.textContent = 'Tracking stopped'; n.track.box.classList.remove('on'); }
+        pollTracking();
+      })
+      .catch(function (e) { showBanner('Tracking: ' + (e && e.message ? e.message : 'unavailable'), true, 3500); });
+  }
+
+  function trackBox(n, target) {
+    var img = n.img, box = n.track.box;
+    if (!target || img.hidden || !img.naturalWidth) { box.classList.remove('on'); return; }
+    var r = img.getBoundingClientRect();
+    var ratio = Math.min(r.width / img.naturalWidth, r.height / img.naturalHeight);
+    var w = img.naturalWidth * ratio, h = img.naturalHeight * ratio;
+    box.style.left = ((r.width - w) / 2 + (target.cx - target.w / 2) * w) + 'px';
+    box.style.top = ((r.height - h) / 2 + (target.cy - target.h / 2) * h) + 'px';
+    box.style.width = (target.w * w) + 'px';
+    box.style.height = (target.h * h) + 'px';
+    box.classList.add('on');
+  }
+
+  function updateTrackUi() {
+    ['pvw', 'pgm'].forEach(function (k) {
+      var n = nodes[k];
+      if (!n || !n.track) return;
+      var pane = paneFor(k);
+      var src = pane && trackSource(pane.sonyId);
+      var t = n.track;
+      t.bar.hidden = !src;
+      if (!src) { t.box.classList.remove('on'); return; }
+      var on = !!trackModes[pane.sonyId];
+      var ready = trackSnap.enabled && trackSnap.sidecar.state === 'connected';
+      t.toggle.classList.toggle('on', on);
+      t.toggle.setAttribute('aria-pressed', on ? 'true' : 'false');
+      t.toggle.disabled = !ready;
+      t.stop.hidden = !src.sessionId;
+      t.resume.hidden = src.state !== 'operator_override';
+      var state = !trackSnap.enabled ? 'disabled' : trackSnap.sidecar.state !== 'connected' ? 'sidecar_offline' : src.state;
+      var showState = on || !!src.sessionId;
+      var text = showState ? (TRACK_LABELS[state] || 'Tracking unavailable') : '';
+      if (t.said !== text) { t.said = text; t.state.textContent = text; }
+      t.state.className = 'track-state ' + state;
+      n.root.classList.toggle('tracking-mode', on);
+      trackBox(n, src.sessionId ? src.target : null);
+    });
+  }
+
+  var trackDelay = 1000;
+  function pollTracking() {
+    if (document.hidden) return;
+    getJson('/api/tracking/status').then(function (t) {
+      if (!t || !Array.isArray(t.sources) || !t.sidecar) throw new Error();
+      trackSnap = t;
+      // Poll fast only while a session is running here; slow when nothing is tracked.
+      trackDelay = t.sources.some(function (src) { return src.sessionId; }) ? 250 : 1000;
+    }).catch(function () { trackSnap = { enabled: false, sidecar: { state: 'offline' }, sources: [] }; trackDelay = 4000; })
+      .then(updateTrackUi);
+  }
+  (function trackLoop() { pollTracking(); setTimeout(trackLoop, trackDelay); })();
 
   // ---- camera menu: the desk card's Sony settings in a sheet
   var sheetState = null;       // { id, label, pending, confirmed, views, tries, timers, holders }

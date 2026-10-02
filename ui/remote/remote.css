@@ -151,3 +151,19 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
 
 .pin-row label { font-size: 18px; font-weight: 700; color: var(--warn); }
 .pin-row input { font-size: 28px; letter-spacing: 0.3em; width: 220px; min-height: 56px; padding: 0 16px; border-radius: 10px; border: 1px solid var(--line); background: #0f1417; color: var(--text); -webkit-user-select: text; user-select: text; }
+
+/* person tracking on the big panes, in the pane header, styled like the motion arrows */
+.track-bar { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.track-bar + .pane-menu, .track-bar + .pgm-lock { margin-left: 0; }
+.track-bar[hidden], .track-bar [hidden] { display: none; }
+.track-btn { height: 44px; min-width: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid #ffffff55; background: #000000a8; color: var(--text); font: inherit; font-size: 15px; font-weight: 700; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.track-btn.on { background: var(--ok); border-color: var(--ok); color: #04170d; }
+.track-btn:disabled { opacity: 0.35; }
+.track-stop { border-color: var(--bad); color: var(--bad); }
+.track-state:empty { display: none; }
+.track-state { padding: 4px 8px; border-radius: 8px; background: #000000a8; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.track-state.tracking { color: var(--ok); }
+.track-state.operator_override, .track-state.lost, .track-state.stale, .track-state.sidecar_offline { color: var(--warn); }
+.track-box { position: absolute; pointer-events: none; border: 2px solid #fff; outline: 1px solid #000; box-sizing: border-box; display: none; }
+.track-box.on { display: block; }
+.pane.tracking-mode .pane-pic img { outline: 2px solid var(--ok); outline-offset: -2px; }
