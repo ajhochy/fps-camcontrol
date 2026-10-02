@@ -2519,7 +2519,8 @@ function renderSonyCameras(cameras, rigs) {
   });
   // Put the cards in rig order, moving only those out of place (a moved card keeps its preview and settings).
   nodes.forEach(function(node, i) { if (root.children[i] !== node) root.insertBefore(node, root.children[i] || null); });
-  if (window.fpsTracking) window.fpsTracking.renderWidgets();
+  // Tracking controls are an add-on: a fault there must never blank the Sony cameras.
+  if (window.fpsTracking) { try { window.fpsTracking.renderWidgets(); } catch (error) { console.error('tracking controls', error); } }
 }
 
 function sonyDashboardStatus(message, error) {

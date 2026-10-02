@@ -7,7 +7,8 @@
   let delay = 250, timer;
   const labels = { idle:'Choose a person in Track mode', locking:'Locking…', tracking:'Tracking', holding:'Holding', lost:'Target lost', sidecar_offline:'Sidecar offline', stale:'Stale video', operator_override:'Paused — stick moved', unavailable:'Gimbal unavailable', disabled:'Tracking is disabled' };
   const api = window.fpsTracking = { pollCount:0, renderWidgets };
-  function forCamera(id) { return snapshot.sources.find(source => source.sonyCameraId.toUpperCase() === id.toUpperCase()); }
+  // A rig with no connected camera has a placeholder card with no camera ID: nothing to track there.
+  function forCamera(id) { if(!id)return undefined; return snapshot.sources.find(source => String(source.sonyCameraId).toUpperCase() === id.toUpperCase()); }
   function button(label, action, className) { const el=document.createElement('button'); el.type='button';el.className='btn-sm '+(className||'');el.textContent=label;el.addEventListener('click',action);return el; }
   function renderWidgets() {
     document.querySelectorAll('.sony-widget').forEach(article => {
