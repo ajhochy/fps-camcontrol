@@ -36,7 +36,8 @@ installer. Back up your own configuration first.
 # Add alongside the existing devices/profiles/ATEM configuration.
 tracking:
   enabled: false                 # enable only after setup and safe gain check
-  sidecarUrl: ws://127.0.0.1:7900 # developer mode only; packaged helper is private
+  autoSources: true              # default: every gimbal rig with a Sony camera becomes a source
+  sidecarUrl: ws://127.0.0.1:7900 # developer mode only (TRACKER_WS_TOKEN set); the app-owned helper is private
   maxSpeed: 0.35                 # start lower until physical gain is verified
   deadzone: 0.04
   lostHoldMs: 3000
@@ -44,12 +45,24 @@ tracking:
   pipelineDelayMs: 300           # simulator assumption, NOT a measured real rig
   kp: 1.2
   kd: 0.12
-  sources:
+  sources:                       # optional: only to override a derived source (e.g. invert) or pin one
     - sonyCameraId: AA:BB        # replace with your Sony camera's exact ID
       device: gimbal_one        # existing protocol: dji-bridge inventory key
       invertPan: false
       invertTilt: false
 ```
+
+**Automatic sources.** With `autoSources` (default `true`) you do not need to list
+sources. Every rig in the active profile (or unsaved working copy) whose controller
+is a DJI gimbal (`protocol: dji-bridge`) and that has a Sony camera bound (the slot's
+`camera:` with a `sonyCameraId`) becomes a source, with `sourceId` = the controller's
+inventory key. A gimbal without a Sony camera, and VISCA heads (V-BOT, BirdDog), are not
+sources: the tracking motion path supports DJI bridges only. An explicit `sources`
+entry for the same device overrides the derived one (use it for `invertPan` /
+`invertTilt`); a Sony camera already claimed by an explicit entry is never derived onto a
+second gimbal. Set `autoSources: false` to use only the explicit list. Derived sources
+follow profile and rig edits, with the same stop-and-clear on any change. The minimal
+setup is just `tracking: { enabled: true, maxSpeed: 0.45 }`.
 
 `device` is the stable inventory key, not a mutable cam1/cam2 slot number. It
 must resolve to a DJI device in the current profile. A missing active slot is
@@ -104,8 +117,16 @@ unreliable rig. Physical results are deliberately blank in the run record.
 
 ## Developer sidecar setup/launch
 
-The packaged app launches its own pinned interpreter/helper automatically only
-when enabled; no manual sidecar command is needed. For isolated development,
+The app launches and owns its helper (private random tokens, parent watchdog on, loopback
+backend origin `http://127.0.0.1:<port>`) whenever `tracking.enabled` is true, packaged or not;
+no manual sidecar command is needed. Non-packaged runs use `dist/tracking-runtime` (staged by
+`scripts/stage-tracking-runtime.cjs`) and `tracker-sidecar/main.py` from the repository. If the
+runtime is missing, tracking shows unavailable with the reason (`/api/tracking/status` ->
+`sidecar.state: "unavailable"`, `sidecar.reason`) and the app starts normally. If the helper dies
+it shows **Sidecar offline** and is restarted with a backoff (1, 2, 5, 10, then 30 s); any active
+target is cleared and never replayed. The explicit developer path below is used only when
+`TRACKER_WS_TOKEN` is set in the environment (the app then connects to `sidecarUrl` and does not
+launch anything). For isolated development,
 stage pinned dependencies with `node scripts/stage-tracking-runtime.cjs --download`
 after reviewing the manifest. Subsequent builds use the verified cache offline.
 Run the bundled `dist/tracking-runtime/python/bin/python3 -I -B
@@ -118,7 +139,7 @@ developer terminal only; shipping code never disables its watchdog. Mock mode
 uses synthetic trajectories and does not import the vision model.
 
 `TRACKING_ENABLED` and `TRACKING_SIDECAR_URL` override developer configuration;
-packaged code always launches its own loopback helper and private credentials.
+the packaged app always launches its own loopback helper and private credentials, and ignores `TRACKER_WS_TOKEN`.
 Remote tracking is disabled unless a developer explicitly opts in, and is never
 allowed by the packaged app. This is not remote-control support.
 

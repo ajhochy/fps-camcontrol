@@ -1,13 +1,13 @@
 import type { Express } from 'express';
 import { z } from 'zod';
 import type { AppConfig } from '../config/configLoader';
-import type { TrackingHooks } from '../app/trackingHooks';
+import type { TrackingHooks, TrackingRuntimeStatus } from '../app/trackingHooks';
 import { resolveTrackingSources } from '../tracking/sourceResolver';
 import { TrackingError } from '../tracking/trackingManager';
 
 const sourceBody = z.object({sourceId:z.string().min(1).max(128)}).strict();
 const selectBody = sourceBody.extend({x:z.number().finite().min(0).max(1),y:z.number().finite().min(0).max(1)}).strict();
-export function trackingSnapshot(config: AppConfig, hooks?: TrackingHooks) {
+export function trackingSnapshot(config: AppConfig, hooks?: TrackingHooks, runtime?: TrackingRuntimeStatus) {
   const states = hooks?.manager.getStatus() ?? {};
   const sources = resolveTrackingSources(config).map(source => {
     const current = states[source.sourceId];
@@ -17,11 +17,11 @@ export function trackingSnapshot(config: AppConfig, hooks?: TrackingHooks) {
       ...(observed && observed.conf > 0 ? {target:{cx:observed.cx,cy:observed.cy,w:observed.w,h:observed.h,conf:observed.conf},ageMs:Math.max(0,Date.now()-observed.frameTs)} : {}),
     };
   });
-  return {enabled:config.tracking?.enabled ?? false,sidecar:{state:hooks?.client?.connected ? 'connected':'offline'},sources};
+  return {enabled:config.tracking?.enabled ?? false,sidecar:hooks?.client?.connected ? {state:'connected'} : {state:runtime?.state==='unavailable' ? 'unavailable':'offline',...(runtime?.reason ? {reason:runtime.reason}:{})},sources};
 }
 
-export function installTrackingRoutes(app: Express, config: AppConfig, getHooks:()=>TrackingHooks|undefined) {
-  app.get('/api/tracking/status',(_req,res)=>res.json(trackingSnapshot(config,getHooks())));
+export function installTrackingRoutes(app: Express, config: AppConfig, getHooks:()=>TrackingHooks|undefined, getRuntime:()=>TrackingRuntimeStatus|undefined=()=>undefined) {
+  app.get('/api/tracking/status',(_req,res)=>res.json(trackingSnapshot(config,getHooks(),getRuntime())));
   for (const action of ['select','cancel','resume'] as const) app.post('/api/tracking/'+action,(req,res)=>{
     const body=(action==='select'?selectBody:sourceBody).safeParse(req.body);
     if(!body.success){res.status(400).json({error:'Invalid tracking request'});return;}

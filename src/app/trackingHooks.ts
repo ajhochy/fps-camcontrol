@@ -13,3 +13,9 @@ const active = new WeakMap<AppState, TrackingHooks>();
 export function registerTracking(state: AppState, hooks: TrackingHooks): void { active.set(state, hooks); }
 export function trackingFor(state: AppState): TrackingHooks | undefined { return active.get(state); }
 export function unregisterTracking(state: AppState): void { active.delete(state); }
+
+/** Why the helper is not (yet) connected. Curated text only; never raw helper output or credentials. */
+export interface TrackingRuntimeStatus { state: 'starting' | 'running' | 'restarting' | 'unavailable'; reason?: string }
+const runtime = new WeakMap<AppState, TrackingRuntimeStatus>();
+export function setTrackingRuntimeStatus(state: AppState, status: TrackingRuntimeStatus | undefined): void { if (status) runtime.set(state, status); else runtime.delete(state); }
+export function trackingRuntimeFor(state: AppState): TrackingRuntimeStatus | undefined { return runtime.get(state); }

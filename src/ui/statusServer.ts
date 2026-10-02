@@ -32,7 +32,7 @@ import { SonyManager, SonyRetryableError, SonyUpstreamError } from '../sony/sony
 import { RemoteControlHub } from '../input/remoteControl';
 import { emergencyStopAll } from '../safety/emergencyStop';
 import { getResourcePath, getUserPath } from '../config/paths';
-import { trackingFor, TrackingHooks } from '../app/trackingHooks';
+import { trackingFor, trackingRuntimeFor, TrackingHooks } from '../app/trackingHooks';
 import { installTrackingRoutes, trackingSnapshot } from './trackingRoutes';
 import { resolveTrackingSources } from '../tracking/sourceResolver';
 import { installTrackingCalibrationRoutes } from './trackingCalibrationRoutes';
@@ -60,7 +60,7 @@ export function createStatusServer(
     const frameOnly = expectedBytes.length > 0 && givenBytes.length === expectedBytes.length &&
       crypto.timingSafeEqual(givenBytes, expectedBytes) && req.method === 'GET' && !req.headers.origin &&
       req.headers.host === `127.0.0.1:${req.socket.localPort}` &&
-      (config.tracking?.sources ?? []).some(source => req.url === `/api/sony/cameras/${encodeURIComponent(source.sonyCameraId)}/live-view/frame`);
+      resolveTrackingSources(config).some(source => req.url === `/api/sony/cameras/${encodeURIComponent(source.sonyCameraId)}/live-view/frame`);
     if (frameOnly) { next(); return; }
     const cookie = (req.headers.cookie ?? '').split(';').map(v => v.trim());
     if (!process.env.CAMCONTROL_SESSION || req.headers.host !== `127.0.0.1:${req.socket.localPort}` ||
@@ -72,7 +72,7 @@ export function createStatusServer(
     next();
   });
   app.use(express.json());
-  installTrackingRoutes(app, config, getTracking);
+  installTrackingRoutes(app, config, getTracking, () => trackingRuntimeFor(state));
   installTrackingCalibrationRoutes(app, config, devices, getTracking);
   // The rigs screen is plain JS/CSS files (not part of the page template) so they can be syntax-checked and
   // tested on their own. dist/ui and src/ui are both two levels below the repo root.
@@ -269,7 +269,7 @@ export function createStatusServer(
   // switch the gimbal on). Both maps omit direct-link cameras (VISCA) entirely:
   // a missing key means "no second stage", not "broken".
   app.get('/api/status', (_req, res) => {
-    res.json({ ...state, tracking: trackingSnapshot(config, getTracking()) });
+    res.json({ ...state, tracking: trackingSnapshot(config, getTracking(), trackingRuntimeFor(state)) });
   });
 
   // ---- health: one verdict per rig (motion) and per rig's Sony camera, every second, with a change log

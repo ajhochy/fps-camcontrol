@@ -41,7 +41,7 @@
     let state=source.state;
     if(!snapshot.enabled)state='disabled';else if(snapshot.sidecar.state!=='connected')state='sidecar_offline';
     widget.controls.dataset.state=state;
-    const message=labels[state]||'Tracking unavailable';if(widget.status.textContent!==message)widget.status.textContent=message;
+    const reason=state==='sidecar_offline'&&typeof snapshot.sidecar.reason==='string'?snapshot.sidecar.reason:'';const message=(labels[state]||'Tracking unavailable')+(reason?' — '+reason:'');if(widget.status.textContent!==message)widget.status.textContent=message;
     position(widget);
   }
   function position(widget) {

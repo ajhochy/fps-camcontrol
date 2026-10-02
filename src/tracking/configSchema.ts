@@ -7,6 +7,8 @@ const SidecarUrl = z.string().url().refine(value => {
 
 export const TrackingSchema = z.object({
   enabled: z.boolean().default(false),
+  /** Derive a source for every active gimbal rig that has a Sony camera; explicit `sources` entries override per device. */
+  autoSources: z.boolean().default(true),
   sidecarUrl: SidecarUrl.default('ws://127.0.0.1:7900'),
   maxSpeed: z.number().finite().min(.05).max(1).default(.35),
   deadzone: z.number().finite().min(0).max(.3).default(.04),

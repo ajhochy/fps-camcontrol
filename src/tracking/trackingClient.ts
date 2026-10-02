@@ -22,11 +22,19 @@ export class TrackingClient extends EventEmitter {
   private ping?: { nonce: string; at: number };
   private readonly now: () => number;
   private readonly timers: NonNullable<TrackingClientOptions['timers']>;
-  constructor(private readonly options: TrackingClientOptions) {
-    super(); this.now = options.now ?? Date.now; this.timers = options.timers ?? globalThis;
-    const url = new URL(options.url);
+  private options: TrackingClientOptions;
+  constructor(options: TrackingClientOptions) {
+    super(); this.options = options; this.now = options.now ?? Date.now; this.timers = options.timers ?? globalThis;
+    this.validateUrl(options.url);
+  }
+  private validateUrl(value: string): void {
+    const url = new URL(value);
     if (!['ws:', 'wss:'].includes(url.protocol) || url.username || url.password || url.hash || url.search) throw new Error('Invalid tracking sidecar URL');
-    if (!['127.0.0.1', '[::1]', 'localhost'].includes(url.hostname) && (options.packaged || !options.allowRemote)) throw new Error('Tracking sidecar must use loopback');
+    if (!['127.0.0.1', '[::1]', 'localhost'].includes(url.hostname) && (this.options.packaged || !this.options.allowRemote)) throw new Error('Tracking sidecar must use loopback');
+  }
+  /** Point a stopped client at a restarted owned helper (new port and private token). */
+  retarget(url: string, token?: string): void {
+    this.validateUrl(url); this.stop(); this.options = { ...this.options, url, token }; this.retries = 0;
   }
   configure(sources: TrackerSource[]): void {
     const message = parseToTracker({ protocol: 1, type: 'configure', sources });

@@ -11,6 +11,12 @@ Electron tracking) into one draft PR against main for review. The original PRs s
 The CLI app (`node dist/index.js`, port 8080) remains the production entry point; the Electron variants
 start the same backend through `src/embed.ts` (loopback-only, session-cookie guarded).
 
+## Tracking autostart + auto sources (integration branch)
+With `tracking.enabled` the app now launches/owns its helper even when not packaged (`dist/tracking-runtime`,
+restart with backoff, unavailable+reason when missing; `TRACKER_WS_TOKEN` keeps the manual developer path).
+Sources are derived from rigs (dji-bridge controller + bound Sony camera) unless `tracking.autoSources: false`;
+explicit `tracking.sources` override per device. VISCA heads are not supported by tracking motion. See docs/tracking.md.
+
 ## Active branch / PR
 `integration/combine-open-prs` (draft, not to be merged without review and the manual hardware checks of each
 source PR). Merge order: #36, #59, #57, #58 (`git merge --no-ff`).

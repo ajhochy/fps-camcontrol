@@ -192,7 +192,7 @@ export async function startApplication(
   remoteHub.setEnabled(!controlsPaused && (config.remoteControl?.enabled ?? false));
   remoteHub.start();
 
-  const frameToken = process.env.CAMCONTROL_EMBEDDED === '1' ? crypto.randomBytes(32).toString('base64url') : process.env.TRACKER_FRAME_TOKEN ?? crypto.randomBytes(32).toString('base64url');
+  const frameToken = process.env.CAMCONTROL_EMBEDDED !== '1' && process.env.TRACKER_WS_TOKEN && process.env.TRACKER_FRAME_TOKEN ? process.env.TRACKER_FRAME_TOKEN : crypto.randomBytes(32).toString('base64url');
   // The tracking hooks/frame token (PR #58) keep their positions (getTracking keeps its default); remoteHub (PR #59) is last.
   const app = createStatusServer(state, config, presetManager, activityLog, atem, devices, sonyManager, undefined, { frameToken }, remoteHub);
   const port = options.statusPort ?? parseInt(process.env.STATUS_PORT ?? '8080', 10);
