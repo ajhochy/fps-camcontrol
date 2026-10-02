@@ -202,6 +202,33 @@ async function selfTest(): Promise<number> {
     check('GET /api/gimbals finds every fake bridge with its model and gimbal link', DJI_PORTS.every((port) => onPort(port)?.reachable === true && onPort(port)?.model === reported && onPort(port)?.gimbalConnected === true));
     check('the gimbal the app drives is reported from its live connection, not probed', onPort(17878)?.drivenBy === 'cam4' && onPort(17878)?.usedBy?.[0]?.deviceKey === 'rs3' && onPort(17879)?.drivenBy === null);
     check('the scan is safe for the driven gimbal: it stays connected', (await api('/api/rigs')).body.rigs?.find((r: any) => r.deviceKey === 'rs3')?.live?.connected === true);
+
+    // Which Bluetooth gimbal a rig's Pi bridge drives (bridge 0.6.0): shown, listed and switched through the app.
+    {
+      const rs3Bridge = fakes.bridges[0];
+      const ownAddress = String(rs3Bridge.info().gimbalAddress);
+      const rs3Live = async () => (await api('/api/rigs')).body.rigs?.find((r: any) => r.deviceKey === 'rs3')?.live;
+      check('a gimbal rig reports which Bluetooth gimbal its bridge drives', !!(await waitFor('the bridge\'s bluetooth block', async () => (await rs3Live())?.bluetooth?.address === ownAddress)));
+      const sessions = rs3Bridge.sessionsOpened;
+      const listed = await api('/api/rigs/rs3/bluetooth-gimbals');
+      check('GET /api/rigs/:key/bluetooth-gimbals lists the gimbal in use without scanning a live link', listed.status === 200 && listed.body.scanned === false && listed.body.gimbals?.[0]?.address === ownAddress && listed.body.gimbals?.[0]?.connected === true && rs3Bridge.scans === 0);
+      const scannedBt = await api('/api/rigs/rs3/bluetooth-gimbals?scan=1');
+      check('?scan=1 scans and marks the strongest DJI gimbal (the phone is never offered)', scannedBt.status === 200 && scannedBt.body.scanned === true && scannedBt.body.gimbals.some((g: any) => g.strongest) && !scannedBt.body.gimbals.some((g: any) => /phone/i.test(g.name ?? '')));
+      check('listing Bluetooth gimbals opens no session on the bridge', rs3Bridge.sessionsOpened === sessions);
+      const unconfirmed = await post('/api/rigs/rs3/bluetooth-gimbal', { address: 'AA:BB:CC:99:99:01' });
+      check('a gimbal switch without confirm: true is refused (409) and says the current gimbal is dropped', unconfirmed.status === 409 && unconfirmed.body.confirmationRequired === true && /drops the gimbal/.test(unconfirmed.body.error) && rs3Bridge.switches.length === 0);
+      check('a switch to a junk address is refused before the Pi is asked', (await post('/api/rigs/rs3/bluetooth-gimbal', { address: 'nope', confirm: true })).status === 400 && rs3Bridge.switches.length === 0);
+      check('only a gimbal rig has Bluetooth gimbals', (await api('/api/rigs/vbot/bluetooth-gimbals')).status === 400 && (await api('/api/rigs/ghost/bluetooth-gimbals')).status === 404);
+      const switchedBt = await post('/api/rigs/rs3/bluetooth-gimbal', { address: 'aa:bb:cc:99:99:01', confirm: true });
+      check('a confirmed switch goes to the Pi and the rig shows the new gimbal, still linked', switchedBt.status === 200 && rs3Bridge.switches.join() === 'AA:BB:CC:99:99:01'
+        && !!(await waitFor('the rig to show the new gimbal', async () => { const l = await rs3Live(); return l?.bluetooth?.address === 'AA:BB:CC:99:99:01' && l?.bluetooth?.connected === true && l?.connected === true; })));
+      const back = await post('/api/rigs/rs3/bluetooth-gimbal', { address: ownAddress, confirm: true });
+      // Regression: the 1 s watchdog re-applied link state without the bluetooth block and wiped it until the
+      // next change, so a switch back to the same gimbal was never shown.
+      const backOk = back.status === 200 && !!(await waitFor('the original gimbal', async () => (await rs3Live())?.bluetooth?.address === ownAddress, 8000).catch(() => false));
+      await sleep(2500); // let the watchdog run a couple of times
+      check('and back to the original gimbal, which stays shown across watchdog ticks', backOk && (await rs3Live())?.bluetooth?.address === ownAddress, `POST ${back.status}; live ${JSON.stringify((await rs3Live())?.bluetooth)}`);
+    }
     const toGeneric = await patch('/api/rigs/birddog2', { controller: 'generic' });
     check('a BirdDog can be changed to another VISCA-IP camera and stays connected', toGeneric.status === 200 && toGeneric.body.rigs?.find((r: any) => r.deviceKey === 'birddog2')?.controller === 'generic'
       && !!(await waitFor('the changed camera to reconnect', async () => (await api('/api/rigs')).body.rigs?.find((r: any) => r.deviceKey === 'birddog2')?.live?.connected === true)));

@@ -44,14 +44,14 @@ export function startWatchdog(
         // gimbal attached — so it measures the bridge, not the camera. Pair it
         // with the device's own gimbal verdict, or this 30s sweep would keep
         // resurrecting a dead gimbal as "connected".
-        const details = device as MotionDevice & { reportedGimbalModel?: string | null; motionResponsive?: boolean; linkHealth?: import('../app/state').GimbalLinkHealth | null; reportedAsleep?: boolean | null };
+        const details = device as MotionDevice & { reportedGimbalModel?: string | null; motionResponsive?: boolean; linkHealth?: import('../app/state').GimbalLinkHealth | null; reportedAsleep?: boolean | null; bluetoothGimbal?: import('../app/state').GimbalBluetoothView | null };
         device.probe().then(reachable => {
-          applyDeviceLinkState(state, id, { connected: reachable, gimbalAttached: device.gimbalAttached, reportedGimbalModel: details.reportedGimbalModel, motionResponsive: details.motionResponsive, linkHealth: details.linkHealth, reportedAsleep: details.reportedAsleep, capabilities: device.capabilities });
+          applyDeviceLinkState(state, id, { connected: reachable, gimbalAttached: device.gimbalAttached, reportedGimbalModel: details.reportedGimbalModel, motionResponsive: details.motionResponsive, linkHealth: details.linkHealth, reportedAsleep: details.reportedAsleep, capabilities: device.capabilities, bluetoothGimbal: details.bluetoothGimbal });
           if (!reachable) {
             logger.warn({ cameraId: id }, 'camera probe failed — not reachable');
           }
         }).catch(() => {
-          applyDeviceLinkState(state, id, { connected: false, gimbalAttached: device.gimbalAttached, reportedGimbalModel: details.reportedGimbalModel, motionResponsive: details.motionResponsive, linkHealth: details.linkHealth, reportedAsleep: details.reportedAsleep, capabilities: device.capabilities });
+          applyDeviceLinkState(state, id, { connected: false, gimbalAttached: device.gimbalAttached, reportedGimbalModel: details.reportedGimbalModel, motionResponsive: details.motionResponsive, linkHealth: details.linkHealth, reportedAsleep: details.reportedAsleep, capabilities: device.capabilities, bluetoothGimbal: details.bluetoothGimbal });
         });
       }
     }

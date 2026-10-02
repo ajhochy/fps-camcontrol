@@ -210,3 +210,127 @@ export function mergeBridges(found: FoundBridge[], preferredHosts: string[]): Fo
   }
   return out;
 }
+
+// ------------------------------------------------------------ which Bluetooth gimbal a bridge drives (bridge >= 0.6.0)
+
+/** The bridge's `bluetooth` block (GET /info, hello, status): the gimbal it is set to drive and how it was chosen. */
+export interface BluetoothGimbal {
+  address: string | null;
+  name: string | null;
+  /** dBm, from the bridge's last scan or connect (a linked gimbal does not advertise, so it cannot be measured live). */
+  rssi: number | null;
+  /** `auto`: nothing chosen yet, the bridge will take the strongest DJI gimbal it hears; `fixed`: one is chosen. */
+  mode: 'auto' | 'fixed' | null;
+  /** How it was chosen: operator, auto-strongest, installer, config (DJI_RS3_BLE_ADDRESS) or saved. */
+  chosenBy: string | null;
+  /** Whether the choice is saved on the Pi (survives a restart); null when the bridge did not say. */
+  saved: boolean | null;
+  connected: boolean | null;
+  switching: boolean;
+  error: string | null;
+}
+
+export interface BluetoothGimbalRow {
+  address: string;
+  name: string | null;
+  rssi: number | null;
+  advertising: boolean;
+  selected: boolean;
+  connected: boolean;
+  strongest: boolean;
+}
+
+export interface BluetoothGimbalList {
+  scanned: boolean;
+  scannedAt: number | null;
+  note: string | null;
+  error: string | null;
+  selected: BluetoothGimbal | null;
+  gimbals: BluetoothGimbalRow[];
+}
+
+const MAC = /^[0-9A-F]{2}(:[0-9A-F]{2}){5}$/;
+/** AA:BB:CC:DD:EE:FF (upper case) or null. */
+export function normalizeBluetoothAddress(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const value = raw.trim().toUpperCase().replace(/-/g, ':');
+  return MAC.test(value) ? value : null;
+}
+const num = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null);
+const bool = (value: unknown): boolean | null => (typeof value === 'boolean' ? value : null);
+
+/** Read a bridge's `bluetooth` block defensively; null when absent (a bridge older than 0.6.0). */
+export function parseBluetoothGimbal(raw: unknown): BluetoothGimbal | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const b = raw as Record<string, unknown>;
+  return {
+    address: normalizeBluetoothAddress(b.address),
+    name: text(b.name, 64),
+    rssi: num(b.rssi),
+    mode: b.mode === 'auto' || b.mode === 'fixed' ? b.mode : null,
+    chosenBy: text(b.chosenBy, 32),
+    saved: bool(b.saved),
+    connected: bool(b.connected),
+    switching: b.switching === true,
+    error: text(b.error, 200),
+  };
+}
+
+function parseList(body: unknown): BluetoothGimbalList | null {
+  if (!body || typeof body !== 'object' || !Array.isArray((body as { gimbals?: unknown }).gimbals)) return null;
+  const b = body as Record<string, unknown>;
+  const gimbals: BluetoothGimbalRow[] = [];
+  for (const raw of b.gimbals as unknown[]) {
+    const g = (raw ?? {}) as Record<string, unknown>;
+    const address = normalizeBluetoothAddress(g.address);
+    if (!address) continue;
+    gimbals.push({
+      address, name: text(g.name, 64), rssi: num(g.rssi), advertising: g.advertising === true,
+      selected: g.selected === true, connected: g.connected === true, strongest: g.strongest === true,
+    });
+  }
+  return { scanned: b.scanned === true, scannedAt: num(b.scannedAt), note: text(b.note, 300), error: text(b.error, 300), selected: parseBluetoothGimbal(b.selected), gimbals };
+}
+
+const bridgeUrl = (host: string, port: number, path: string): string => `http://${host.includes(':') ? `[${host}]` : host}:${port}${path}`;
+
+/** A bridge older than 0.6.0 knows no such route: the request falls through to the WebSocket handshake, which
+ * refuses it with a plain-text 400/426, not one of our JSON answers. */
+const olderBridge = (status: number, body: unknown): boolean => (status === 426 || status === 404 || status === 400 || status === 405) && (!body || typeof body !== 'object');
+
+export type BridgeCallResult<T> = { ok: true; body: T } | { ok: false; status: number; error: string; body?: unknown };
+
+/**
+ * GET /gimbals on a bridge: the DJI gimbals it can hear. `scan` asks it to scan now even though a gimbal is linked
+ * (a BlueZ scan can briefly disturb a live link, so the bridge does not do that on its own). Plain HTTP: opens no
+ * session, so it never triggers the bridge's stop-on-disconnect.
+ */
+export async function fetchBluetoothGimbals(host: string, port: number, scan: boolean, timeoutMs = 20000): Promise<BridgeCallResult<BluetoothGimbalList>> {
+  try {
+    const response = await fetch(bridgeUrl(host, port, `/gimbals${scan ? '?scan=1' : ''}`), { signal: AbortSignal.timeout(timeoutMs) });
+    const body = await response.json().catch(() => null);
+    if (olderBridge(response.status, body)) return { ok: false, status: 501, error: 'this gimbal’s Pi bridge cannot list Bluetooth gimbals yet: it needs updating (0.6.0 or later)' };
+    if (!response.ok) return { ok: false, status: response.status, error: text((body as { error?: unknown } | null)?.error, 300) ?? `the bridge answered ${response.status}`, body };
+    const list = parseList(body);
+    return list ? { ok: true, body: list } : { ok: false, status: 502, error: 'the bridge sent an answer this app does not understand' };
+  } catch (err) {
+    return { ok: false, status: 504, error: `the bridge at ${host}:${port} did not answer (${(err as Error).name === 'TimeoutError' ? 'timed out' : 'unreachable'})` };
+  }
+}
+
+/**
+ * POST /gimbal?address=<address|auto>: make the bridge drive another gimbal. It stops the camera, drops its
+ * current Bluetooth link, saves the choice and connects the new one. No request body: the bridge's HTTP parser
+ * (websockets) refuses one, so the address travels in the query string.
+ */
+export async function selectBluetoothGimbal(host: string, port: number, target: string, timeoutMs = 30000): Promise<BridgeCallResult<{ selected: BluetoothGimbal | null }>> {
+  try {
+    const response = await fetch(bridgeUrl(host, port, `/gimbal?address=${encodeURIComponent(target)}`), { method: 'POST', signal: AbortSignal.timeout(timeoutMs) });
+    const body = (await response.json().catch(() => null)) as { ok?: unknown; error?: unknown; selected?: unknown } | null;
+    if (olderBridge(response.status, body)) return { ok: false, status: 501, error: 'this gimbal’s Pi bridge cannot switch gimbals yet: it needs updating (0.6.0 or later)' };
+    if (!response.ok || !body || body.ok !== true) return { ok: false, status: response.ok ? 502 : response.status, error: text(body?.error, 300) ?? `the bridge answered ${response.status}`, body };
+    return { ok: true, body: { selected: parseBluetoothGimbal(body.selected) } };
+  } catch (err) {
+    return { ok: false, status: 504, error: `the bridge at ${host}:${port} did not answer (${(err as Error).name === 'TimeoutError' ? 'timed out' : 'unreachable'})` };
+  }
+}

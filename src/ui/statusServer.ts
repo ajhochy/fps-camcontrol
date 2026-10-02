@@ -22,7 +22,7 @@ import { ViscaDevice } from '../devices/viscaDevice';
 import { MotionDevice } from '../devices/motionDevice';
 import { createMotionDevice } from '../devices/deviceFactory';
 import { HealthTracker, rigHealth, sonyHealth, HealthItem } from '../app/health';
-import { probeBridge, fetchBridgeInfo, mergeBridges, DEFAULT_BRIDGE_PORTS, tcpOpen, localSubnetHosts, inBatches, resolveHost, nameOf, BridgeProbe, FoundBridge } from '../devices/gimbalScan';
+import { probeBridge, fetchBridgeInfo, mergeBridges, DEFAULT_BRIDGE_PORTS, tcpOpen, localSubnetHosts, inBatches, resolveHost, nameOf, BridgeProbe, FoundBridge, fetchBluetoothGimbals, selectBluetoothGimbal, normalizeBluetoothAddress } from '../devices/gimbalScan';
 import { AtemClient } from '../atem/atemClient';
 import { loadProfiles, detectConnectionType } from '../input/profileDetector';
 import { eventBus } from '../app/eventBus';
@@ -379,6 +379,37 @@ export function createStatusServer(
       logger.error({ err }, 'gimbal scan failed');
       res.status(500).json({ error: 'the gimbal scan failed' });
     }
+  });
+
+  // ---- which Bluetooth gimbal a rig's Pi bridge drives (bridge >= 0.6.0). The browser never talks to a Pi: these
+  // proxy the bridge's plain-HTTP GET /gimbals and POST /gimbal, which open no control session. A DJI gimbal takes
+  // one Bluetooth connection, so switching drops the current gimbal: the POST must say `confirm: true`.
+  const gimbalBridgeOf = (req: express.Request, res: express.Response): { key: string; host: string; port: number; label: string } | null => {
+    const key = deviceKeyOf(req, res); if (!key) return null;
+    const device = ((config.devices ?? {}) as Record<string, any>)[key];
+    if (!device) { res.status(404).json({ ok: false, error: 'no such device' }); return null; }
+    if (device.protocol !== 'dji-bridge' || !device.bridge?.host) { res.status(400).json({ ok: false, error: 'this rig is not a DJI gimbal' }); return null; }
+    return { key, host: String(device.bridge.host), port: Number(device.bridge.port ?? 7878), label: String(device.label ?? key) };
+  };
+  app.get('/api/rigs/:key/bluetooth-gimbals', async (req, res) => {
+    const target = gimbalBridgeOf(req, res); if (!target) return;
+    const result = await fetchBluetoothGimbals(target.host, target.port, req.query.scan === '1');
+    if (result.ok) res.json({ ok: true, bridge: `${target.host}:${target.port}`, ...result.body });
+    else res.status(result.status >= 400 && result.status < 600 ? result.status : 502).json({ ok: false, error: result.error });
+  });
+  app.post('/api/rigs/:key/bluetooth-gimbal', async (req, res) => {
+    const target = gimbalBridgeOf(req, res); if (!target) return;
+    const body = (typeof req.body === 'object' && req.body !== null ? req.body : {}) as Record<string, unknown>;
+    const wanted = typeof body.address === 'string' && body.address.trim().toLowerCase() === 'auto' ? 'auto' : normalizeBluetoothAddress(body.address);
+    if (!wanted) { res.status(400).json({ ok: false, error: 'address must be a Bluetooth address (AA:BB:CC:DD:EE:FF) or "auto"' }); return; }
+    if (body.confirm !== true) {
+      res.status(409).json({ ok: false, confirmationRequired: true, error: `Switching drops the gimbal ${target.label} is driving now: the camera stops and its Bluetooth link is cut while the bridge connects the other gimbal. Confirm to continue.` });
+      return;
+    }
+    const result = await selectBluetoothGimbal(target.host, target.port, wanted);
+    activityLog.addEntry({ protocol: 'DJI-BRIDGE', message: result.ok ? `Bluetooth gimbal switched to ${wanted === 'auto' ? 'the strongest in range' : wanted} (operator confirmed)` : `Bluetooth gimbal switch to ${wanted} failed: ${result.error}`, targetName: target.label, targetIp: `${target.host}:${target.port}` });
+    if (result.ok) { logger.warn({ device: target.key, gimbal: result.body.selected?.address }, 'Bluetooth gimbal switched by the operator'); res.json({ ok: true, ...result.body }); }
+    else res.status(result.status >= 400 && result.status < 600 ? result.status : 502).json({ ok: false, error: result.error });
   });
 
   // ---- rig edits. Hardware records (name, addresses, bound Sony camera) are shared by every profile and

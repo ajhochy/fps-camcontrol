@@ -4,6 +4,7 @@ import { MotionDevice, DeviceCapabilities, DevicePosition } from './motionDevice
 import { GimbalLinkHealth, rateGimbalSignal } from '../app/state';
 import { ActivityLog } from '../app/activityLog';
 import { logger } from '../index';
+import { BluetoothGimbal, parseBluetoothGimbal } from './gimbalScan';
 
 const PROTOCOL_VERSION = 1;
 const HEARTBEAT_INTERVAL_MS = 1000;
@@ -119,6 +120,7 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
   private _motionResponsive = true;
   private _linkHealth: GimbalLinkHealth | null = null;
   private _reportedAsleep: boolean | null = null;
+  private _bluetooth: BluetoothGimbal | null = null;
   /** While the operator pushes the stick: when the push began and the pose then. */
   private motionJudge: { since: number; from: DevicePosition | null } | null = null;
   /** When we last had positive evidence of a gimbal, or 0 if never. */
@@ -216,6 +218,28 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
       if (after && after.rating !== 'good') logger.warn({ id: this.id, signal: after.summary }, 'DJI gimbal Bluetooth signal is ' + after.rating);
       this.emit('linkHealth');
     }
+  }
+
+  /**
+   * Which Bluetooth gimbal the bridge is set to drive (bridges >= 0.6.0: name, address, last RSSI, how chosen),
+   * from its hello and every status; null for an older bridge or while the bridge is unreachable.
+   */
+  get bluetoothGimbal(): BluetoothGimbal | null {
+    return this._bluetooth;
+  }
+
+  /** Where this rig's bridge listens, for the app's GET/POST proxies to the bridge's /gimbals and /gimbal. */
+  get bridgeAddress(): { host: string; port: number } {
+    return { host: this.bridge.host, port: this.bridge.port };
+  }
+
+  private takeBluetooth(raw: unknown): void {
+    const next = parseBluetoothGimbal(raw);
+    if (JSON.stringify(next) === JSON.stringify(this._bluetooth)) return;
+    const before = this._bluetooth;
+    this._bluetooth = next;
+    if (next && next.address !== (before?.address ?? null)) logger.info({ id: this.id, gimbal: next.address, gimbalName: next.name, chosenBy: next.chosenBy }, 'DJI bridge drives Bluetooth gimbal');
+    this.emit('bluetoothGimbal');
   }
 
   /** The gimbal model the bridge named in its last `hello`; null before the first handshake. */
@@ -349,9 +373,10 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
         .then(res => {
           const r = res as {
             capabilities?: string[]; gimbalModel?: string; bridgeVersion?: string;
-            gimbalConnected?: boolean;
+            gimbalConnected?: boolean; bluetooth?: unknown;
           };
           this.applyCapabilities(r.capabilities ?? []);
+          this.takeBluetooth(r.bluetooth);
           this._reportedGimbalModel = typeof r.gimbalModel === 'string' && r.gimbalModel.trim() ? r.gimbalModel.trim().slice(0, 32) : null;
           this._connected = true;
           this.connectedAt = Date.now();
@@ -399,6 +424,7 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
     this.motionJudge = null;
     this.lastPose = null;
     this._reportedAsleep = null;
+    if (this._bluetooth) { this._bluetooth = null; this.emit('bluetoothGimbal'); }
     this.setMotionResponsive(true, 'link reset');
     this.setGimbalAttached(false, 'bridge unreachable');
     if (this._connected) {
@@ -538,6 +564,7 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
           link?: unknown;
         } | undefined;
         this.takeLinkHealth(p?.link); // absent (an older bridge, or none reported) clears any earlier rating
+        if (p && 'bluetooth' in p) this.takeBluetooth((p as { bluetooth?: unknown }).bluetooth);
         const asleep = typeof (p as { asleep?: unknown } | undefined)?.asleep === 'boolean' ? (p as { asleep: boolean }).asleep : null;
         if (asleep !== this._reportedAsleep) {
           if (asleep === true) logger.warn({ id: this.id }, 'DJI gimbal reports it is asleep');
