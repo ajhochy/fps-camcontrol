@@ -24,6 +24,28 @@ so it falls back to a nonexistent `npm run typecheck`. Use the commands above.
 
 The Pi bridge's `bleak>=3.0.2` runtime requires Python >=3.10.
 
+## Isolated harnesses (use these, not the live app)
+```bash
+pnpm build
+node scripts/check-page-js.cjs      # the desk page's inline JS + ui/ files parse
+node dist/testing/<name>.js         # unit suites, no app needed: rigsTest rigSchemaTest rigEditTest rigsUiModelTest
+                                    # workingProfileTest sonyManagerTest sonyConfigStoreTest gimbalScanTest djiReconnectTest
+                                    # viscaTransportTest healthTest gimbalWakeTest
+                                    # iPad remote: browserGamepadTest remoteFrameTest inputArbiterTest remoteControlTest remoteUiModelTest
+pnpm sandbox:check                  # isolated app (8090/8191/17878+), fakes; includes the iPad remote stop paths
+pnpm test:smoke:isolated            # the smoke suite against the sandbox config
+```
+Never import the machine or `src/index.ts` from a standalone suite: `logger` comes from `index.ts`, so doing so boots
+the app. Machine-level checks go in `smokeTest.ts` (run via `test:smoke:isolated`).
+
+iPad remote coverage: validation and the token bucket (`remoteFrameTest`), the mapping (`browserGamepadTest`),
+arbitration with a fake clock (`inputArbiterTest`), the hub with fake sockets: dead-man, ping timeout, PIN lockout,
+Origin, Tailscale label (`remoteControlTest`), the page's pure logic round-tripped through the server validator
+(`remoteUiModelTest`), `switchSource` on the real machine (smoke Test 12b), and the sandbox: a WebSocket client plays
+the iPad against the fake DJI bridge and checks that socket drop, silence, idle, Take back, STOP, junk frames and
+switch-off each leave the gimbal stopped and the desk in control.
+Manual only: a real iPad with a real Xbox controller (checklist in the PR / `docs/ipad-remote.md`).
+
 ## What's covered
 - Custom virtual-hardware smoke suite (`src/testing/smokeTest.ts`): **86/86 assertions** as of the controller hot-plug fix.
 - Controller hot-plug via an injectable `ControllerSupervisor` (`detect` /

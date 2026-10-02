@@ -28,6 +28,8 @@ import { loadProfiles, detectConnectionType } from '../input/profileDetector';
 import { eventBus } from '../app/eventBus';
 import { logger } from '../index';
 import { SonyManager, SonyRetryableError, SonyUpstreamError } from '../sony/sonyManager';
+import { RemoteControlHub } from '../input/remoteControl';
+import { emergencyStopAll } from '../safety/emergencyStop';
 
 export function createStatusServer(
   state: AppState,
@@ -37,6 +39,7 @@ export function createStatusServer(
   atem: AtemClient,
   devices: Map<CameraId, MotionDevice>,
   sonyManager?: SonyManager,
+  remoteHub?: RemoteControlHub,
 ): express.Express {
   const app = express();
   app.use(express.json());
@@ -153,6 +156,13 @@ export function createStatusServer(
       cameraName: rig.cameraLabel, sonyCameraId: rig.camera ? inventory[rig.camera]?.sonyCameraId ?? null : null,
     }));
   };
+  // The iPad remote's Sony writes (touch focus, camera settings) say so with X-Remote: 1 and are refused while
+  // remote control is switched off at the desk. Reads and live view are not gated.
+  app.use('/api/sony/cameras/:id', (req, res, next) => {
+    const write = (req.method === 'PUT' && req.path.startsWith('/properties/')) || (req.method === 'POST' && req.path === '/touch');
+    if (write && req.get('x-remote') === '1' && !remoteHub?.enabled) { res.status(403).json({ error: 'Remote control is off' }); return; }
+    next();
+  });
   app.get('/api/sony/status', (_req, res) => { const manager = sony(res); if (manager) { const status = manager.getStatus(); res.json({ ...status, cameras: named(status.cameras), rigs: sonyRigOrder() }); } });
   app.get('/api/sony/cameras', (_req, res) => { const manager = sony(res); if (manager) res.json({ cameras: cameraList(manager) }); });
   app.post('/api/sony/cameras/discover', async (_req, res) => { const manager = sony(res); if (!manager) return; try { await manager.discover(); res.json({ cameras: cameraList(manager) }); } catch (error) { sonyError(res, error); } });
@@ -899,6 +909,33 @@ export function createStatusServer(
     res.type('text/plain').sendFile(path.join(process.cwd(), 'docs/sony-sidecar-setup.md'));
   });
 
+  // ---- iPad remote control: the page is static (ui/remote/), the socket is /ws/remote-controller
+  app.get('/remote', (_req, res) => {
+    res.set('Cache-Control', 'no-cache').sendFile(path.join(__dirname, '../../ui/remote/index.html'));
+  });
+  app.post('/api/remote/enabled', (req, res) => {
+    const enabled = (req.body as { enabled?: unknown } | undefined)?.enabled;
+    if (!remoteHub) { res.status(503).json({ error: 'Remote control is not available' }); return; }
+    if (typeof enabled !== 'boolean') { res.status(400).json({ error: 'enabled must be true or false' }); return; }
+    remoteHub.setEnabled(enabled);
+    activityLog.setContext('Desk', 'Remote control', enabled ? 'Enable' : 'Disable');
+    activityLog.addSystemEntry('Remote control', enabled ? 'iPad control switched on' : 'iPad control switched off');
+    res.json({ ok: true, remoteControl: state.remoteControl });
+  });
+  app.post('/api/remote/release', (_req, res) => {
+    if (!remoteHub) { res.status(503).json({ error: 'Remote control is not available' }); return; }
+    const was = remoteHub.takeBack();
+    res.json({ ok: true, wasRemote: was, remoteControl: state.remoteControl });
+  });
+  // Stop every camera, from anywhere (the iPad's STOP button uses the socket; this is the plain HTTP twin).
+  app.post('/api/emergency-stop', (_req, res) => {
+    remoteHub?.revokeForStop();
+    activityLog.setContext('Desk page', 'STOP', 'Emergency Stop');
+    activityLog.addSystemEntry('Emergency Stop', 'All cameras stopped (STOP button)');
+    emergencyStopAll(state, config, atem, devices).catch((err) => logger.error({ err }, 'emergency stop error'));
+    res.json({ ok: true });
+  });
+
   app.get('/', (_req, res) => {
     res.send(statusHtml());
   });
@@ -911,6 +948,7 @@ export function startStatusServer(
   activityLog: ActivityLog,
   port = 8080,
   host = '127.0.0.1',
+  remoteHub?: RemoteControlHub,
 ): http.Server {
   const server = http.createServer(app);
   // Use noServer mode and route upgrades by path manually. Attaching two
@@ -965,6 +1003,10 @@ export function startStatusServer(
     }
   });
 
+  // The iPad remote: input comes IN on this socket, so it has its own hub (never the outbound-only controller-input one).
+  const wssRemote = new WebSocketServer({ noServer: true, maxPayload: 512 });
+  wssRemote.on('connection', (ws, request) => remoteHub?.handleConnection(ws, request));
+
   server.on('upgrade', (request, socket, head) => {
     const url = request.url ?? '';
     const pathname = url.split('?')[0];
@@ -972,6 +1014,8 @@ export function startStatusServer(
       wss.handleUpgrade(request, socket, head, (ws) => wss.emit('connection', ws, request));
     } else if (pathname === '/ws/activity') {
       wssActivity.handleUpgrade(request, socket, head, (ws) => wssActivity.emit('connection', ws, request));
+    } else if (pathname === '/ws/remote-controller' && remoteHub) {
+      wssRemote.handleUpgrade(request, socket, head, (ws) => wssRemote.emit('connection', ws, request));
     } else {
       socket.destroy();
     }
@@ -1454,6 +1498,17 @@ function statusHtml(): string {
   .health-log__item time { color:var(--text-2); font-variant-numeric:tabular-nums; }
   .health-log__item--warn strong { color:var(--warn-text); } .health-log__item--err strong { color:var(--err-text); } .health-log__item--ok strong { color:var(--ok-text); }
   .health-log__hint { color:var(--text-2); }
+  .remote-card { margin-top:16px; border:1px solid var(--border); border-radius:4px; padding:10px 12px; background:var(--surface-2, transparent); font-size:13px; }
+  .remote-card:empty { display:none; }
+  .remote-card__head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .remote-card__pill { padding:2px 10px; border-radius:999px; font-size:12px; font-weight:700; letter-spacing:.04em; background:var(--surface); border:1px solid var(--border); }
+  .remote-card__pill--remote { color:var(--warn-text); border-color:var(--warn-text); }
+  .remote-card__pill--desk { color:var(--ok-text); }
+  .remote-card__row { display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-top:8px; }
+  .remote-card__row label { display:inline-flex; align-items:center; gap:6px; min-height:32px; cursor:pointer; }
+  .remote-card__detail { color:var(--text-2); font-size:12px; }
+  .remote-card .btn-sm { min-height:36px; }
+  .remote-card .btn-sm--stop { border-color:var(--err-text); color:var(--err-text); }
   .cam-card__signal { display:inline-flex; align-items:center; gap:6px; font-size:11px; letter-spacing:.04em; text-transform:uppercase; color:var(--ok-text); margin-top:2px; }
   .cam-card__signal--weak { color:var(--warn-text); }
   .cam-card__signal--poor { color:var(--err-text, #f87171); }
@@ -1665,6 +1720,11 @@ function statusHtml(): string {
   .health-value::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: 0 0 auto; }
   .health-item--ok .health-value { color: var(--ok-text); }
   .health-item--err .health-value { color: var(--err-text); }
+  .health-item--warn .health-value { color: var(--warn-text); }
+  .health-item--idle .health-value { color: var(--text-2); }
+  .remote-toggle { font: inherit; text-align: left; border: 0; cursor: pointer; display: flex; flex-direction: column; color: inherit; }
+  .remote-toggle:hover { background: var(--surface-2, var(--surface)); }
+  .remote-toggle:focus-visible { outline: 2px solid var(--ok-text); outline-offset: -2px; }
   .tab-bar {
     gap: 0; padding-top: 0; border: 1px solid var(--border); background: #0e1214;
     overflow-x: auto; scrollbar-width: thin;
@@ -1769,6 +1829,7 @@ function statusHtml(): string {
   </div>
   <div class="header-meta" aria-label="System clock and update status">
     <span class="sync-state"><span class="sync-dot" aria-hidden="true"></span><span id="sync-label">Monitoring</span></span>
+    <a class="btn-sm" id="remote-link" href="/remote" target="_blank" rel="noopener">iPad remote</a>
     <time class="clock" id="system-clock"></time>
   </div>
 </header>
@@ -1787,6 +1848,7 @@ function statusHtml(): string {
 <div class="panel tab-panel active" id="tab-status" role="tabpanel" aria-labelledby="tab-btn-status">
   <div class="panel-heading"><div><h2>Camera Network</h2><span class="panel-kicker">Signal roles and device health</span></div></div>
   <div id="status-content"><div class="loading-state">Reading production state…</div></div>
+  <section class="remote-card" id="remote-card" aria-label="iPad remote control"></section>
   <details class="health-log" id="health-log"><summary>Health log</summary><ol id="health-log-list"><li>Loading…</li></ol></details>
   <section id="sony-cameras" aria-label="Connected Sony cameras"><div class="section-header">Sony Cameras</div><div id="sony-dashboard-status" aria-live="polite"></div><div class="sony-grid" id="sony-grid-root"></div></section>
 </div>
@@ -1919,6 +1981,17 @@ function signalCard(label, value, cls, detail) {
   '</section>';
 }
 
+// Always-visible iPad remote switch in the top bar: tap to allow or stop iPad control; shows who is driving.
+function remoteToggleItem(rc) {
+  if (!rc) return '';
+  var on = !!rc.enabled, ipad = rc.owner === 'remote';
+  var value = !on ? 'Off \u00b7 tap to allow' : ipad ? 'On \u00b7 ' + (rc.ownerName || 'iPad') + ' driving' : 'On \u00b7 desk in control';
+  return '<button type="button" class="health-item health-item--' + (!on ? 'idle' : ipad ? 'warn' : 'ok') + ' remote-toggle" aria-pressed="' + on + '"' +
+    ' title="' + (on ? 'Stop allowing iPad control (an iPad driving now is stopped)' : 'Allow an iPad to take control') + '"' +
+    ' onclick="setRemoteEnabled(' + (!on) + ')">' +
+    '<span class="health-label">iPad remote</span><span class="health-value">' + esc(value) + '</span></button>';
+}
+
 function healthItem(label, value, ok) {
   return '<div class="health-item health-item--' + (ok ? 'ok' : 'err') + '">' +
     '<span class="health-label">' + label + '</span>' +
@@ -1997,6 +2070,7 @@ function renderStatus(s, c) {
     '<section class="health-stack" aria-label="Connection health">' +
       healthItem('ATEM', s.atemConnected ? 'Online' : 'Offline', s.atemConnected) +
       healthItem('Controller', s.controllerConnected ? (s.activeControllerProfile || 'Online') : 'Offline', s.controllerConnected) +
+      remoteToggleItem(s.remoteControl) +
     '</section>';
 
   const speed = c.speeds && c.speeds.presets && c.speeds.presets[s.speedPreset]
@@ -2060,6 +2134,47 @@ function renderStatus(s, c) {
     return '<div class="health-alert health-alert--' + a.cls + '"><strong>' + esc(a.what) + ': ' + esc(a.text) + '</strong>' + since + (a.hint ? '<span class="health-alert__hint">' + esc(a.hint) + '</span>' : '') + '</div>';
   }).join('') + '</div>' : '';
   document.getElementById('status-content').innerHTML = banner + camGrid + '<div class="mode-row">' + modes + '</div>';
+  renderRemoteCard(s.remoteControl);
+}
+
+// ---- iPad remote control card: on/off, who is driving, Take back, and a desk STOP ----
+var lastRemoteSig = '';
+function renderRemoteCard(rc) {
+  var box = document.getElementById('remote-card');
+  if (!box) return;
+  if (!rc) { box.innerHTML = ''; return; }
+  var who = rc.owner === 'remote' ? (rc.ownerName || 'iPad') : 'Desk';
+  var detail = rc.owner === 'remote'
+    ? 'Last input ' + (rc.lastFrameAgoMs == null ? '-' : rc.lastFrameAgoMs + ' ms ago') + (rc.rttMs == null ? '' : ', round trip ' + rc.rttMs + ' ms')
+    : (rc.sessions + ' iPad page' + (rc.sessions === 1 ? '' : 's') + ' open');
+  // Redraw only when something changed, so the switch is not rebuilt under a click.
+  var sig = [rc.enabled, rc.owner, rc.ownerName, rc.sessions, rc.owner === 'remote' ? Math.round((rc.lastFrameAgoMs || 0) / 250) : 0, rc.rttMs].join('|');
+  if (sig === lastRemoteSig) return;
+  lastRemoteSig = sig;
+  box.innerHTML =
+    '<div class="remote-card__head"><strong>iPad remote control</strong>' +
+      '<span class="remote-card__pill remote-card__pill--' + (rc.owner === 'remote' ? 'remote' : 'desk') + '" id="remote-owner">Control: ' + esc(who) + '</span>' +
+    '</div>' +
+    '<div class="remote-card__row">' +
+      '<label><input type="checkbox" id="remote-enabled"' + (rc.enabled ? ' checked' : '') + ' onchange="setRemoteEnabled(this.checked)"> Allow iPad control</label>' +
+      (rc.owner === 'remote' ? '<button class="btn-sm" id="remote-takeback" onclick="remoteTakeBack()">Take back</button>' : '') +
+      '<button class="btn-sm btn-sm--stop" id="remote-stop" onclick="stopAllCameras()">STOP all</button>' +
+      '<span class="remote-card__detail">' + esc(detail) + '. The desk controller always wins: touching it takes control back.</span>' +
+    '</div>';
+}
+async function setRemoteEnabled(on) {
+  try {
+    await fetch('/api/remote/enabled', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled: !!on }) });
+  } catch (e) { /* the next refresh shows the real state */ }
+  lastRemoteSig = ''; refresh();
+}
+async function remoteTakeBack() {
+  try { await fetch('/api/remote/release', { method: 'POST' }); } catch (e) { /* see above */ }
+  lastRemoteSig = ''; refresh();
+}
+async function stopAllCameras() {
+  try { await fetch('/api/emergency-stop', { method: 'POST' }); } catch (e) { /* see above */ }
+  lastRemoteSig = ''; refresh();
 }
 
 // ---- Health log: every change in a device's state, newest first (kept on the server across restarts) ----

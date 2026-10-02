@@ -11,6 +11,13 @@ Prepare the combined Sony dashboard and latest PR #2 work for verification. PR #
 `feat/sony-dashboard`; updated PR #2 is the integration target. The orchestrator will inspect, verify, commit the merge, and push only after PASS.
 
 ## Recently completed
+- **iPad gamepad remote (draft PR, branch `feat/ipad-gamepad-remote`).** An Xbox controller on an iPad drives the
+  cameras over the network: `/remote` page (static, `ui/remote/`) streams the browser Gamepad to
+  `/ws/remote-controller`; `InputArbiter` keeps the desk controller in charge (desk always wins) and every handover
+  stops the camera (`ControlStateMachine.switchSource`). Safety: 250 ms stale-input stop, 1 s seat release, ping
+  timeout, stop on close/idle/release/STOP/disable. Off by default (`remoteControl.enabled`, optional PIN). Verified
+  only with unit suites, the sandbox and the isolated smoke suite; **not yet tried on a real iPad**. See
+  `docs/ipad-remote.md` and `docs/ai/plans/2026-10-01-ipad-gamepad-remote.md`.
 - **`DJI_RS3_MAX_JOYSTICK` is actually read** (uncommitted locally; **deployed to
   the Pi 2026-08-13 15:38**). `dji_rs_driver.py`
   hardcoded `MAX_JOYSTICK = 80` while `systemd/dji-bridge@.service` documented the

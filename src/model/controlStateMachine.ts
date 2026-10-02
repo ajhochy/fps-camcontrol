@@ -88,6 +88,11 @@ export class ControlStateMachine {
   private lastPanTilt = new Map<CameraId, LastSent>();
   private lastZoom = new Map<CameraId, { speed: number; ts: number }>();
   private activityLog: ActivityLog | null;
+  // Who is driving, for the activity log ('iPad: Front'); null = the desk controller's profile name.
+  private sourceLabel: string | null = null;
+  // Is the source that is driving still there? Defaults to the HID controller; the input arbiter swaps in
+  // one that also knows about a remote (iPad) owner.
+  private sourceConnected: () => boolean = () => this.state.controllerConnected;
 
   constructor(
     private state: AppState,
@@ -102,9 +107,51 @@ export class ControlStateMachine {
     this.speedManager = new SpeedManager(state, config);
   }
 
-  updateInput(input: NormalizedInput): void {
+  updateInput(input: NormalizedInput, sourceLabel?: string): void {
     this.lastInput = input;
     this.lastInputTs = Date.now();
+    this.sourceLabel = sourceLabel ?? null;
+  }
+
+  /** The iPad picked a camera: same effects as the face-button hotkeys (stops the old one, moves the ATEM preview). */
+  selectCameraById(id: string, controller = 'iPad'): boolean {
+    const index = this.config.cameras.findIndex((camera) => camera.id === id);
+    if (index < 0) return false;
+    const before = this.state.controlledCamera;
+    this.cameraSelector.selectByIndex(index);
+    if (this.state.controlledCamera !== before) {
+      const label = this.config.cameras[index].label;
+      this.activityLog?.setContext(controller, 'Pane tap', `Cam → ${label}`);
+      this.activityLog?.addSystemEntry(`Cam → ${label}`, '—');
+    }
+    return true;
+  }
+
+  setSourceConnected(fn: () => boolean): void {
+    this.sourceConnected = fn;
+  }
+
+  /**
+   * The input source changed (desk <-> iPad). Stop whatever is moving right now (a stop is never rate-limited),
+   * forget the old source's last frame, and seed the edge state with the buttons the new source is already
+   * holding so a held button can't fire a rising edge (select a camera, auto-transition) on the handover.
+   */
+  switchSource(seed: NormalizedInput | null): void {
+    if (this.wasMovingPT || this.wasMovingZoom) {
+      const device = this.devices.get(this.state.controlledCamera);
+      if (device) {
+        device.stop();
+        device.setZoom(0);
+      }
+    }
+    this.wasMovingPT = false;
+    this.wasMovingZoom = false;
+    this.lastPanTilt.clear();
+    this.lastZoom.clear();
+    this.lastInput = null;
+    this.lastInputTs = 0;
+    this.sourceLabel = null;
+    this.edgeState.prevButtons = { ...(seed?.buttons ?? {}) };
   }
 
   tick(): void {
@@ -112,7 +159,7 @@ export class ControlStateMachine {
     if (!input) return;
 
     const currentDevice = this.devices.get(this.state.controlledCamera);
-    if (!this.state.controllerConnected || Date.now() - this.lastInputTs > INPUT_STALE_MS) {
+    if (!this.sourceConnected() || Date.now() - this.lastInputTs > INPUT_STALE_MS) {
       if (currentDevice && (this.wasMovingPT || this.wasMovingZoom)) {
         currentDevice.stop();
         currentDevice.setZoom(0);
@@ -124,7 +171,7 @@ export class ControlStateMachine {
       return;
     }
 
-    const controller = this.state.activeControllerProfile ?? 'Unknown';
+    const controller = this.sourceLabel ?? this.state.activeControllerProfile ?? 'Unknown';
     this.state.precisionMode = input.buttons['LS'] ?? false;
     this.state.sprintMode = false;
 

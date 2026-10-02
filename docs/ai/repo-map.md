@@ -18,13 +18,14 @@ fps-camcontrol/
 │   ├── atem/                 ← atemClient (atem-connection wrapper), switcherActions
 │   ├── config/               ← configLoader (YAML + Zod)
 │   ├── devices/              ← motionDevice interface, viscaDevice, djiBridgeDevice, deviceFactory
-│   ├── input/                ← gamepad (node-hid), normalizers, profileDetector, edgeTriggers, calibrationWizard
+│   ├── input/                ← gamepad (node-hid), normalizers, profileDetector, edgeTriggers, calibrationWizard, inputArbiter, remoteControl (iPad hub), remoteFrame, browserGamepad
 │   ├── model/                ← controlStateMachine, cameraSelector, presetManager, speedManager
 │   ├── safety/               ← emergencyStop, watchdog (VISCA reconnect + 30s probe)
 │   ├── testing/              ← smokeTest, virtualAtem, virtualController, virtualVisca, virtualDjiBridge
 │   ├── ui/                   ← statusServer (Express status + config web UI), routes/
 │   ├── visca/                ← viscaClient (UDP + VISCA-IP header + inquiry parser), ptzActions, speedCurves
 │   └── index.ts              ← startup, wiring, connectivity probe summary
+├── ui/                       ← static pages served at /ui: rigs/ (Device Config), remote/ (iPad remote: index.html, remote.js, remoteModel.js, remote.css)
 ├── pi-bridge/                ← Python WebSocket→RS3 Bluetooth LE bridge (runs on a Raspberry Pi)
 │   ├── dji_bridge.py         ← async websockets server; 250ms safety watchdog
 │   ├── drivers/              ← base.py (GimbalDriver protocol), mock_driver.py, RS3 BLE driver

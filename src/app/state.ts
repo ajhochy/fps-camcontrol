@@ -7,6 +7,18 @@ export interface PresetSaveProgress {
   framesHeld: number;
 }
 
+export interface RemoteControlStatus {
+  enabled: boolean;
+  owner: 'local' | 'remote';
+  ownerName: string | null;
+  /** Connected remote pages (the owner and any spectators). */
+  sessions: number;
+  /** How long ago the owning remote last sent a frame; null when the desk owns. */
+  lastFrameAgoMs: number | null;
+  /** The owning remote's last measured round trip. */
+  rttMs: number | null;
+}
+
 export interface AppState {
   controlledCamera: CameraId;
   programCamera: CameraId;
@@ -53,6 +65,8 @@ export interface AppState {
   viscaRepliesHeard: boolean | null;
   /** Per-rig health (motion side, and the Sony camera on it), recomputed every second; see app/health.ts. */
   health: { rigs: Record<string, unknown>; cameras: Record<string, unknown> } | null;
+  /** Who is driving (desk controller or an iPad) and whether iPad control is switched on; see input/remoteControl.ts. */
+  remoteControl: RemoteControlStatus;
   controllerConnected: boolean;
   activeControllerProfile: string | null;
   activeConnectionType: 'usb' | 'bluetooth' | null;
@@ -84,6 +98,7 @@ export const defaultState: AppState = {
   cameraLastReplyAt: {},
   viscaRepliesHeard: null,
   health: null,
+  remoteControl: { enabled: false, owner: 'local', ownerName: null, sessions: 0, lastFrameAgoMs: null, rttMs: null },
   controllerConnected: false,
   activeControllerProfile: null,
   activeConnectionType: null,
@@ -114,6 +129,7 @@ export function createInitialState(overrides: Partial<AppState> = {}): AppState 
     cameraLastReplyAt: {},
     viscaRepliesHeard: null,
     health: null,
+    remoteControl: { ...defaultState.remoteControl },
     ...overrides,
   };
 }
