@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { spawn as nodeSpawn } from 'child_process';
+import { spawn as nodeSpawn, execFile } from 'child_process';
 import { SonyStateStore, ApprovedSonyCamera } from './sonyStateStore';
 
 /** Upstream paths below are the ones already proven against the sidecar by `statusServer.ts`. */
@@ -122,6 +122,33 @@ export interface SonyManagerDependencies {
   pairingCodes?: number[];
   /** Runs a short command (launchctl) and resolves with its exit code; injected by tests. */
   runCommand?: (command: string, args: string[]) => Promise<number>;
+  /**
+   * The current IPv4 address of a network camera, by its MAC address (its Sony ID), or null when this Mac has not
+   * seen it on the network. Defaults to this Mac's ARP table; injected by tests.
+   */
+  lookupAddress?: (mac: string) => Promise<string | null>;
+}
+
+/** Normalised MAC ("10:32:2C:7D:84:31"), or null when the ID is not one (a USB camera). */
+export function macOf(id: string): string | null {
+  const parts = id.split(':');
+  if (parts.length !== 6 || !parts.every((part) => /^[0-9a-fA-F]{1,2}$/.test(part))) return null;
+  return parts.map((part) => part.padStart(2, '0').toUpperCase()).join(':');
+}
+
+/** Parses `arp -an` output ("? (192.168.50.122) at 10:32:2c:7d:84:31 on en0 ...") for one MAC. */
+export function addressFromArp(output: string, mac: string): string | null {
+  for (const line of output.split('\n')) {
+    const match = /\((\d+\.\d+\.\d+\.\d+)\) at ([0-9a-fA-F:]+)/.exec(line);
+    if (match && macOf(match[2]) === mac) return match[1];
+  }
+  return null;
+}
+
+function arpLookup(mac: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    execFile('arp', ['-an'], { timeout: 3000 }, (error, stdout) => resolve(error ? null : addressFromArp(String(stdout), mac)));
+  });
 }
 
 /**
@@ -189,6 +216,7 @@ export class SonyManager {
     this.random = dependencies.random ?? Math.random;
     this.timeoutSignal = dependencies.timeoutSignal ?? ((milliseconds) => AbortSignal.timeout(milliseconds));
     this.pairingCodes = new Set(dependencies.pairingCodes ?? []);
+    this.lookupAddress = dependencies.lookupAddress ?? arpLookup;
     this.runCommand = dependencies.runCommand ?? ((command, args) => new Promise((resolve) => {
       const child = nodeSpawn(command, args, { stdio: 'ignore' });
       child.on('error', () => resolve(-1));
@@ -254,6 +282,7 @@ export class SonyManager {
   }
 
   private readonly runCommand: (command: string, args: string[]) => Promise<number>;
+  private readonly lookupAddress: (mac: string) => Promise<string | null>;
   /** The operator stopped the service from the app: nothing relaunches it or retries cameras until Start. */
   private operatorStopped = false;
 
@@ -520,6 +549,12 @@ export class SonyManager {
       camera.missing = true;
       if (camera.state !== 'needs_pairing') camera.state = 'disconnected';
       camera.message = camera.message ?? 'Camera not found';
+      // Discovery is a broadcast that a weak Wi-Fi link loses, so a camera that is on and listening can still be
+      // missed. If this Mac can see it on the network, connect to it directly by address instead of waiting.
+      const inGrace = camera.sdkGraceUntil !== undefined && this.now().getTime() < camera.sdkGraceUntil;
+      if (camera.state !== 'needs_pairing' && !inGrace && macOf(id) && camera.model) {
+        if (await this.addressOf(id)) reconnect.push(id);
+      }
     }
     for (const id of reconnect) this.track(this.connect(id, true).catch(() => undefined));
     this.refreshDiscoverySchedule();
@@ -691,9 +726,15 @@ export class SonyManager {
       const previous = this.cameras.get(id);
       if (previous) previous.state = 'connecting';
       try {
+        // `reconnecting: "on"` lets the SDK resume this session by itself after a Wi-Fi blip (no re-pairing).
+        // ip/model let the service connect directly when its discovery broadcast missed the camera
+        // (scripts/sony-sidecar-zz-direct-ip.patch); it uses them only then.
+        const model = previous?.model ?? this.approved.get(id)?.model;
+        const ip = model ? await this.addressOf(id) : null;
+        const request: Record<string, string> = { mode: 'remote', reconnecting: 'on' };
+        if (ip && model) { request.ip = ip; request.model = model; }
         const body = await this.request(`${this.cameraPath(id)}/connection`, {
-          // `reconnecting: "on"` lets the SDK resume this session by itself after a Wi-Fi blip (no re-pairing).
-          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'remote', reconnecting: 'on' }),
+          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(request),
         }, CONNECT_TIMEOUT_MS) as any;
         const camera = this.normalizeCamera(body, id, previous);
         // Only an explicit, successful Connect persists approval.
@@ -711,6 +752,13 @@ export class SonyManager {
         throw error;
       }
     });
+  }
+
+  /** The camera's current network address, or null (USB camera, or not seen on the network). */
+  private async addressOf(id: string): Promise<string | null> {
+    const mac = macOf(id);
+    if (!mac) return null;
+    try { return await this.lookupAddress(mac); } catch (_) { return null; }
   }
 
   /** Cancels this camera's future automatic work before the approval is removed. */
