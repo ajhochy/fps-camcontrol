@@ -45,9 +45,10 @@ export function createStatusServer(
   atem: AtemClient,
   devices: Map<CameraId, MotionDevice>,
   sonyManager?: SonyManager,
-  remoteHub?: RemoteControlHub,
   getTracking: () => TrackingHooks | undefined = () => trackingFor(state),
   access?: { frameToken: string },
+  // Last, so PR #58's positional (getTracking, access) callers and tests keep their positions.
+  remoteHub?: RemoteControlHub,
 ): express.Express {
   const app = express();
   if (process.env.CAMCONTROL_EMBEDDED) app.use((req, res, next) => {

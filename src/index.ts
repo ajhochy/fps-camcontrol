@@ -190,8 +190,8 @@ export async function startApplication(
   remoteHub.start();
 
   const frameToken = process.env.CAMCONTROL_EMBEDDED === '1' ? crypto.randomBytes(32).toString('base64url') : process.env.TRACKER_FRAME_TOKEN ?? crypto.randomBytes(32).toString('base64url');
-  // remoteHub (PR #59) and the tracking hooks/frame token (PR #58) are separate parameters; getTracking keeps its default.
-  const app = createStatusServer(state, config, presetManager, activityLog, atem, devices, sonyManager, remoteHub, undefined, { frameToken });
+  // The tracking hooks/frame token (PR #58) keep their positions (getTracking keeps its default); remoteHub (PR #59) is last.
+  const app = createStatusServer(state, config, presetManager, activityLog, atem, devices, sonyManager, undefined, { frameToken }, remoteHub);
   const port = options.statusPort ?? parseInt(process.env.STATUS_PORT ?? '8080', 10);
   // The CLI honours server.host (iPad over the LAN); the embedded backend's startServer stays loopback-only.
   const server = startServer(app, activityLog, port, config.serverHost ?? '127.0.0.1', remoteHub);
