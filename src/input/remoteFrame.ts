@@ -16,6 +16,7 @@ export type ClientMessage =
   | { t: 'release' }
   | { t: 'idle' }
   | { t: 'stop' }
+  | { t: 'select'; camera: string }
   | { t: 'ping'; ts: number }
   | { t: 'in'; s: number; a: number[]; tr: number[]; b: number };
 
@@ -59,6 +60,10 @@ export function parseClientMessage(raw: string | Buffer, lastSeq: number): Parse
     }
     case 'claim': case 'release': case 'idle': case 'stop':
       return { ok: true, msg: { t: m.t } };
+    case 'select':
+      // Which camera the owning iPad wants to control: a plain id (cam1..), nothing else.
+      if (typeof m.camera !== 'string' || !/^[A-Za-z0-9_-]{1,32}$/.test(m.camera)) return fail('bad camera');
+      return { ok: true, msg: { t: 'select', camera: m.camera } };
     case 'ping':
       if (!isFiniteNumber(m.ts)) return fail('bad ping');
       return { ok: true, msg: { t: 'ping', ts: m.ts } };

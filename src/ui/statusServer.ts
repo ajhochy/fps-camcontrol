@@ -156,6 +156,13 @@ export function createStatusServer(
       cameraName: rig.cameraLabel, sonyCameraId: rig.camera ? inventory[rig.camera]?.sonyCameraId ?? null : null,
     }));
   };
+  // The iPad remote's Sony writes (touch focus, camera settings) say so with X-Remote: 1 and are refused while
+  // remote control is switched off at the desk. Reads and live view are not gated.
+  app.use('/api/sony/cameras/:id', (req, res, next) => {
+    const write = (req.method === 'PUT' && req.path.startsWith('/properties/')) || (req.method === 'POST' && req.path === '/touch');
+    if (write && req.get('x-remote') === '1' && !remoteHub?.enabled) { res.status(403).json({ error: 'Remote control is off' }); return; }
+    next();
+  });
   app.get('/api/sony/status', (_req, res) => { const manager = sony(res); if (manager) { const status = manager.getStatus(); res.json({ ...status, cameras: named(status.cameras), rigs: sonyRigOrder() }); } });
   app.get('/api/sony/cameras', (_req, res) => { const manager = sony(res); if (manager) res.json({ cameras: cameraList(manager) }); });
   app.post('/api/sony/cameras/discover', async (_req, res) => { const manager = sony(res); if (!manager) return; try { await manager.discover(); res.json({ cameras: cameraList(manager) }); } catch (error) { sonyError(res, error); } });
@@ -1746,6 +1753,11 @@ function statusHtml(): string {
   .health-value::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: 0 0 auto; }
   .health-item--ok .health-value { color: var(--ok-text); }
   .health-item--err .health-value { color: var(--err-text); }
+  .health-item--warn .health-value { color: var(--warn-text); }
+  .health-item--idle .health-value { color: var(--text-2); }
+  .remote-toggle { font: inherit; text-align: left; border: 0; cursor: pointer; display: flex; flex-direction: column; color: inherit; }
+  .remote-toggle:hover { background: var(--surface-2, var(--surface)); }
+  .remote-toggle:focus-visible { outline: 2px solid var(--ok-text); outline-offset: -2px; }
   .tab-bar {
     gap: 0; padding-top: 0; border: 1px solid var(--border); background: #0e1214;
     overflow-x: auto; scrollbar-width: thin;
@@ -2002,6 +2014,17 @@ function signalCard(label, value, cls, detail) {
   '</section>';
 }
 
+// Always-visible iPad remote switch in the top bar: tap to allow or stop iPad control; shows who is driving.
+function remoteToggleItem(rc) {
+  if (!rc) return '';
+  var on = !!rc.enabled, ipad = rc.owner === 'remote';
+  var value = !on ? 'Off \u00b7 tap to allow' : ipad ? 'On \u00b7 ' + (rc.ownerName || 'iPad') + ' driving' : 'On \u00b7 desk in control';
+  return '<button type="button" class="health-item health-item--' + (!on ? 'idle' : ipad ? 'warn' : 'ok') + ' remote-toggle" aria-pressed="' + on + '"' +
+    ' title="' + (on ? 'Stop allowing iPad control (an iPad driving now is stopped)' : 'Allow an iPad to take control') + '"' +
+    ' onclick="setRemoteEnabled(' + (!on) + ')">' +
+    '<span class="health-label">iPad remote</span><span class="health-value">' + esc(value) + '</span></button>';
+}
+
 function healthItem(label, value, ok) {
   return '<div class="health-item health-item--' + (ok ? 'ok' : 'err') + '">' +
     '<span class="health-label">' + label + '</span>' +
@@ -2087,7 +2110,7 @@ function renderStatus(s, c) {
     '<section class="health-stack" aria-label="Connection health">' +
       healthItem('ATEM', s.atemConnected ? 'Online' : 'Offline', s.atemConnected) +
       healthItem('Controller', s.controllerConnected ? (s.activeControllerProfile || 'Online') : 'Offline', s.controllerConnected) +
-      (s.remoteControl && s.remoteControl.enabled ? healthItem('Control', s.remoteControl.owner === 'remote' ? (s.remoteControl.ownerName || 'iPad') : 'Desk', s.remoteControl.owner !== 'remote') : '') +
+      remoteToggleItem(s.remoteControl) +
     '</section>';
 
   const speed = c.speeds && c.speeds.presets && c.speeds.presets[s.speedPreset]

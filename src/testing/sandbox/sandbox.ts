@@ -548,6 +548,13 @@ async function selfTest(): Promise<number> {
       check('remote.js, remoteModel.js and remote.css are served, and the page loads the model before the script', (await fetch(`${base}/ui/remote/remote.js`)).status === 200 && (await fetch(`${base}/ui/remote/remoteModel.js`)).status === 200 && (await fetch(`${base}/ui/remote/remote.css`)).status === 200 && await (async () => { const t = await (await fetch(`${base}/remote`)).text(); return t.indexOf('remoteModel.js') > 0 && t.indexOf('remoteModel.js') < t.indexOf('/ui/remote/remote.js'); })());
       check('the desk page has the Remote control card, its switch, Take back, STOP and the /remote link', await (async () => { const t = await (await fetch(`${base}/`)).text(); return ['id="remote-card"', 'setRemoteEnabled', 'remoteTakeBack', 'stopAllCameras', 'href="/remote"', 'id="remote-enabled"'].every((marker) => t.includes(marker)); })());
       check('the remote enabled switch rejects a non-boolean (400)', (await post('/api/remote/enabled', { enabled: 'yes' })).status === 400);
+      check('the remote page serves the multiview markup (PVW, PGM, small panes, camera sheet)', await (async () => { const t = await (await fetch(`${base}/remote`)).text(); return ['id="pane-pvw"', 'id="pane-pgm"', 'id="smallPanes"', 'id="sheet"', 'id="multiview"'].every((marker) => t.includes(marker)); })());
+      // Touch focus and camera settings from the remote (X-Remote: 1) are refused while remote control is off; the desk page is not affected.
+      const asRemote = (method: string, p: string, body: unknown) => api(p, { method, headers: { 'content-type': 'application/json', 'x-remote': '1' }, body: JSON.stringify(body) });
+      check('touch focus from the remote is refused while remote control is off (403)', (await asRemote('POST', `/api/sony/cameras/${A}/touch`, { normalized: { x: 0.5, y: 0.5 } })).status === 403);
+      check('a camera setting from the remote is refused while remote control is off (403)', (await asRemote('PUT', `/api/sony/cameras/${A}/properties/iso`, { value: '0x1' })).status === 403);
+      check('the desk page (no X-Remote header) can still touch while remote control is off', (await post(`/api/sony/cameras/${A}/touch`, { normalized: { x: 0.5, y: 0.5 } })).status !== 403);
+      check('live view and reads from the remote are not gated', (await api(`/api/sony/cameras/${A}/properties`, { headers: { 'x-remote': '1' } })).status !== 403);
 
       // disabled: a claim is refused and nothing moves
       let r1 = await connect();
@@ -577,6 +584,29 @@ async function selfTest(): Promise<number> {
       await r1.stream(150, [0, 0, 0, 0]);
       check('the iPad selects the RS3 rig with its face button', (await api('/api/status')).body.controlledCamera === ((await api('/api/config')).body.cameras as any[])[rigIndex].id);
       check('selecting the rig moved nothing', rs3.velPan === 0);
+      {
+        // Tap-to-select from the page: {t:'select'} while holding control changes the controlled camera.
+        const camIds = ((await api('/api/config')).body.cameras as any[]).map((c) => c.id as string);
+        const now = (await api('/api/status')).body.controlledCamera as string;
+        const other = camIds.find((id) => id !== now) as string;
+        r1.send({ t: 'select', camera: other });
+        await waitFor('the select to apply', async () => (await api('/api/status')).body.controlledCamera === other, 2000, 50).catch(() => undefined);
+        check('select from the iPad that holds control changes the controlled camera', (await api('/api/status')).body.controlledCamera === other);
+        r1.send({ t: 'select', camera: 'no-such-camera' });
+        await sleep(150);
+        check('select of an unknown camera is refused: no-camera', r1.msgs.some((m) => m.t === 'denied' && m.reason === 'no-camera') && (await api('/api/status')).body.controlledCamera === other);
+        r1.send({ t: 'select', camera: now });
+        await waitFor('the select back', async () => (await api('/api/status')).body.controlledCamera === now, 2000, 50).catch(() => undefined);
+        // Remote control is on: the same Sony writes are accepted (the fake camera answers).
+        const touchOn = await asRemote('POST', `/api/sony/cameras/${A}/touch`, { normalized: { x: 0.25, y: 0.75 } });
+        check('touch focus from the remote is accepted while remote control is on', touchOn.status === 200, `status=${touchOn.status}`);
+        check('the touch route still validates its point (400 for 2, 0.5)', (await asRemote('POST', `/api/sony/cameras/${A}/touch`, { normalized: { x: 2, y: 0.5 } })).status === 400);
+        const props = (await api(`/api/sony/cameras/${A}/properties`)).body;
+        const iso = ((props.data && props.data.properties) || props.properties || {}).iso;
+        const hexTarget = iso?.available_values?.find((v: any) => v.value !== iso.current_value)?.hex_value;
+        const setOn = hexTarget ? await asRemote('PUT', `/api/sony/cameras/${A}/properties/iso`, { value: hexTarget }) : { status: -1 };
+        check('a camera setting from the remote is accepted while remote control is on', setOn.status === 200, `status=${setOn.status}`);
+      }
       const streaming = r1.stream(900, [0, 0, 0.8, 0]);
       await sleep(500);
       check('the right stick pans the gimbal (velPan > 0)', rs3.velPan > 0, `velPan=${rs3.velPan}`);
@@ -632,6 +662,10 @@ async function selfTest(): Promise<number> {
       spectator.send({ t: 'claim' });
       await sleep(150);
       check('a second iPad is refused while one owns: other-remote', spectator.msgs.some((m) => m.t === 'denied' && m.reason === 'other-remote'));
+      const controlledBefore = (await api('/api/status')).body.controlledCamera;
+      spectator.send({ t: 'select', camera: ((await api('/api/config')).body.cameras as any[]).map((c) => c.id).find((id: string) => id !== controlledBefore) });
+      await sleep(150);
+      check('a page that does not hold control cannot select a camera: not-owner', spectator.msgs.some((m) => m.t === 'denied' && m.reason === 'not-owner') && (await api('/api/status')).body.controlledCamera === controlledBefore);
       await spectator.stream(400, [0, 0, 0.8, 0]);
       check('frames from the spectator move nothing', rs3.velPan === 0);
       const move4 = r3.stream(1500, [0, 0, 0.8, 0]);
