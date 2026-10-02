@@ -98,6 +98,8 @@ export interface RemoteHubDeps {
   activityLog: ActivityLog | null;
   /** Stops every camera (and kills the lower third), like the controller's Back button. */
   emergencyStop: () => Promise<void> | void;
+  /** Select the controlled camera by rig id (like the desk's face buttons); false when no such camera. */
+  selectCamera?: (id: string, who: string) => boolean;
   /** 4-8 digit PIN a page must give before it may claim control; absent = none. */
   pin?: string | null;
   now?: () => number;
@@ -230,6 +232,15 @@ export class RemoteControlHub {
         s.lastInput = null;
         this.deps.arbiter.release(s.id, 'idle');
         break;
+      case 'select': {
+        if (!s.hello) return;
+        if (!s.authed) { this.send(s, { t: 'denied', reason: 'pin' }); return; }
+        // Only the session that holds control may change which camera is controlled.
+        if (!this.enabled) { this.send(s, { t: 'denied', reason: 'disabled' }); return; }
+        if (this.deps.arbiter.owner !== 'remote' || this.deps.arbiter.ownerId !== s.id) { this.send(s, { t: 'denied', reason: 'not-owner' }); return; }
+        if (!this.deps.selectCamera?.(msg.camera, this.labelOf(s))) this.send(s, { t: 'denied', reason: 'no-camera' });
+        break;
+      }
       case 'stop':
         if (!s.hello) return;
         this.stopEverything(this.labelOf(s));

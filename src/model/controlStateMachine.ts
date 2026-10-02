@@ -113,6 +113,20 @@ export class ControlStateMachine {
     this.sourceLabel = sourceLabel ?? null;
   }
 
+  /** The iPad picked a camera: same effects as the face-button hotkeys (stops the old one, moves the ATEM preview). */
+  selectCameraById(id: string, controller = 'iPad'): boolean {
+    const index = this.config.cameras.findIndex((camera) => camera.id === id);
+    if (index < 0) return false;
+    const before = this.state.controlledCamera;
+    this.cameraSelector.selectByIndex(index);
+    if (this.state.controlledCamera !== before) {
+      const label = this.config.cameras[index].label;
+      this.activityLog?.setContext(controller, 'Pane tap', `Cam → ${label}`);
+      this.activityLog?.addSystemEntry(`Cam → ${label}`, '—');
+    }
+    return true;
+  }
+
   setSourceConnected(fn: () => boolean): void {
     this.sourceConnected = fn;
   }
