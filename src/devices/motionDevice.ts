@@ -5,6 +5,8 @@ export interface DeviceCapabilities {
   zoom: boolean;
   position: boolean;
   moveTo: boolean;
+  /** Can switch a sleeping gimbal's motors back on (DJI bridge 0.5.0+ advertises "wake"). */
+  wake?: boolean;
 }
 
 export type DevicePosition =
@@ -47,6 +49,8 @@ export interface MotionDevice {
 
   /** Optional: only present on devices that advertise a recenter capability. */
   recenter?(): Promise<void>;
+  /** Optional: only present on devices that advertise a wake capability. Operator-initiated only. */
+  wake?(): Promise<void>;
 
   on(event: string, listener: (...args: unknown[]) => void): this;
 }

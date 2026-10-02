@@ -9,7 +9,10 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
-    "test:smoke": "ts-node src/testing/smokeTest.ts"
+    "test:smoke": "ts-node src/testing/smokeTest.ts",
+    "sandbox": "pnpm build && node dist/testing/sandbox/sandbox.js",
+    "sandbox:check": "pnpm build && node dist/testing/sandbox/sandbox.js --selftest",
+    "test:smoke:isolated": "pnpm build && node dist/testing/sandbox/sandbox.js --smoke"
   },
   "dependencies": {
     "@types/ws": "^8.18.1",

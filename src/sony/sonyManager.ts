@@ -7,9 +7,32 @@ import { SonyStateStore, ApprovedSonyCamera } from './sonyStateStore';
 const HEALTH_TIMEOUT_MS = 1500;
 const CONNECT_TIMEOUT_MS = 30000;
 const READ_TIMEOUT_MS = 5000;
+// Reading all of a camera's settings can queue behind other cameras connecting on the same service.
+const PROPERTIES_TIMEOUT_MS = 15000;
 // A network scan (Wi-Fi/LAN cameras) routinely takes ~10s inside Sony's SDK.
 const DISCOVERY_TIMEOUT_MS = 30000;
 const FRAME_TIMEOUT_MS = 3000;
+const LINK_CHECK_MS = 5000;
+const LINK_CHECK_TIMEOUT_MS = 2000;
+/**
+ * Battery is read slowly: the sidecar is single-threaded and already busy with live-view frames. One read per
+ * connected camera shortly after it connects, then every 60 s, one camera at a time, never overlapping.
+ */
+const BATTERY_FIRST_READ_MS = 1000;
+const BATTERY_POLL_MS = 60000;
+/** A reading older than this (reads kept failing) is shown as stale rather than current. */
+const BATTERY_STALE_MS = 180000;
+/** Sony SDK "value not taken" marker for battery-remain. */
+const BATTERY_UNTAKEN = 0xffff;
+/**
+ * After a connected camera drops, leave it to the Sony SDK's own reconnect (requested with `reconnecting: "on"`)
+ * for this long before asking for a fresh connection. A fresh connection is a new session, which an FX3/FX3A
+ * refuses (0x820A, "Connect_FailRejected") until it is put in pairing mode again; the SDK's reconnect resumes the
+ * existing session and needs no pairing. Discovery keeps checking meanwhile, so a resumed camera shows at once.
+ */
+const SDK_RECONNECT_GRACE_MS = 20000;
+/** A camera that vanished from discovery and came back (powered off, out of range) gets only this long. */
+const SDK_REAPPEAR_GRACE_MS = 8000;
 const SHUTDOWN_REQUEST_TIMEOUT_MS = 2000;
 const SHUTDOWN_EXIT_WAIT_MS = 3000;
 const TERM_EXIT_WAIT_MS = 2000;
@@ -26,11 +49,15 @@ const SAFE_ID = /^[A-Za-z0-9:-]{1,128}$/;
 const SAFE_PROPERTY = /^[A-Za-z0-9-]{1,64}$/;
 
 export type SonySidecarMode = 'disabled' | 'external' | 'managed' | 'absent';
-export type SonySidecarState = 'disabled' | 'absent' | 'starting' | 'healthy' | 'crashed';
+export type SonySidecarState = 'disabled' | 'absent' | 'starting' | 'healthy' | 'crashed' | 'stopped';
 export type SonyCameraLifecycle =
   | 'discovered_unapproved' | 'connecting' | 'connected' | 'disconnected' | 'needs_pairing' | 'error';
 
-export interface SonyRuntimeConfig { enabled: boolean; apiUrl: string; executable?: string; stateFile: string }
+export interface SonyRuntimeConfig {
+  enabled: boolean; apiUrl: string; executable?: string; stateFile: string;
+  /** The launchd job running the service (scripts/install-sony-service.sh), so the app can start it again. */
+  launchdLabel?: string;
+}
 
 export interface SonyCameraStatus {
   id: string;
@@ -41,7 +68,13 @@ export interface SonyCameraStatus {
   lastSeenAt: string | null;
   nextRetryAt: string | null;
   message: string | null;
+  /** Last battery reading (percent 0-100, null when the camera did not report one); null until first read. */
+  battery?: SonyBattery | null;
+  /** Last overheating reading (the SDK's DeviceOverheatingState), read with the battery; kept after a drop. */
+  overheat?: { state: 'normal' | 'pre' | 'over' | null; at: string } | null;
 }
+
+export interface SonyBattery { percent: number | null; at: string; stale?: boolean }
 
 export interface SonyStatus {
   sidecar: {
@@ -64,7 +97,7 @@ export interface SonyChildProcess {
 }
 
 type Timer = unknown;
-type CameraRecord = SonyCameraStatus & { missing: boolean };
+type CameraRecord = SonyCameraStatus & { missing: boolean; /** Until when (ms) background connects leave it to the SDK's own reconnect. */ sdkGraceUntil?: number };
 
 /** Retryable backpressure for polling reads that hit an occupied camera lane. */
 export class SonyRetryableError extends Error {
@@ -87,6 +120,8 @@ export interface SonyManagerDependencies {
   timeoutSignal?: (milliseconds: number) => AbortSignal;
   /** Empty until a real sidecar contract probe pins exact codes; never guessed from messages. */
   pairingCodes?: number[];
+  /** Runs a short command (launchctl) and resolves with its exit code; injected by tests. */
+  runCommand?: (command: string, args: string[]) => Promise<number>;
 }
 
 /**
@@ -123,6 +158,12 @@ export class SonyManager {
   private readyTimer?: Timer;
   private restartTimer?: Timer;
   private discoveryTimer?: Timer;
+  private linkTimer?: Timer;
+  private batteryTimer?: Timer;
+  private batteryTimerAt: number | null = null;
+  private batteryReading = false;
+  /** When (ms) each connected camera's battery was last attempted. */
+  private batteryAttempts = new Map<string, number>();
   private restartAttempts = 0;
   private outageStartedAt: number | null = null;
   private healthySince: number | null = null;
@@ -148,6 +189,11 @@ export class SonyManager {
     this.random = dependencies.random ?? Math.random;
     this.timeoutSignal = dependencies.timeoutSignal ?? ((milliseconds) => AbortSignal.timeout(milliseconds));
     this.pairingCodes = new Set(dependencies.pairingCodes ?? []);
+    this.runCommand = dependencies.runCommand ?? ((command, args) => new Promise((resolve) => {
+      const child = nodeSpawn(command, args, { stdio: 'ignore' });
+      child.on('error', () => resolve(-1));
+      child.on('exit', (code) => resolve(code ?? -1));
+    }));
   }
 
   // ---------------------------------------------------------------- lifecycle
@@ -198,13 +244,59 @@ export class SonyManager {
         mode: this.mode, state: this.state, owned: this.owned, apiUrl: this.config.apiUrl,
         version: this.version, sdkVersion: this.sdkVersion, message: this.sidecarMessage,
       },
-      cameras: [...this.cameras.values()].map(({ missing: _missing, ...camera }) => ({ ...camera })),
+      cameras: [...this.cameras.values()].map(({ missing: _missing, sdkGraceUntil: _grace, ...camera }) => ({
+        ...camera,
+        battery: camera.battery
+          ? { ...camera.battery, stale: this.now().getTime() - Date.parse(camera.battery.at) > BATTERY_STALE_MS }
+          : null,
+      })),
     };
   }
+
+  private readonly runCommand: (command: string, args: string[]) => Promise<number>;
+  /** The operator stopped the service from the app: nothing relaunches it or retries cameras until Start. */
+  private operatorStopped = false;
+
+  /**
+   * UI "Stop Sony service": ask the service to shut down cleanly (it disconnects every camera properly and exits
+   * 0, which the launchd job treats as "stay stopped"), and stop all background work so nothing restarts it.
+   */
+  async stopService(): Promise<void> {
+    if (!this.config.enabled) return;
+    this.operatorStopped = true;
+    this.epoch++;
+    this.cancelAllTimers();
+    try {
+      await this.request('/api/server/shutdown', { method: 'POST' }, SHUTDOWN_REQUEST_TIMEOUT_MS);
+    } catch (_) { /* already gone, or it closed the connection while shutting down */ }
+    this.state = 'stopped';
+    this.sidecarMessage = 'Stopped from the app';
+    this.markCamerasOffline();
+    for (const camera of this.cameras.values()) { camera.message = 'Sony service stopped'; camera.nextRetryAt = null; }
+  }
+
+  /** UI "Start Sony service": start the launchd job (or the configured executable) and adopt it. */
+  async startService(): Promise<void> {
+    if (!this.config.enabled) return;
+    this.operatorStopped = false;
+    this.state = 'starting';
+    this.sidecarMessage = 'Starting the Sony service…';
+    if (this.config.launchdLabel) {
+      const uid = typeof process.getuid === 'function' ? process.getuid() : 501;
+      const code = await this.runCommand('launchctl', ['kickstart', `gui/${uid}/${this.config.launchdLabel}`]);
+      if (code !== 0) this.sidecarMessage = `Could not start the Sony service (launchctl exit ${code})`;
+      // Give it a moment to listen before the first probe; retryService then adopts it as usual.
+      await new Promise<void>((resolve) => { this.setTimer(() => resolve(), 1500); });
+    }
+    this.retryService();
+  }
+
+  get stoppedByOperator(): boolean { return this.operatorStopped; }
 
   /** UI "Retry Sony service": clears the crash budget and boots again. */
   retryService(): void {
     if (!this.config.enabled) return;
+    this.operatorStopped = false;
     this.epoch++;
     this.stopped = false;
     this.stopping = undefined;
@@ -218,7 +310,9 @@ export class SonyManager {
 
   private async boot(): Promise<void> {
     const epoch = this.epoch;
+    if (this.operatorStopped) return;
     this.approved = new Map((await this.store.load()).map((camera) => [camera.id, camera]));
+    this.seedApprovedCameras();
     if (this.isStale(epoch)) return;
     if (await this.probe()) {
       if (this.isStale(epoch)) return;
@@ -236,6 +330,22 @@ export class SonyManager {
       return;
     }
     await this.launch(epoch);
+  }
+
+  /**
+   * List every saved (approved) camera from the start, even while it is off. Without this a camera
+   * that is powered down when the app starts has no record at all: it is not shown, and nothing
+   * retries it when it powers on, so a restart would look like the app forgot it.
+   */
+  private seedApprovedCameras(): void {
+    for (const approved of this.approved.values()) {
+      if (this.cameras.has(approved.id)) continue;
+      this.cameras.set(approved.id, {
+        id: approved.id, approved: true, state: 'disconnected',
+        model: approved.model, connectionType: approved.connectionType,
+        lastSeenAt: null, nextRetryAt: null, message: 'Camera not found', missing: true, battery: null,
+      });
+    }
   }
 
   private async launch(epoch: number): Promise<void> {
@@ -336,7 +446,7 @@ export class SonyManager {
   }
 
   private scheduleHealthProbe(): void {
-    if (this.stopped || this.healthTimer) return;
+    if (this.stopped || this.operatorStopped || this.healthTimer) return;
     const epoch = this.epoch;
     this.healthTimer = this.setTimer(() => {
       this.healthTimer = undefined;
@@ -377,6 +487,13 @@ export class SonyManager {
       const approved = this.approved.has(id);
       const connected = this.connectedFlag(raw);
       if (previous?.missing && approved) this.burstIndex = 0; // reappearance starts a fresh burst
+      const nowMs = this.now().getTime();
+      const sdkGraceUntil = connected ? undefined
+        : previous?.state === 'connected' && !previous.missing ? nowMs + SDK_RECONNECT_GRACE_MS // dropped while still on the network
+          // Back after dropping and vanishing in this run: only a short beat for the SDK first. A camera never
+          // connected in this run (e.g. at startup) has no session to resume and gets no grace at all.
+          : previous?.missing && previous.sdkGraceUntil !== undefined ? Math.min(previous.sdkGraceUntil, nowMs + SDK_REAPPEAR_GRACE_MS)
+            : previous?.sdkGraceUntil;
       this.cameras.set(id, {
         id,
         approved,
@@ -387,13 +504,19 @@ export class SonyManager {
         nextRetryAt: null,
         message: connected ? null : previous?.message ?? null,
         missing: false,
+        sdkGraceUntil,
+        battery: previous?.battery ?? null,
+        overheat: previous?.overheat ?? null,
       });
-      // Only remembered cameras get background work; unknown IDs wait for an explicit Connect.
-      if (approved && !connected && previous?.state !== 'needs_pairing') reconnect.push(id);
+      // Only remembered cameras get background work; unknown IDs wait for an explicit Connect. A camera that
+      // just dropped is left to the SDK's own reconnect first (see SDK_RECONNECT_GRACE_MS).
+      const inGrace = sdkGraceUntil !== undefined && nowMs < sdkGraceUntil;
+      if (approved && !connected && previous?.state !== 'needs_pairing' && !inGrace) reconnect.push(id);
     }
     for (const [id, camera] of [...this.cameras]) {
       if (seen.has(id)) continue;
       if (!camera.approved) { this.cameras.delete(id); continue; }
+      if (camera.state === 'connected') camera.sdkGraceUntil = this.now().getTime() + SDK_RECONNECT_GRACE_MS;
       camera.missing = true;
       if (camera.state !== 'needs_pairing') camera.state = 'disconnected';
       camera.message = camera.message ?? 'Camera not found';
@@ -412,6 +535,8 @@ export class SonyManager {
 
   /** One shared timer for every pending camera: an outage costs one probe, not N. */
   private refreshDiscoverySchedule(): void {
+    this.refreshLinkCheck();
+    this.refreshBatteryPoll();
     const pending = [...this.cameras.values()].some((camera) => camera.approved && camera.state !== 'connected');
     if (!pending || this.stopped || this.state !== 'healthy') {
       this.cancelDiscovery();
@@ -431,6 +556,107 @@ export class SonyManager {
       if (this.isStale(epoch)) return;
       this.track(this.discover());
     }, delay);
+  }
+
+  /** A camera that loses power never announces it, so re-check the link of every camera shown as connected. */
+  private refreshLinkCheck(): void {
+    const watching = !this.stopped && this.state === 'healthy' && [...this.cameras.values()].some((camera) => camera.state === 'connected');
+    if (!watching) { this.cancelLinkCheck(); return; }
+    if (this.linkTimer) return;
+    const epoch = this.epoch;
+    this.linkTimer = this.setTimer(() => {
+      this.linkTimer = undefined;
+      if (this.isStale(epoch)) return;
+      this.track(this.checkLinks(epoch).finally(() => { if (!this.isStale(epoch)) this.refreshLinkCheck(); }));
+    }, LINK_CHECK_MS);
+  }
+
+  private async checkLinks(epoch: number): Promise<void> {
+    let lost = false;
+    for (const camera of [...this.cameras.values()]) {
+      if (camera.state !== 'connected') continue;
+      try {
+        const body = await this.request(`${this.cameraPath(camera.id)}/connection`, undefined, LINK_CHECK_TIMEOUT_MS);
+        if (this.isStale(epoch)) return;
+        if (!this.connectedFlag(body) && camera.state === 'connected') {
+          camera.state = 'disconnected';
+          camera.message = 'Camera stopped responding';
+          camera.sdkGraceUntil = this.now().getTime() + SDK_RECONNECT_GRACE_MS;
+          lost = true;
+        }
+      } catch (_) { /* inconclusive: a sidecar outage is handled by the health probe, not here */ }
+    }
+    if (lost) { this.burstIndex = 0; this.refreshDiscoverySchedule(); }
+  }
+
+  /**
+   * Arms one timer for the next battery read that is due. A camera that just connected is due after a short
+   * beat (outside its connect lane); after that each camera is due 60 s after its previous attempt.
+   */
+  private refreshBatteryPoll(): void {
+    if (this.batteryReading) return; // the running pass re-arms when it finishes
+    const watching = !this.stopped && this.state === 'healthy';
+    const nowMs = this.now().getTime();
+    let next = Infinity;
+    for (const camera of this.cameras.values()) {
+      if (!watching || camera.state !== 'connected') { this.batteryAttempts.delete(camera.id); continue; }
+      const last = this.batteryAttempts.get(camera.id);
+      next = Math.min(next, last === undefined ? nowMs + BATTERY_FIRST_READ_MS : last + BATTERY_POLL_MS);
+    }
+    if (next === Infinity) { this.cancelBatteryPoll(); return; }
+    if (this.batteryTimer && this.batteryTimerAt !== null && this.batteryTimerAt <= next) return;
+    this.cancelBatteryPoll();
+    const epoch = this.epoch;
+    this.batteryTimerAt = next;
+    this.batteryTimer = this.setTimer(() => {
+      this.batteryTimer = undefined;
+      this.batteryTimerAt = null;
+      if (this.isStale(epoch)) return;
+      this.track(this.readBatteries(epoch));
+    }, Math.max(0, next - nowMs));
+  }
+
+  /** Reads due cameras one at a time. Failures are quiet: the last value is kept and ages into stale. */
+  private async readBatteries(epoch: number): Promise<void> {
+    if (this.batteryReading) return;
+    this.batteryReading = true;
+    try {
+      for (const camera of [...this.cameras.values()]) {
+        if (this.isStale(epoch)) return;
+        if (camera.state !== 'connected') continue;
+        const startedAt = this.now().getTime();
+        const last = this.batteryAttempts.get(camera.id);
+        if (last !== undefined && startedAt - last < BATTERY_POLL_MS) continue;
+        this.batteryAttempts.set(camera.id, startedAt);
+        try {
+          const body = await this.property(camera.id, 'battery-remain');
+          if (this.isStale(epoch)) return;
+          const current = this.cameras.get(camera.id);
+          if (current) current.battery = { percent: batteryPercent(body), at: this.now().toISOString() };
+        } catch (_) { /* quiet: a busy lane or slow sidecar keeps the last reading */ }
+        // Overheating is one of the things that shuts a camera down: read it in the same slow pass.
+        try {
+          const body = await this.property(camera.id, 'overheating-state');
+          if (this.isStale(epoch)) return;
+          const current = this.cameras.get(camera.id);
+          if (current) current.overheat = { state: overheatState(body), at: this.now().toISOString() };
+        } catch (_) { /* quiet, as above */ }
+      }
+    } finally {
+      this.batteryReading = false;
+      if (!this.stopped) this.refreshBatteryPoll();
+    }
+  }
+
+  private cancelBatteryPoll(): void {
+    if (this.batteryTimer) this.clearTimer(this.batteryTimer);
+    this.batteryTimer = undefined;
+    this.batteryTimerAt = null;
+  }
+
+  private cancelLinkCheck(): void {
+    if (this.linkTimer) this.clearTimer(this.linkTimer);
+    this.linkTimer = undefined;
   }
 
   private stampRetry(): void {
@@ -466,12 +692,13 @@ export class SonyManager {
       if (previous) previous.state = 'connecting';
       try {
         const body = await this.request(`${this.cameraPath(id)}/connection`, {
-          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'remote' }),
+          // `reconnecting: "on"` lets the SDK resume this session by itself after a Wi-Fi blip (no re-pairing).
+          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'remote', reconnecting: 'on' }),
         }, CONNECT_TIMEOUT_MS) as any;
         const camera = this.normalizeCamera(body, id, previous);
         // Only an explicit, successful Connect persists approval.
         if (!automatic) await this.store.approve({ id, model: camera.model, connectionType: camera.connectionType });
-        if (!automatic) this.approved.set(id, { id, model: camera.model, connectionType: camera.connectionType, approvedAt: this.now().toISOString() });
+        if (!automatic) this.approved.set(id, { ...this.approved.get(id), id, model: camera.model, connectionType: camera.connectionType, approvedAt: this.approved.get(id)?.approvedAt ?? this.now().toISOString() });
         this.cameras.set(id, { ...camera, approved: this.approved.has(id), state: 'connected', missing: false });
         this.refreshDiscoverySchedule();
       } catch (error) {
@@ -491,6 +718,7 @@ export class SonyManager {
     this.assertId(id);
     this.approved.delete(id);
     this.lanes.delete(id);
+    this.batteryAttempts.delete(id);
     for (const key of [...this.reads.keys()]) if (key.startsWith(`${id}:`)) this.reads.delete(key);
     const camera = this.cameras.get(id);
     if (camera) { camera.approved = false; camera.state = 'discovered_unapproved'; camera.nextRetryAt = null; camera.message = null; }
@@ -504,7 +732,7 @@ export class SonyManager {
   }
 
   properties(id: string): Promise<unknown> {
-    return this.readOnce(id, 'properties', () => this.request(`${this.cameraPath(id)}/properties/all`, undefined, READ_TIMEOUT_MS));
+    return this.readOnce(id, 'properties', () => this.request(`${this.cameraPath(id)}/properties/all`, undefined, PROPERTIES_TIMEOUT_MS));
   }
 
   property(id: string, name: string, init?: RequestInit): Promise<unknown> {
@@ -515,6 +743,11 @@ export class SonyManager {
 
   liveViewStart(id: string): Promise<unknown> {
     return this.operation(id, () => this.request(`${this.cameraPath(id)}/live-view/start`, { method: 'POST' }, READ_TIMEOUT_MS));
+  }
+
+  /** Stop a camera's live view (the sidecar keeps pulling frames from the camera until told to stop). */
+  liveViewStop(id: string): Promise<unknown> {
+    return this.operation(id, () => this.request(`${this.cameraPath(id)}/live-view/stop`, { method: 'POST' }, READ_TIMEOUT_MS));
   }
 
   liveViewFrame(id: string): Promise<SonyFrame> {
@@ -564,6 +797,7 @@ export class SonyManager {
       nextRetryAt: null,
       message: null,
       missing: false,
+      battery: previous?.battery ?? null,
     };
   }
 
@@ -661,10 +895,11 @@ export class SonyManager {
   }
 
   private cancelAllTimers(): void {
-    for (const timer of [this.healthTimer, this.readyTimer, this.restartTimer, this.discoveryTimer]) {
+    for (const timer of [this.healthTimer, this.readyTimer, this.restartTimer, this.discoveryTimer, this.linkTimer, this.batteryTimer]) {
       if (timer) this.clearTimer(timer);
     }
-    this.healthTimer = this.readyTimer = this.restartTimer = this.discoveryTimer = undefined;
+    this.healthTimer = this.readyTimer = this.restartTimer = this.discoveryTimer = this.linkTimer = this.batteryTimer = undefined;
+    this.batteryTimerAt = null;
     for (const wake of [...this.sleepers]) wake();
   }
 
@@ -702,4 +937,40 @@ export class SonyManager {
     if (typeof name !== 'string' || !SAFE_PROPERTY.test(name)) throw new Error('Sony property name must be a safe identifier');
     return name;
   }
+}
+
+/** The sidecar formats DeviceOverheatingState as "Normal" / "Pre-Overheating" / "Overheating". */
+export function overheatState(body: unknown): 'normal' | 'pre' | 'over' | null {
+  const data: any = (body as any)?.data ?? body;
+  const formatted = String(data?.formatted ?? data?.current_formatted ?? '').toLowerCase();
+  if (formatted === 'normal') return 'normal';
+  if (formatted.startsWith('pre')) return 'pre';
+  if (formatted === 'overheating') return 'over';
+  const raw = data?.value ?? data?.current_value;
+  const n = typeof raw === 'number' ? raw : typeof raw === 'string' && /^0x[0-9a-f]+$/i.test(raw) ? parseInt(raw, 16) : NaN;
+  return n === 0 ? 'normal' : n === 1 ? 'pre' : n === 2 ? 'over' : null;
+}
+
+/**
+ * Percent from a sidecar `battery-remain` read. The sidecar answers `{ data: { value: "0x52", formatted: "82%" } }`;
+ * 0xFFFF ("not taken"), an empty reading, or anything outside 0-100 is unknown (null).
+ */
+export function batteryPercent(body: unknown): number | null {
+  const data: any = (body as any)?.data ?? body;
+  if (!data || typeof data !== 'object') return null;
+  const formatted = data.formatted ?? data.current_formatted;
+  let value: number;
+  if (typeof formatted === 'string') {
+    const match = /^\s*(\d+)\s*%?\s*$/.exec(formatted);
+    if (!match) return null;
+    value = Number(match[1]);
+  } else {
+    const raw = data.value ?? data.current_value;
+    if (typeof raw === 'number') value = raw;
+    else if (typeof raw === 'string' && /^0x[0-9a-f]+$/i.test(raw.trim())) value = parseInt(raw.trim(), 16);
+    else if (typeof raw === 'string' && /^\d+$/.test(raw.trim())) value = Number(raw.trim());
+    else return null;
+  }
+  if (!Number.isFinite(value) || value === BATTERY_UNTAKEN || value < 0 || value > 100) return null;
+  return Math.round(value);
 }

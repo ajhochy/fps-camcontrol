@@ -35,6 +35,24 @@ export interface AppState {
    */
   cameraBridgeReachable: Record<string, boolean>;
   cameraGimbalAttached: Record<string, boolean>;
+  /** The gimbal model a DJI bridge named in its handshake, by camera id; absent for VISCA or before one. */
+  cameraGimbalModel: Record<string, string>;
+  /** False when a linked gimbal ignored the operator's stick (asleep, unbalanced, motors off); absent otherwise. */
+  cameraGimbalResponding: Record<string, boolean>;
+  /** How a gimbal's Bluetooth link to its bridge is holding up (bridges >= 0.3.0); absent when not measured. */
+  cameraGimbalSignal: Record<string, GimbalSignal>;
+  /** A gimbal's own sleep report (bridges >= 0.4.0): true asleep, false awake; absent when not reported. */
+  cameraGimbalAsleep: Record<string, boolean>;
+  /** True when a gimbal's bridge can wake it (bridges >= 0.5.0 advertise "wake"); absent otherwise. */
+  cameraGimbalCanWake: Record<string, boolean>;
+  /** VISCA cameras: did the last health check get a reply (true), get none (false); absent until checked. */
+  cameraAnswering: Record<string, boolean>;
+  /** VISCA cameras: when the camera last sent any reply (ms since epoch). */
+  cameraLastReplyAt: Record<string, number>;
+  /** Whether VISCA replies sent to port 52381 can be heard (the app holds that port); null before it binds. */
+  viscaRepliesHeard: boolean | null;
+  /** Per-rig health (motion side, and the Sony camera on it), recomputed every second; see app/health.ts. */
+  health: { rigs: Record<string, unknown>; cameras: Record<string, unknown> } | null;
   controllerConnected: boolean;
   activeControllerProfile: string | null;
   activeConnectionType: 'usb' | 'bluetooth' | null;
@@ -57,6 +75,15 @@ export const defaultState: AppState = {
   cameraConnected: {},
   cameraBridgeReachable: {},
   cameraGimbalAttached: {},
+  cameraGimbalModel: {},
+  cameraGimbalResponding: {},
+  cameraGimbalSignal: {},
+  cameraGimbalAsleep: {},
+  cameraGimbalCanWake: {},
+  cameraAnswering: {},
+  cameraLastReplyAt: {},
+  viscaRepliesHeard: null,
+  health: null,
   controllerConnected: false,
   activeControllerProfile: null,
   activeConnectionType: null,
@@ -78,8 +105,39 @@ export function createInitialState(overrides: Partial<AppState> = {}): AppState 
     cameraConnected: {},
     cameraBridgeReachable: {},
     cameraGimbalAttached: {},
+    cameraGimbalModel: {},
+    cameraGimbalResponding: {},
+    cameraGimbalSignal: {},
+    cameraGimbalAsleep: {},
+    cameraGimbalCanWake: {},
+    cameraAnswering: {},
+    cameraLastReplyAt: {},
+    viscaRepliesHeard: null,
+    health: null,
     ...overrides,
   };
+}
+
+/** The raw Bluetooth link figures a bridge reports for its gimbal. */
+export interface GimbalLinkHealth { drops10m: number; framesLastMin: number; corruptLastMin: number; linkedForS: number | null }
+export interface GimbalSignal { rating: 'good' | 'weak' | 'poor'; drops10m: number; corruptPct: number | null; summary: string }
+
+/**
+ * Rate a gimbal's Bluetooth link from what its bridge reports. Corrupt frames are what a weak signal looks like
+ * before the link drops; drops are the link actually failing. Thresholds live here (not on the Pi) so they can be
+ * tuned without redeploying the bridge.
+ */
+export function rateGimbalSignal(link: GimbalLinkHealth | null | undefined): GimbalSignal | null {
+  if (!link || typeof link.drops10m !== 'number') return null;
+  const corruptPct = link.framesLastMin >= 20 ? Math.round((link.corruptLastMin / link.framesLastMin) * 1000) / 10 : null;
+  // One drop that recovered (a gimbal power-cycled, a link released by hand) is not a weak signal; repeated drops are.
+  const rating: GimbalSignal['rating'] = link.drops10m >= 4 || (corruptPct !== null && corruptPct >= 5) ? 'poor'
+    : link.drops10m >= 2 || (corruptPct !== null && corruptPct >= 1) ? 'weak' : 'good';
+  const parts: string[] = [];
+  if (link.drops10m) parts.push(`${link.drops10m} Bluetooth drop${link.drops10m === 1 ? '' : 's'} in 10 min`);
+  if (corruptPct !== null && corruptPct >= 1) parts.push(`${corruptPct}% of data arriving corrupt`);
+  const summary = rating === 'good' ? (link.drops10m ? `Bluetooth link healthy (recovered from ${link.drops10m} drop in 10 min)` : 'Bluetooth link healthy') : parts.join(', ');
+  return { rating, drops10m: link.drops10m, corruptPct, summary };
 }
 
 /**
@@ -100,8 +158,21 @@ export function createInitialState(overrides: Partial<AppState> = {}): AppState 
 export function applyDeviceLinkState(
   state: AppState,
   cameraId: string,
-  link: { connected: boolean; gimbalAttached?: boolean }
+  link: { connected: boolean; gimbalAttached?: boolean; reportedGimbalModel?: string | null; motionResponsive?: boolean; linkHealth?: GimbalLinkHealth | null; reportedAsleep?: boolean | null; capabilities?: { wake?: boolean } }
 ): void {
+  if (link.connected && typeof link.reportedAsleep === 'boolean') state.cameraGimbalAsleep[cameraId] = link.reportedAsleep;
+  else delete state.cameraGimbalAsleep[cameraId];
+  if (!state.cameraGimbalCanWake) state.cameraGimbalCanWake = {};
+  if (link.connected && link.capabilities?.wake === true) state.cameraGimbalCanWake[cameraId] = true;
+  else delete state.cameraGimbalCanWake[cameraId];
+  const signal = link.connected ? rateGimbalSignal(link.linkHealth) : null;
+  if (signal) state.cameraGimbalSignal[cameraId] = signal;
+  else delete state.cameraGimbalSignal[cameraId];
+  if (typeof link.reportedGimbalModel === 'string') state.cameraGimbalModel[cameraId] = link.reportedGimbalModel;
+  else delete state.cameraGimbalModel[cameraId];
+  const notMoving = link.motionResponsive === false && link.connected && link.gimbalAttached === true;
+  if (notMoving) state.cameraGimbalResponding[cameraId] = false;
+  else delete state.cameraGimbalResponding[cameraId];
   if (link.gimbalAttached === undefined) {
     delete state.cameraBridgeReachable[cameraId];
     delete state.cameraGimbalAttached[cameraId];
@@ -110,7 +181,7 @@ export function applyDeviceLinkState(
   }
   state.cameraBridgeReachable[cameraId] = link.connected;
   state.cameraGimbalAttached[cameraId] = link.gimbalAttached;
-  state.cameraConnected[cameraId] = link.connected && link.gimbalAttached;
+  state.cameraConnected[cameraId] = link.connected && link.gimbalAttached && !notMoving;
 }
 
 /**
@@ -121,6 +192,11 @@ export function applyDeviceLinkState(
 interface LinkStateSource {
   readonly connected: boolean;
   readonly gimbalAttached?: boolean;
+  readonly reportedGimbalModel?: string | null;
+  readonly motionResponsive?: boolean;
+  readonly linkHealth?: GimbalLinkHealth | null;
+  readonly reportedAsleep?: boolean | null;
+  readonly capabilities?: { wake?: boolean };
   on(event: string, listener: (...args: unknown[]) => void): unknown;
 }
 
@@ -142,6 +218,10 @@ export function trackDeviceLinkState(
   device.on('disconnected', sync);
   device.on('gimbalAttached', sync);
   device.on('gimbalDetached', sync);
+  device.on('gimbalResponsive', sync);
+  device.on('gimbalUnresponsive', sync);
+  device.on('linkHealth', sync);
+  device.on('sleepReport', sync);
   sync();
 }
 
@@ -150,4 +230,11 @@ export function clearCameraLinkState(state: AppState, cameraId: string): void {
   delete state.cameraConnected[cameraId];
   delete state.cameraBridgeReachable[cameraId];
   delete state.cameraGimbalAttached[cameraId];
+  delete state.cameraGimbalModel[cameraId];
+  delete state.cameraGimbalResponding[cameraId];
+  delete state.cameraGimbalSignal[cameraId];
+  delete state.cameraGimbalAsleep[cameraId];
+  if (state.cameraGimbalCanWake) delete state.cameraGimbalCanWake[cameraId];
+  delete state.cameraAnswering[cameraId];
+  delete state.cameraLastReplyAt[cameraId];
 }

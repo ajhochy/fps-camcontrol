@@ -17,9 +17,12 @@ import asyncio
 import fcntl
 import json
 import logging
+import os
 import signal
+import socket
 import sys
 import time
+from http import HTTPStatus
 from typing import Any, Dict, Optional
 
 import websockets
@@ -40,6 +43,66 @@ GIMBAL_POLL_S = 2.0
 
 log = logging.getLogger("dji-bridge")
 
+BRIDGE_VERSION = "0.5.0"
+INFO_PATH = "/info"
+
+
+def bridge_info(driver: GimbalDriver, port: int, clients: int) -> Dict[str, Any]:
+    """Who this bridge is: lets the app recognise one gimbal under any of the Pi's addresses.
+
+    Served on plain HTTP (GET /info) as well as in the `hello` ack. The HTTP form opens no
+    session, so asking it never triggers the stop-on-disconnect in Session.run.
+    """
+    return {
+        "bridgeVersion": BRIDGE_VERSION,
+        "hostname": socket.gethostname(),
+        "port": port,
+        # The systemd instance name (dji-bridge@<instance>), e.g. "rs3pro-a"; None when run by hand.
+        "instance": os.environ.get("BRIDGE_INSTANCE") or None,
+        "gimbalModel": driver.model,
+        # The gimbal's Bluetooth address: which physical gimbal this bridge drives.
+        "gimbalAddress": getattr(driver, "address", None),
+        "gimbalConnected": bool(driver.connected),
+        # Control sessions open right now (normally the app's one).
+        "clients": clients,
+        "link": link_health(driver),
+        "asleep": getattr(driver, "asleep", None),
+    }
+
+
+def link_health(driver: GimbalDriver) -> Optional[Dict[str, Any]]:
+    """The driver's Bluetooth link health, when it measures one (the RS3 driver does; the mock does not)."""
+    measure = getattr(driver, "link_health", None)
+    if not callable(measure):
+        return None
+    try:
+        return measure()
+    except Exception:  # noqa: BLE001 - health reporting must never break a session
+        return None
+
+
+def info_request_handler(driver: GimbalDriver, port: int, sessions: "set[Any]"):
+    """A websockets `process_request` hook answering GET /info, for the old and the new websockets API."""
+
+    def body() -> bytes:
+        return json.dumps(bridge_info(driver, port, len(sessions))).encode()
+
+    def process_request(*args: Any) -> Any:
+        if len(args) == 2 and isinstance(args[0], str):  # legacy API: (path, request_headers)
+            if args[0].split("?")[0] != INFO_PATH:
+                return None
+            return (HTTPStatus.OK, [("Content-Type", "application/json"), ("Cache-Control", "no-store")], body())
+        connection, request = args  # websockets >= 14: (connection, request)
+        if request.path.split("?")[0] != INFO_PATH:
+            return None
+        response = connection.respond(HTTPStatus.OK, body().decode())
+        del response.headers["Content-Type"]
+        response.headers["Content-Type"] = "application/json"
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    return process_request
+
 
 class Session:
     """One WebSocket client. The orchestrator (Node app) is the only expected client."""
@@ -49,8 +112,10 @@ class Session:
         ws: WebSocketServerProtocol,
         driver: GimbalDriver,
         safety_timeout_ms: int,
+        port: int = 0,
     ):
         self.ws = ws
+        self.port = port
         self.driver = driver
         self.safety_timeout_ms = safety_timeout_ms
         self.client_id: Optional[str] = None
@@ -102,11 +167,9 @@ class Session:
     async def _dispatch(self, method: str, params: Dict[str, Any]) -> Dict[str, Any]:
         if method == "hello":
             self.client_id = params.get("clientId")
-            return {
-                "bridgeVersion": "0.1.0",
-                "gimbalModel": self.driver.model,
-                "capabilities": list(self.driver.capabilities),
-            }
+            identity = bridge_info(self.driver, self.port, 1)
+            del identity["clients"]
+            return {**identity, "capabilities": list(self.driver.capabilities)}
         if method == "ping":
             await self._emit("pong", {"ts": int(time.time() * 1000)})
             return {}
@@ -135,6 +198,13 @@ class Session:
             return {"ok": True}
         if method == "recenter":
             await self.driver.recenter()
+            return {}
+        if method == "wake":
+            wake = getattr(self.driver, "wake", None)
+            if wake is None or "wake" not in tuple(self.driver.capabilities):
+                raise NotSupported("wake is not supported by this gimbal driver")
+            log.warning("WAKE sent to the gimbal (asked by client %s)", self.client_id or "unknown")
+            await wake()
             return {}
         if method == "setMode":
             await self.driver.set_mode(str(params.get("mode", "follow")))
@@ -180,6 +250,11 @@ class Session:
                 }
                 if pos is not None:
                     params["position"] = {"yaw": pos.yaw, "pitch": pos.pitch, "roll": pos.roll}
+                link = link_health(self.driver)
+                if link is not None:
+                    params["link"] = link
+                # The gimbal's own sleep report (None when it has not sent one on this link).
+                params["asleep"] = getattr(self.driver, "asleep", None)
                 await self._emit("status", params)
         except asyncio.CancelledError:
             pass
@@ -275,17 +350,21 @@ async def serve(host: str, port: int, driver: GimbalDriver, safety_timeout_ms: i
     # bridge is always reachable and reports gimbal state instead of vanishing.
     connector = asyncio.create_task(maintain_gimbal(driver))
 
+    sessions: "set[Session]" = set()
+
     async def handler(ws: WebSocketServerProtocol) -> None:
         log.info("client connected: %s", ws.remote_address)
-        session = Session(ws, driver, safety_timeout_ms)
+        session = Session(ws, driver, safety_timeout_ms, port)
+        sessions.add(session)
         try:
             await session.run()
         finally:
+            sessions.discard(session)
             log.info("client disconnected: %s", ws.remote_address)
 
     log.info("DJI bridge listening on ws://%s:%d (driver=%s)", host, port, driver.name)
     try:
-        async with websockets.serve(handler, host, port):
+        async with websockets.serve(handler, host, port, process_request=info_request_handler(driver, port, sessions)):
             stop = asyncio.Event()
             loop = asyncio.get_running_loop()
             for sig in (signal.SIGINT, signal.SIGTERM):

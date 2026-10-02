@@ -13,6 +13,8 @@ Type=simple
 User=worship
 WorkingDirectory=/home/worship/dji-bridge
 Environment=PYTHONUNBUFFERED=1
+# Reported by GET /info and hello, so the app can show which instance drives which gimbal.
+Environment=BRIDGE_INSTANCE=%i
 # Per-instance config: BRIDGE_PORT, DJI_RS3_BLE_ADDRESS, optional
 # DJI_RS3_MAX_JOYSTICK=200 (safe range 1..1000; tune while viewing camera video).
 EnvironmentFile=/etc/default/dji-bridge-%i
