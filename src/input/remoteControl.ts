@@ -19,7 +19,7 @@ import {
  * machine's 250 ms stale-input window: the socket closing, the page going idle or hidden, a release, a STOP,
  * remote control being switched off, and 1000 ms of silence (the arbiter's dead-man, checked here every 100 ms).
  *
- * Protocol (JSON), client -> server: hello, claim, release, in, idle, stop, ping. Server -> client: welcome,
+ * Protocol (JSON), client -> server: hello, claim, release, in, idle, stop, select, preview, transition, ping. Server -> client: welcome,
  * owner, denied, pong, state. See docs/ai/plans/2026-10-01-ipad-gamepad-remote.md section 2.6.
  */
 
@@ -41,6 +41,8 @@ const TICK_MS = 100;
 const STATE_PUSH_MS = 500; // 2 Hz while owner
 const PIN_MAX_BAD = 5;
 const PIN_LOCKOUT_MS = 60000;
+/** A second TRANSITION inside this window is ignored (a double tap must not take, then take back). */
+export const TRANSITION_MIN_GAP_MS = 1500;
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
 /** The slice of an http request the hub looks at (so tests can pass a plain object). */
@@ -99,7 +101,11 @@ export interface RemoteHubDeps {
   /** Stops every camera (and kills the lower third), like the controller's Back button. */
   emergencyStop: () => Promise<void> | void;
   /** Select the controlled camera by rig id (like the desk's face buttons); false when no such camera. */
-  selectCamera?: (id: string, who: string) => boolean;
+  selectCamera?: (id: string, who: string, movePreview: boolean) => boolean;
+  /** Set the ATEM preview to a camera by rig id (the bottom-row tap); a refusal reason, or 'ok'. */
+  setPreview?: (id: string, who: string) => 'ok' | 'no-camera' | 'no-input' | 'atem-offline';
+  /** The TRANSITION button: auto-transition what is in preview to program; a refusal reason, or 'ok'. */
+  transition?: (who: string) => 'ok' | 'nothing-to-take' | 'no-input' | 'atem-offline';
   /** 4-8 digit PIN a page must give before it may claim control; absent = none. */
   pin?: string | null;
   now?: () => number;
@@ -111,6 +117,7 @@ export class RemoteControlHub {
   private now: () => number;
   private lastStatePush = 0;
   private badPins = new Map<string, WindowCounter>();
+  private lastTransitionAt = -Infinity;
 
   constructor(private deps: RemoteHubDeps) {
     this.now = deps.now ?? Date.now;
@@ -233,12 +240,26 @@ export class RemoteControlHub {
         this.deps.arbiter.release(s.id, 'idle');
         break;
       case 'select': {
-        if (!s.hello) return;
-        if (!s.authed) { this.send(s, { t: 'denied', reason: 'pin' }); return; }
-        // Only the session that holds control may change which camera is controlled.
-        if (!this.enabled) { this.send(s, { t: 'denied', reason: 'disabled' }); return; }
-        if (this.deps.arbiter.owner !== 'remote' || this.deps.arbiter.ownerId !== s.id) { this.send(s, { t: 'denied', reason: 'not-owner' }); return; }
-        if (!this.deps.selectCamera?.(msg.camera, this.labelOf(s))) this.send(s, { t: 'denied', reason: 'no-camera' });
+        const refusal = this.ownerRefusal(s);
+        if (refusal) { if (refusal !== 'silent') this.send(s, { t: 'denied', reason: refusal }); break; }
+        if (!this.deps.selectCamera?.(msg.camera, this.labelOf(s), msg.movePreview)) this.send(s, { t: 'denied', reason: 'no-camera' });
+        break;
+      }
+      case 'preview': {
+        const refusal = this.ownerRefusal(s);
+        if (refusal) { if (refusal !== 'silent') this.send(s, { t: 'denied', reason: refusal }); break; }
+        const r = this.deps.setPreview ? this.deps.setPreview(msg.camera, this.labelOf(s)) : 'no-camera';
+        if (r !== 'ok') this.refuse(s, 'Preview', r);
+        break;
+      }
+      case 'transition': {
+        const refusal = this.ownerRefusal(s);
+        if (refusal) { if (refusal !== 'silent') this.send(s, { t: 'denied', reason: refusal }); break; }
+        const t = this.now();
+        if (t - this.lastTransitionAt < TRANSITION_MIN_GAP_MS) { this.send(s, { t: 'denied', reason: 'too-soon' }); break; }
+        const r = this.deps.transition ? this.deps.transition(this.labelOf(s)) : 'atem-offline';
+        if (r === 'ok') this.lastTransitionAt = t;
+        else this.refuse(s, 'Transition', r);
         break;
       }
       case 'stop':
@@ -246,6 +267,22 @@ export class RemoteControlHub {
         this.stopEverything(this.labelOf(s));
         break;
     }
+  }
+
+  /** Why this session may not drive (select/preview/transition are owner-only), or null; 'silent' = not hello'd yet. */
+  private ownerRefusal(s: Session): string | null {
+    if (!s.hello) return 'silent';
+    if (!s.authed) return 'pin';
+    if (!this.enabled) return 'disabled';
+    if (this.deps.arbiter.owner !== 'remote' || this.deps.arbiter.ownerId !== s.id) return 'not-owner';
+    return null;
+  }
+
+  /** Tell the page why a preview/transition was refused, and leave a line in the activity log. */
+  private refuse(s: Session, what: string, reason: string): void {
+    this.deps.activityLog?.setContext(this.labelOf(s), what, 'Refused');
+    this.deps.activityLog?.addSystemEntry(`${what} refused`, reason);
+    this.send(s, { t: 'denied', reason });
   }
 
   /** Check a PIN from a hello. Five wrong ones from one peer lock it out for a minute (right ones included). */

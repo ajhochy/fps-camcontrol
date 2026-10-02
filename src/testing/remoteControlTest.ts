@@ -1,6 +1,6 @@
 import assert from 'assert';
 import { EventEmitter } from 'events';
-import { RemoteControlHub, RemoteSocket, RemoteRequest, originAllowed, pinMatches } from '../input/remoteControl';
+import { RemoteControlHub, RemoteHubDeps, RemoteSocket, TRANSITION_MIN_GAP_MS, RemoteRequest, originAllowed, pinMatches } from '../input/remoteControl';
 import { InputArbiter, ArbiterMachine } from '../input/inputArbiter';
 import { createInitialState } from '../app/state';
 import { NormalizedInput } from '../input/normalizers';
@@ -33,7 +33,7 @@ class FakeMachine implements ArbiterMachine {
   switchSource(): void { this.switches++; }
 }
 
-function setup(opts: { pin?: string; enabled?: boolean } = {}) {
+function setup(opts: { pin?: string; enabled?: boolean; deps?: Partial<RemoteHubDeps> } = {}) {
   let clock = 100000;
   const now = () => clock;
   const machine = new FakeMachine();
@@ -42,7 +42,7 @@ function setup(opts: { pin?: string; enabled?: boolean } = {}) {
   const stops: string[] = [];
   const hub = new RemoteControlHub({
     state, config: { speeds: { presets: [{ name: 'Slow', multiplier: 0.2 }, { name: 'Normal', multiplier: 0.5 }], activePreset: 1 } } as never,
-    arbiter, activityLog: null, emergencyStop: () => { stops.push('stop'); }, pin: opts.pin ?? null, now,
+    arbiter, activityLog: null, emergencyStop: () => { stops.push('stop'); }, pin: opts.pin ?? null, now, ...opts.deps,
   });
   hub.setEnabled(opts.enabled ?? true);
   clock += 5000;
@@ -216,6 +216,86 @@ for (const [name, act] of [
   const later = env.connect(addr);
   later.say({ t: 'hello', v: 1, name: 'x', pin: '4821' });
   check('after a minute the lockout ends', later.last('welcome')?.needsPin === false);
+}
+
+
+// ---- select / preview / transition: owner-only, validated, refusals reported
+{
+  const calls: string[] = [];
+  let previewResult: 'ok' | 'no-camera' | 'no-input' | 'atem-offline' = 'ok';
+  let transitionResult: 'ok' | 'nothing-to-take' | 'no-input' | 'atem-offline' = 'ok';
+  const env = setup({ deps: {
+    selectCamera: (id, who, movePreview) => { calls.push(`select ${id} ${movePreview}`); return id !== 'camX'; },
+    setPreview: (id, who) => { calls.push(`preview ${id} ${who}`); return previewResult; },
+    transition: (who) => { calls.push(`transition ${who}`); return transitionResult; },
+  } });
+  const owner = env.connect(); owner.say({ t: 'hello', v: 1, name: 'Owner' });
+  const other = env.connect(); other.say({ t: 'hello', v: 1, name: 'Other' });
+  const stranger = env.connect(); // never said hello
+
+  other.say({ t: 'preview', camera: 'cam2' }); other.say({ t: 'transition' }); other.say({ t: 'select', camera: 'cam2', preview: false });
+  check('a page without the seat is refused preview, transition and select: not-owner, nothing called', calls.length === 0 && other.sent.filter((m) => m.t === 'denied' && m.reason === 'not-owner').length === 3);
+  stranger.say({ t: 'preview', camera: 'cam2' }); stranger.say({ t: 'transition' });
+  check('a page that never said hello is ignored', calls.length === 0 && !stranger.last('denied'));
+
+  owner.say({ t: 'claim' });
+  other.say({ t: 'preview', camera: 'cam2' }); other.say({ t: 'transition' });
+  check('while another page owns, a non-owner is still refused', calls.length === 0);
+  owner.say({ t: 'preview', camera: 'cam2' });
+  check('the owner sets the preview, labelled with who asked', calls.join() === 'preview cam2 iPad: Owner' && !owner.last('denied'));
+  owner.say({ t: 'preview', camera: 'cam 2; drop' }); owner.say({ t: 'preview' }); owner.say({ t: 'preview', camera: 7 });
+  check('a bad camera id never reaches the machine', calls.length === 1);
+  previewResult = 'atem-offline'; owner.say({ t: 'preview', camera: 'cam3' });
+  check('a refusal from the machine is reported: atem-offline', owner.last('denied')?.reason === 'atem-offline');
+  previewResult = 'no-input'; owner.say({ t: 'preview', camera: 'cam4' });
+  check('and no-input', owner.last('denied')?.reason === 'no-input');
+  previewResult = 'no-camera'; owner.say({ t: 'preview', camera: 'cam9' });
+  check('and no-camera', owner.last('denied')?.reason === 'no-camera');
+
+  calls.length = 0;
+  owner.say({ t: 'select', camera: 'cam2' }); owner.say({ t: 'select', camera: 'cam3', preview: false });
+  check('select still moves the preview by default, and preview:false asks to leave it alone', calls.join() === 'select cam2 true,select cam3 false');
+  owner.say({ t: 'select', camera: 'camX' });
+  check('select of an unknown camera: no-camera', owner.last('denied')?.reason === 'no-camera');
+
+  calls.length = 0;
+  owner.say({ t: 'transition' });
+  check('the owner takes preview to program', calls.join() === 'transition iPad: Owner');
+  env.advance(TRANSITION_MIN_GAP_MS - 100); owner.say({ t: 'transition' });
+  check('a second TRANSITION inside the gap is ignored (double tap): too-soon', calls.length === 1 && owner.last('denied')?.reason === 'too-soon');
+  env.advance(200); transitionResult = 'nothing-to-take'; owner.say({ t: 'transition' });
+  check('after the gap it goes again; a refusal is reported: nothing-to-take', calls.length === 2 && owner.last('denied')?.reason === 'nothing-to-take');
+  transitionResult = 'ok'; owner.say({ t: 'transition' });
+  check('a refused transition does not start the gap', calls.length === 3);
+
+  env.hub.setEnabled(false);
+  calls.length = 0; owner.say({ t: 'preview', camera: 'cam2' }); owner.say({ t: 'transition' });
+  check('with remote control off nothing is called', calls.length === 0);
+}
+{
+  // Without ATEM wiring (hooks absent) the hub refuses cleanly instead of throwing.
+  const env = setup();
+  const a = env.connect(); a.say({ t: 'hello', v: 1, name: 'A' }); a.say({ t: 'claim' });
+  a.say({ t: 'preview', camera: 'cam2' });
+  check('no preview hook: refused with no-camera', a.last('denied')?.reason === 'no-camera');
+  a.say({ t: 'transition' });
+  check('no transition hook: refused with atem-offline, still owner', a.last('denied')?.reason === 'atem-offline' && env.arbiter.owner === 'remote');
+  a.say({ t: 'preview', camera: 'cam2', extra: 'x'.repeat(600) });
+  check('an oversized message is dropped (counts as invalid), not applied', env.arbiter.owner === 'remote');
+}
+{
+  // Touch frames: right stick up for one camera, held, then released: frames flow only for the owner.
+  const env = setup();
+  const a = env.connect(); a.say({ t: 'hello', v: 1, name: 'T' });
+  a.say({ t: 'in', s: 1, a: [0, 0, 0, -0.6], tr: [0, 0], b: 0 });
+  check('touch frames before the seat are never applied', env.machine.inputs.length === 0);
+  a.say({ t: 'claim' });
+  a.say({ t: 'in', s: 2, a: [0, 0, 0, -0.6], tr: [0, 0], b: 0 });
+  check('an owner touch frame reaches the machine as right-stick up', env.machine.inputs.at(-1)?.axes.rightStickY === -0.6);
+  a.say({ t: 'in', s: 3, a: [0, 0, 0, 0], tr: [0, 0], b: 0 });
+  check('the neutral frame on release stops it', env.machine.inputs.at(-1)?.axes.rightStickY === 0);
+  env.advance(1200); env.hub.tick();
+  check('and a touch page that then goes silent loses the seat after the dead-man window', env.arbiter.owner === 'local');
 }
 
 // ---- Tailscale label

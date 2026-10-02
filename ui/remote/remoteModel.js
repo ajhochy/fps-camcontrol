@@ -76,6 +76,10 @@
     pin: 'Wrong PIN.',
     'not-owner': 'Take control first',
     'no-camera': 'That camera is not available.',
+    'no-input': 'That camera has no ATEM input.',
+    'atem-offline': 'The ATEM is not connected.',
+    'nothing-to-take': 'Preview is already on program. Pick another camera first.',
+    'too-soon': 'Transition just sent. Wait a moment.',
   };
   function deniedText(reason) { return DENIED[reason] || 'Control was refused.'; }
 
@@ -275,6 +279,108 @@
     return null;
   }
 
+  // ---- touch control: pane arrows, speed, the PGM lock. The page sends these as ordinary remote frames, so the
+  // server's validation, dead-man and ownership rules apply unchanged. Pan/tilt is the RIGHT stick (axes 2,3, up = -1)
+  // and zoom is the triggers (tr[0] out, tr[1] in), exactly what the desk machine reads; the left stick (which flicks
+  // between cameras) and the button mask stay at zero.
+
+  var SPEED_LEVELS = { slow: 0.3, normal: 0.6, fast: 1 };
+  var SPEED_ORDER = ['slow', 'normal', 'fast'];
+  var DEFAULT_SPEED = 'normal';
+  var PGM_SPEED_FACTOR = 0.5;     // a camera that is on air moves at half the chosen speed
+  var TOUCH_FLOOR = 0.2;          // never below this: the server's stick deadzone is 0.12
+  var PGM_UNLOCK_MS = 30000;      // "Unlock PGM moves" re-locks itself after this
+  var MAX_HOLD_MS = 20000;        // a press that never reports its release stops by itself
+  var ARROWS = {
+    up: { x: 0, y: -1, z: 0 }, down: { x: 0, y: 1, z: 0 }, left: { x: -1, y: 0, z: 0 }, right: { x: 1, y: 0, z: 0 },
+    zoomIn: { x: 0, y: 0, z: 1 }, zoomOut: { x: 0, y: 0, z: -1 },
+  };
+
+  function speedLevel(name) { return Object.prototype.hasOwnProperty.call(SPEED_LEVELS, name) ? name : DEFAULT_SPEED; }
+
+  /** Stick deflection (0..1) for a speed button; a camera that is on air is gentler. */
+  function touchSpeed(name, onAirNow) {
+    var v = SPEED_LEVELS[speedLevel(name)] * (onAirNow ? PGM_SPEED_FACTOR : 1);
+    return Math.max(TOUCH_FLOOR, Math.min(1, v));
+  }
+
+  /** Frame for the arrows currently held (names from ARROWS; opposites cancel; unknown names ignored). */
+  function arrowFrame(dirs, speedName, onAirNow) {
+    var x = 0, y = 0, z = 0, list = dirs || [];
+    for (var i = 0; i < list.length; i++) {
+      var d = Object.prototype.hasOwnProperty.call(ARROWS, list[i]) ? ARROWS[list[i]] : null;
+      if (d) { x += d.x; y += d.y; z += d.z; }
+    }
+    var v = touchSpeed(speedName, onAirNow);
+    var f = neutralFrame();
+    f.a[2] = clamp(x, -1, 1) * v;
+    f.a[3] = clamp(y, -1, 1) * v;
+    f.tr[1] = z > 0 ? v : 0;
+    f.tr[0] = z < 0 ? v : 0;
+    return f;
+  }
+
+  /** Is any control in the frame deflected or pressed? (The pad wins over touch while it is touched.) */
+  function frameTouched(frame) {
+    if (!frame) return false;
+    for (var i = 0; i < frame.a.length; i++) if (Math.abs(frame.a[i]) > 0) return true;
+    return frame.tr[0] > 0 || frame.tr[1] > 0 || frame.b !== 0;
+  }
+
+  /** Which frame goes out this tick: the pad's when it is being touched, else the held arrows', else the pad's / neutral. */
+  function chooseFrame(padFrame, touchFrame) {
+    if (padFrame && frameTouched(padFrame)) return { source: 'pad', frame: padFrame };
+    if (touchFrame && frameTouched(touchFrame)) return { source: 'touch', frame: touchFrame };
+    return { source: padFrame ? 'pad' : 'none', frame: padFrame || neutralFrame() };
+  }
+
+  /** The rig a pane's arrows move: PVW/PGM move whatever is shown there; null for an empty pane. */
+  function paneControlCamera(key, plan) {
+    var pane = null;
+    if (plan) {
+      if (key === 'pvw') pane = plan.pvw;
+      else if (key === 'pgm') pane = plan.pgm;
+      else (plan.small || []).forEach(function (p) { if (p.key === key) pane = p; });
+    }
+    return pane && pane.rigId ? pane.rigId : null;
+  }
+
+  /** On air = the ATEM program camera. Applies to any pane showing it, not just PGM. */
+  function onAir(rigId, status) { return !!rigId && !!status && status.programCamera === rigId; }
+
+  function pgmUnlockUntil(now) { return now + PGM_UNLOCK_MS; }
+  function pgmLocked(until, now) { return !(typeof until === 'number' && until > now); }
+  function pgmUnlockSeconds(until, now) { return pgmLocked(until, now) ? 0 : Math.ceil((until - now) / 1000); }
+  function pressExpired(startedAt, now) { return now - startedAt >= MAX_HOLD_MS; }
+
+  /**
+   * What the arrows on a big pane look like and whether they work. `owner`/`enabled` as for selectBlock.
+   * { show, enabled, dim, onAir, rigId, reason } - reason is the sentence shown when a press is refused.
+   */
+  function arrowsView(key, plan, status, enabled, owner, unlockedUntil, now) {
+    var rigId = paneControlCamera(key, plan);
+    if (!rigId) return { show: false, enabled: false, dim: true, onAir: false, rigId: null, reason: '' };
+    var air = onAir(rigId, status);
+    var seat = selectBlock(enabled, owner);
+    var locked = air && pgmLocked(unlockedUntil, now);
+    var reason = seat || (locked ? 'Tap Unlock PGM moves first (this camera is on air)' : '');
+    return { show: true, enabled: !seat && !locked, dim: !!seat || locked, onAir: air, rigId: rigId, reason: reason };
+  }
+
+  /** Label for the "Unlock PGM moves" toggle. */
+  function pgmToggleText(until, now) {
+    return pgmLocked(until, now) ? 'Unlock PGM moves' : 'PGM unlocked ' + pgmUnlockSeconds(until, now) + 's';
+  }
+
+  /** null when the TRANSITION button may go (you hold control and preview is not already on program), else the sentence. */
+  function transitionBlock(enabled, owner, status) {
+    var seat = selectBlock(enabled, owner);
+    if (seat) return seat;
+    var st = status || {};
+    if (st.previewCamera && st.previewCamera === st.programCamera) return DENIED['nothing-to-take'];
+    return null;
+  }
+
   function speedLine(speeds, status, pushed) {
     var st = status || {};
     var name = pushed && pushed.speedName ? pushed.speedName : ((speeds && speeds.presets && speeds.presets[st.speedPreset]) ? speeds.presets[st.speedPreset].name : '');
@@ -292,5 +398,11 @@
     framePlan: framePlan, nextFrameDelay: nextFrameDelay, containedPoint: containedPoint, sonyWriteBlock: sonyWriteBlock,
     selectBlock: selectBlock, sonyReported: sonyReported, propertyView: propertyView, sendValue: sendValue,
     batteryInfo: batteryInfo, sonyCameraEntry: sonyCameraEntry,
+    SPEED_LEVELS: SPEED_LEVELS, SPEED_ORDER: SPEED_ORDER, DEFAULT_SPEED: DEFAULT_SPEED, PGM_SPEED_FACTOR: PGM_SPEED_FACTOR,
+    PGM_UNLOCK_MS: PGM_UNLOCK_MS, MAX_HOLD_MS: MAX_HOLD_MS, ARROWS: ARROWS,
+    speedLevel: speedLevel, touchSpeed: touchSpeed, arrowFrame: arrowFrame, frameTouched: frameTouched, chooseFrame: chooseFrame,
+    paneControlCamera: paneControlCamera, onAir: onAir, pgmUnlockUntil: pgmUnlockUntil, pgmLocked: pgmLocked,
+    pgmUnlockSeconds: pgmUnlockSeconds, pressExpired: pressExpired, arrowsView: arrowsView, pgmToggleText: pgmToggleText,
+    transitionBlock: transitionBlock,
   };
 });

@@ -161,7 +161,9 @@ async function main() {
   const remoteHub = new RemoteControlHub({
     state, config, arbiter, activityLog, pin: config.remoteControl?.pin ?? null,
     emergencyStop: () => emergencyStopAll(state, config, atem, devices),
-    selectCamera: (id, who) => machine.selectCameraById(id, who),
+    selectCamera: (id, who, movePreview) => machine.selectCameraById(id, who, movePreview),
+    setPreview: (id, who) => machine.previewCameraById(id, who),
+    transition: (who) => machine.takePreviewLive(who),
   });
   remoteHub.setEnabled(config.remoteControl?.enabled ?? false);
   remoteHub.start();

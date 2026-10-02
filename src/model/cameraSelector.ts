@@ -37,12 +37,12 @@ export class CameraSelector {
    * side effects as a left-stick flick: stops the outgoing camera's PTZ,
    * updates controlled/preview state, and moves the ATEM preview bus.
    */
-  selectByIndex(index: number): void {
-    this.selectCamera(index);
+  selectByIndex(index: number, movePreview = true): void {
+    this.selectCamera(index, movePreview);
     this.stickReadyForSelection = true;
   }
 
-  private selectCamera(newIndex: number): void {
+  private selectCamera(newIndex: number, movePreview = true): void {
     const clamped = Math.max(0, Math.min(this.cameras.length - 1, newIndex));
     if (clamped === this.state.cameraIndex) return;
 
@@ -59,6 +59,12 @@ export class CameraSelector {
       // its motion, but leave the preview bus alone — moving it to a dead input
       // would arm black for the next take.
       logger.info({ camera: cam.id, label: cam.label }, 'controlled camera changed (control-only: no ATEM input)');
+      return;
+    }
+
+    if (!movePreview) {
+      // Control only (the iPad's pane arrows): the ATEM preview bus and the PVW tag stay where the operator put them.
+      logger.info({ camera: cam.id, label: cam.label }, 'controlled camera changed (preview left alone)');
       return;
     }
 
