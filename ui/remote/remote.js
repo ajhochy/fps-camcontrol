@@ -312,7 +312,11 @@
     var id = previewTarget;
     var begin = previewStartedFor === id ? Promise.resolve() : fetch('/api/sony/cameras/' + encodeURIComponent(id) + '/live-view/start', { method: 'POST' }).then(function (r) { if (r.ok) previewStartedFor = id; });
     begin.then(function () { return fetch('/api/sony/cameras/' + encodeURIComponent(id) + '/live-view/frame', { cache: 'no-store' }); })
-      .then(function (r) { if (!r.ok) throw new Error('frame'); return r.blob(); })
+      .then(function (r) {
+        if (r.ok) return r.blob();
+        // Say why, so "unavailable" is not a mystery: the Sony camera or service is down, or it is reconnecting.
+        throw new Error(r.status === 503 ? 'Sony camera busy or the Sony service is off' : r.status === 404 ? 'Sony camera not found' : 'Sony camera not connected');
+      })
       .then(function (blob) {
         if (id !== previewTarget) return;
         var next = URL.createObjectURL(blob);
@@ -321,9 +325,10 @@
         el.previewImg.onload = function () { if (old) URL.revokeObjectURL(old); };
         el.previewImg.src = next;
         el.previewImg.hidden = false;
+        el.previewNote.textContent = ''; // a picture is showing: clear any earlier "waiting" / "unavailable" note
         previewDelay = PREVIEW_MS;
       })
-      .catch(function () { setNote('Preview unavailable'); previewDelay = Math.min(previewDelay * 2, 4000); })
+      .catch(function (error) { setNote('Preview unavailable: ' + (error && error.message && error.message !== 'Failed to fetch' ? error.message : 'CamControl not reachable')); previewDelay = Math.min(previewDelay * 2, 4000); })
       .then(function () { setTimeout(previewLoop, previewDelay); });
   }
 
