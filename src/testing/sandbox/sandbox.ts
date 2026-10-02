@@ -540,7 +540,13 @@ async function selfTest(): Promise<number> {
         return remote;
       };
       const ownerNow = async (): Promise<string> => (await api('/api/status')).body.remoteControl?.owner;
-      const claimed = async (r: Remote): Promise<boolean> => { r.send({ t: 'claim' }); return waitFor('the claim to be granted', async () => r.msgs.some((m) => m.t === 'owner' && m.you === true), 3000, 40).then(() => true, () => false); };
+      // Only a grant that arrives after THIS claim counts (an earlier grant in r.msgs made a re-claim look instant and
+      // let the test race ahead of the server), and the server must agree that a remote now owns control.
+      const claimed = async (r: Remote): Promise<boolean> => {
+        const from = r.msgs.length;
+        r.send({ t: 'claim' });
+        return waitFor('the claim to be granted', async () => r.msgs.slice(from).some((m) => m.t === 'owner' && m.you === true) && (await ownerNow()) === 'remote', 3000, 40).then(() => true, () => false);
+      };
       const stoppedSince = async (mark: number, ms = 600): Promise<boolean> => waitFor('the gimbal to stop', async () => rs3.velPan === 0 && rs3.log.slice(mark).includes('stop {}'), ms, 10).then(() => true, () => false);
 
       check('remote control is off by default', (await api('/api/status')).body.remoteControl?.enabled === false);
@@ -656,7 +662,11 @@ async function selfTest(): Promise<number> {
       check('frames sent after idle (no longer the owner) move nothing', rs3.velPan === 0);
 
       // the desk wins: Take back; and frames from a non-owner are ignored
-      await claimed(r3);
+      const before = r3.msgs.length;
+      check('an iPad that went idle can take control again', await claimed(r3), JSON.stringify(r3.msgs.slice(before).slice(-4)));
+      // The owner keeps sending (neutral) frames while the spectator is set up, as a real iPad does; without them
+      // the dead-man rightly revokes it after 1 s of silence.
+      const keepAlive = r3.stream(2600, [0, 0, 0, 0]);
       const spectator = await connect(base, 'Spectator');
       await waitFor('welcome', async () => spectator.msgs.some((m) => m.t === 'welcome'), 3000, 40);
       spectator.send({ t: 'claim' });
@@ -668,6 +678,8 @@ async function selfTest(): Promise<number> {
       check('a page that does not hold control cannot select a camera: not-owner', spectator.msgs.some((m) => m.t === 'denied' && m.reason === 'not-owner') && (await api('/api/status')).body.controlledCamera === controlledBefore);
       await spectator.stream(400, [0, 0, 0.8, 0]);
       check('frames from the spectator move nothing', rs3.velPan === 0);
+      await keepAlive;
+      check('the owner kept control while a second iPad tried to take it', (await ownerNow()) === 'remote');
       const move4 = r3.stream(1500, [0, 0, 0.8, 0]);
       await sleep(300);
       const takeMark = rs3.log.length;

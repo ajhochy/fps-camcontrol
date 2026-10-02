@@ -160,6 +160,14 @@
     padInfo = M.padStatus(pads);
     if (padInfo.kind !== previous) { if (padInfo.kind !== 'ok') goIdle(); else if (connected) sendHello(); render(); }
 
+    // Visible but not focused (iPadOS can take focus for a system overlay, e.g. on some controller buttons): the
+    // pad can't be trusted, so hold the camera still with neutral frames but keep control. Only a page that is
+    // really gone (hidden, switched away, locked) gives control back, below.
+    if (!document.hidden && !focused && padInfo.kind === 'ok' && connected && welcomed && haveOwnership()) {
+      sendFrame(M.neutralFrame());
+      sending = true;
+      return;
+    }
     var active = isVisible() && padInfo.kind === 'ok' && connected && welcomed;
     if (!active) {
       if (sending) goIdle();
@@ -185,7 +193,8 @@
     updateBanner();
   });
   window.addEventListener('pagehide', function () { focused = false; goIdle(); });
-  window.addEventListener('blur', function () { focused = false; goIdle(); updateBanner(); });
+  // Blur alone does not give control back (see tick): the camera is held still until focus returns.
+  window.addEventListener('blur', function () { focused = false; if (!haveOwnership()) goIdle(); updateBanner(); });
   window.addEventListener('focus', function () { focused = true; updateBanner(); });
   window.addEventListener('pageshow', function () { focused = true; updateBanner(); });
   window.addEventListener('pointerdown', function () { if (!document.hidden) { focused = true; updateBanner(); } });
