@@ -27,6 +27,7 @@
     sheet: $('sheet'), sheetBack: $('sheetBack'), sheetTitle: $('sheetTitle'), sheetBattery: $('sheetBattery'), sheetRows: $('sheetRows'), sheetStatus: $('sheetStatus'), sheetClose: $('sheetClose'),
     releaseBtn: $('releaseBtn'), stopBtn: $('stopBtn'), hint: $('hint'), wakeHint: $('wakeHint'),
     pinRow: $('pinRow'), pinInput: $('pinInput'), pinBtn: $('pinBtn'),
+    transitionBtn: $('transitionBtn'), speedBtns: $('speedBtns'),
   };
 
   var ws = null;
@@ -49,6 +50,9 @@
   var needsPin = false;        // the server wants a PIN before this page may take control
   var bannerTimer = null;
   var bannerUntil = 0;         // a message (denied, lost control, STOP) stays up until then
+  var touchSpeedName = M.speedLevel(store('fps-remote-speed') || M.DEFAULT_SPEED);
+  var press = null;            // the arrow being held: { pointerId, key, rigId, dirs, onAir, startedAt }
+  var pgmUnlockedUntil = 0;    // ms timestamp until which moving the program camera is allowed
 
   // ---- small helpers
   function store(key, value) { try { if (value === undefined) return localStorage.getItem(key); localStorage.setItem(key, value); } catch (_) { /* private mode */ } return null; }
@@ -74,7 +78,6 @@
     if (!connected) { text = 'Not connected to CamControl. Retrying…'; bad = true; }
     else if (padInfo.kind === 'unsupported') { text = padInfo.text + '. Motion is not sent.'; bad = true; }
     else if (!isVisible()) text = 'Paused. Control must be taken again when you come back.';
-    else if (padInfo.kind === 'none') text = 'Press any button on the controller.';
     if (text) { el.banner.textContent = text; el.banner.className = 'banner' + (bad ? ' bad' : ''); el.banner.hidden = false; }
     else el.banner.hidden = true;
   }
@@ -147,10 +150,17 @@
 
   // ---- the control loop
   function goIdle() {
+    endPress();
     if (sending) { sendFrame(M.neutralFrame()); sending = false; }
     send({ t: 'idle' });
     startHeldSince = 0;
     render();
+  }
+
+  // The pad going away: a touch user who holds the seat keeps it (the neutral heartbeat continues); otherwise idle.
+  function padLost() {
+    if (haveOwnership() && !document.hidden) { sendFrame(M.neutralFrame()); render(); }
+    else goIdle();
   }
 
   function tick() {
@@ -158,24 +168,34 @@
     try { pads = navigator.getGamepads ? Array.prototype.slice.call(navigator.getGamepads()) : []; } catch (_) { /* no gamepad support */ }
     var previous = padInfo.kind;
     padInfo = M.padStatus(pads);
-    if (padInfo.kind !== previous) { if (padInfo.kind !== 'ok') goIdle(); else if (connected) sendHello(); render(); }
+    if (padInfo.kind !== previous) { if (padInfo.kind !== 'ok') padLost(); else if (connected) sendHello(); render(); }
+    if (press && M.pressExpired(press.startedAt, Date.now())) endPress();
 
     // Visible but not focused (iPadOS can take focus for a system overlay, e.g. on some controller buttons): the
     // pad can't be trusted, so hold the camera still with neutral frames but keep control. Only a page that is
     // really gone (hidden, switched away, locked) gives control back, below.
     if (!document.hidden && !focused && padInfo.kind === 'ok' && connected && welcomed && haveOwnership()) {
+      endPress();
       sendFrame(M.neutralFrame());
       sending = true;
       return;
     }
-    var active = isVisible() && padInfo.kind === 'ok' && connected && welcomed;
-    if (!active) {
+    var padActive = isVisible() && padInfo.kind === 'ok' && connected && welcomed;
+    // Touch: while this page holds the seat (and is not hidden) frames keep flowing, neutral unless an arrow is
+    // held. They are the heartbeat that keeps the seat; losing focus drops any held arrow but not the seat.
+    var touchSeat = haveOwnership() && !document.hidden && connected && welcomed;
+    if (!padActive && !touchSeat) {
       if (sending) goIdle();
       return;
     }
+    if (!isVisible()) endPress();
+    var padFrame = padActive ? M.frameFromPad(padInfo.pad) : null;
+    var touchFrame = touchSeat && press ? M.arrowFrame(press.dirs, touchSpeedName, M.onAir(press.rigId, status)) : null;
+    var chosen = M.chooseFrame(padFrame, touchFrame); // the pad wins while it is being touched
     sending = true;
-    var frame = M.frameFromPad(padInfo.pad);
-    sendFrame(frame);
+    sendFrame(chosen.frame);
+    if (!padFrame) return;
+    var frame = padFrame;
 
     // Menu held for a second takes control from the pad itself.
     var now = Date.now();
@@ -194,11 +214,11 @@
   });
   window.addEventListener('pagehide', function () { focused = false; goIdle(); });
   // Blur alone does not give control back (see tick): the camera is held still until focus returns.
-  window.addEventListener('blur', function () { focused = false; if (!haveOwnership()) goIdle(); updateBanner(); });
+  window.addEventListener('blur', function () { focused = false; endPress(); if (!haveOwnership()) goIdle(); updateBanner(); });
   window.addEventListener('focus', function () { focused = true; updateBanner(); });
   window.addEventListener('pageshow', function () { focused = true; updateBanner(); });
   window.addEventListener('pointerdown', function () { if (!document.hidden) { focused = true; updateBanner(); } });
-  window.addEventListener('gamepaddisconnected', function () { goIdle(); });
+  window.addEventListener('gamepaddisconnected', function () { padLost(); });
   window.addEventListener('gamepadconnected', function () { render(); });
 
   // ---- buttons
@@ -241,15 +261,16 @@
 
     el.pinRow.hidden = !(connected && welcomed && needsPin);
     var mine = haveOwnership();
-    var canClaim = connected && welcomed && enabled !== false && padInfo.kind === 'ok' && isVisible();
+    var canClaim = connected && welcomed && enabled !== false && isVisible();
     el.claimBtn.hidden = mine;
     el.claimBtn.disabled = !canClaim;
     el.releaseBtn.hidden = !mine;
     el.hint.textContent = mine
-      ? 'You are driving. Sticks and buttons work like the desk controller. Menu is unused.'
-      : 'Press any button on the controller to wake it. Hold Menu for 1 s to take control.';
+      ? 'You are driving. Sticks and buttons work like the desk controller; the arrows on PVW and PGM move that camera.'
+      : 'Tap Take control to drive with touch, or wake the controller and hold Menu for 1 s.';
     el.controlInfo.textContent = mine ? 'Driving ' + controlledLabel() : (owner && owner.owner === 'remote' ? (owner.ownerName || 'Another iPad') + ' is driving' : '');
     el.speedLine.textContent = M.speedLine(speeds, status, mine ? pushed : null);
+    updateTouchUi();
     updateBanner();
   }
 
@@ -303,7 +324,8 @@
     head.appendChild(title); head.appendChild(menu);
     var foot = div('pane-foot');
     root.appendChild(pic); root.appendChild(head); root.appendChild(foot);
-    var n = { key: key, big: big, root: root, img: img, cross: cross, note: note, title: title, menu: menu, foot: foot, sig: '', crossTimer: null, url: '' };
+    var n = { key: key, big: big, root: root, img: img, cross: cross, note: note, title: title, menu: menu, foot: foot, sig: '', crossTimer: null, url: '', pad: null, lock: null };
+    if (big) buildTouchPad(n, root, head);
     menu.addEventListener('click', function (e) { e.stopPropagation(); var pane = paneFor(key); if (pane) openSheet(pane); });
     if (big) img.addEventListener('pointerup', function (e) { onBigTap(n, e); });
     else root.addEventListener('click', function () { var pane = paneFor(key); if (pane && pane.rigId) onSmallTap(pane); });
@@ -376,6 +398,7 @@
     fpNow = M.framePlan(plan);
     syncLoops();
     ['pvw', 'pgm'].concat(plan.small.map(function (p) { return p.key; })).forEach(function (k) { var pane = paneFor(k); if (pane && nodes[k]) { updatePaneText(nodes[k], pane); updatePaneMedia(nodes[k], pane); } });
+    updateTouchUi();
   }
 
   function onFrame(sonyId) {
@@ -421,6 +444,133 @@
     })();
   }
 
+  // ---- touch control: arrows on the big panes move the camera shown there while held
+  var ARROW_GLYPHS = { up: '▲', down: '▼', left: '◀', right: '▶', zoomIn: '+', zoomOut: '−' };
+  var ARROW_LABELS = { up: 'Tilt up', down: 'Tilt down', left: 'Pan left', right: 'Pan right', zoomIn: 'Zoom in', zoomOut: 'Zoom out' };
+
+  function buildTouchPad(n, root, head) {
+    var pad = div('touchpad');
+    var moves = div('tp-moves'), zoom = div('tp-zoom');
+    ['left', 'up', 'down', 'right'].forEach(function (d) { moves.appendChild(arrowButton(n, d)); });
+    ['zoomIn', 'zoomOut'].forEach(function (d) { zoom.appendChild(arrowButton(n, d)); });
+    pad.appendChild(zoom); pad.appendChild(moves);
+    root.appendChild(pad);
+    n.pad = pad;
+    // Nothing on the pad may select text, scroll, zoom, open a callout or a context menu.
+    ['contextmenu', 'selectstart', 'dragstart', 'gesturestart'].forEach(function (ev) { pad.addEventListener(ev, function (e) { e.preventDefault(); }); });
+    if (n.key === 'pgm') {
+      var lock = document.createElement('button');
+      lock.type = 'button'; lock.className = 'pgm-lock';
+      lock.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var block = M.selectBlock(enabled, owner);
+        if (!M.pgmLocked(pgmUnlockedUntil, Date.now())) { pgmUnlockedUntil = 0; endPress(); }
+        else if (block) showBanner(block, true, 3000);
+        else pgmUnlockedUntil = M.pgmUnlockUntil(Date.now());
+        updateTouchUi();
+      });
+      head.insertBefore(lock, n.menu);
+      n.lock = lock;
+    }
+  }
+
+  function arrowButton(n, dir) {
+    var b = document.createElement('button');
+    b.type = 'button'; b.className = 'arrow arrow-' + dir; b.textContent = ARROW_GLYPHS[dir];
+    b.setAttribute('aria-label', ARROW_LABELS[dir] + ' (' + n.key.toUpperCase() + ')');
+    b.addEventListener('pointerdown', function (e) {
+      if (e.button !== undefined && e.button > 0) return;
+      e.preventDefault(); e.stopPropagation();
+      try { b.releasePointerCapture(e.pointerId); } catch (_) { /* not captured */ } // so sliding off the button ends the press
+      if (!document.hidden) focused = true;
+      startPress(n.key, dir, e.pointerId);
+    });
+    ['pointerup', 'pointercancel', 'pointerleave', 'lostpointercapture'].forEach(function (ev) {
+      b.addEventListener(ev, function (e) { if (press && press.pointerId === e.pointerId) endPress(); });
+    });
+    b.addEventListener('click', function (e) { e.stopPropagation(); });
+    return b;
+  }
+
+  function startPress(key, dir, pointerId) {
+    if (press) return; // one finger at a time
+    var v = M.arrowsView(key, plan, status, enabled, owner, pgmUnlockedUntil, Date.now());
+    if (!v.show) return;
+    if (!v.enabled) { showBanner(v.reason, true, 3000); return; }
+    if (!connected || !welcomed || !isVisible()) return;
+    // Control this pane's camera first (control only: the ATEM preview stays where it is), then frames follow on
+    // the same socket, so the server sees the select before the first move.
+    send({ t: 'select', camera: v.rigId, preview: false });
+    press = { pointerId: pointerId, key: key, rigId: v.rigId, dirs: [dir], onAir: v.onAir, startedAt: Date.now() };
+    markPressed();
+    tick(); // first frame now, not up to 33 ms later
+  }
+
+  // Stop at once: a neutral frame goes out here, then the heartbeat carries on neutral.
+  function endPress() {
+    if (!press) return;
+    press = null;
+    markPressed();
+    if (connected && welcomed && haveOwnership()) sendFrame(M.neutralFrame());
+  }
+
+  function markPressed() {
+    Object.keys(nodes).forEach(function (k) {
+      var n = nodes[k];
+      if (!n.pad) return;
+      Array.prototype.forEach.call(n.pad.querySelectorAll('.arrow'), function (b) {
+        b.classList.toggle('held', !!press && press.key === k && b.classList.contains('arrow-' + press.dirs[0]));
+      });
+    });
+  }
+
+  function updateTouchUi() {
+    var now = Date.now();
+    if (pgmUnlockedUntil && M.pgmLocked(pgmUnlockedUntil, now)) { pgmUnlockedUntil = 0; endPress(); }
+    // A held arrow whose permission went away (seat lost, camera went on air, re-locked) stops.
+    if (press) {
+      var cur = M.arrowsView(press.key, plan, status, enabled, owner, pgmUnlockedUntil, now);
+      if (!cur.enabled || cur.rigId !== press.rigId) endPress();
+    }
+    ['pvw', 'pgm'].forEach(function (k) {
+      var n = nodes[k];
+      if (!n || !n.pad) return;
+      var v = M.arrowsView(k, plan, status, enabled, owner, pgmUnlockedUntil, now);
+      n.pad.hidden = !v.show;
+      n.pad.classList.toggle('dim', v.dim);
+      n.pad.classList.toggle('onair', v.onAir);
+      if (n.lock) {
+        n.lock.hidden = !v.show;
+        n.lock.textContent = M.pgmToggleText(pgmUnlockedUntil, now);
+        n.lock.classList.toggle('open', !M.pgmLocked(pgmUnlockedUntil, now));
+      }
+    });
+    var tb = M.transitionBlock(enabled, owner, status);
+    el.transitionBtn.classList.toggle('dim', !!tb);
+    Array.prototype.forEach.call(el.speedBtns.querySelectorAll('.seg-btn'), function (b) {
+      var on = b.dataset.speed === touchSpeedName;
+      b.classList.toggle('on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  }
+  setInterval(updateTouchUi, 500); // the PGM unlock counts down and re-locks
+
+  el.speedBtns.addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('.seg-btn') : null;
+    if (!b) return;
+    touchSpeedName = M.speedLevel(b.dataset.speed);
+    store('fps-remote-speed', touchSpeedName);
+    updateTouchUi();
+  });
+
+  el.transitionBtn.addEventListener('click', function () {
+    var block = M.transitionBlock(enabled, owner, status);
+    if (block) { showBanner(block, true, 3000); return; }
+    send({ t: 'transition' }); // takes what is in PREVIEW to program; the server ignores a double tap
+    setTimeout(pollStatus, SELECT_POLL_MS);
+  });
+  // Nothing may start a long-press menu or callout (inputs excepted).
+  document.addEventListener('contextmenu', function (e) { if (!(e.target && e.target.tagName === 'INPUT')) e.preventDefault(); });
+
   function layout() { el.main.dataset.layout = M.layoutFor(window.innerWidth, window.innerHeight); }
   window.addEventListener('resize', layout);
   window.addEventListener('orientationchange', layout);
@@ -430,7 +580,7 @@
   function onSmallTap(pane) {
     var block = M.selectBlock(enabled, owner);
     if (block) { showBanner(block, true, 3000); return; }
-    send({ t: 'select', camera: pane.rigId });
+    send({ t: 'preview', camera: pane.rigId }); // ATEM preview (and the controlled camera), not program
     setTimeout(pollStatus, SELECT_POLL_MS);
   }
 

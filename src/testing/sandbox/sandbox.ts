@@ -555,6 +555,7 @@ async function selfTest(): Promise<number> {
       check('the desk page has the Remote control card, its switch, Take back, STOP and the /remote link', await (async () => { const t = await (await fetch(`${base}/`)).text(); return ['id="remote-card"', 'setRemoteEnabled', 'remoteTakeBack', 'stopAllCameras', 'href="/remote"', 'id="remote-enabled"'].every((marker) => t.includes(marker)); })());
       check('the remote enabled switch rejects a non-boolean (400)', (await post('/api/remote/enabled', { enabled: 'yes' })).status === 400);
       check('the remote page serves the multiview markup (PVW, PGM, small panes, camera sheet)', await (async () => { const t = await (await fetch(`${base}/remote`)).text(); return ['id="pane-pvw"', 'id="pane-pgm"', 'id="smallPanes"', 'id="sheet"', 'id="multiview"'].every((marker) => t.includes(marker)); })());
+      check('the remote page has the TRANSITION button and the touch speed buttons, and the script builds the arrows', await (async () => { const t = await (await fetch(`${base}/remote`)).text(); const js = await (await fetch(`${base}/ui/remote/remote.js`)).text(); return ['id="transitionBtn"', 'id="speedBtns"', 'data-speed="slow"', 'data-speed="fast"'].every((marker) => t.includes(marker)) && js.includes("t: 'preview'") && js.includes("t: 'transition'") && js.includes('buildTouchPad'); })());
       // Touch focus and camera settings from the remote (X-Remote: 1) are refused while remote control is off; the desk page is not affected.
       const asRemote = (method: string, p: string, body: unknown) => api(p, { method, headers: { 'content-type': 'application/json', 'x-remote': '1' }, body: JSON.stringify(body) });
       check('touch focus from the remote is refused while remote control is off (403)', (await asRemote('POST', `/api/sony/cameras/${A}/touch`, { normalized: { x: 0.5, y: 0.5 } })).status === 403);
@@ -612,6 +613,51 @@ async function selfTest(): Promise<number> {
         const hexTarget = iso?.available_values?.find((v: any) => v.value !== iso.current_value)?.hex_value;
         const setOn = hexTarget ? await asRemote('PUT', `/api/sony/cameras/${A}/properties/iso`, { value: hexTarget }) : { status: -1 };
         check('a camera setting from the remote is accepted while remote control is on', setOn.status === 200, `status=${setOn.status}`);
+      }
+      {
+        // Touch control, as the page does it. The sandbox has no ATEM: preview and transition must refuse cleanly.
+        const cams = (await api('/api/config')).body.cameras as any[];
+        const rs3Id = cams[rigIndex].id as string;
+        const wired = cams.find((c) => c.inputId !== undefined && c.id !== rs3Id);
+        const hold = (ms: number) => r1.stream(ms, [0, 0, 0, 0]);
+        const lastDenied = (from: number): string | undefined => r1.msgs.slice(from).reverse().find((m) => m.t === 'denied')?.reason;
+        await hold(100);
+        const st0 = (await api('/api/status')).body;
+        let from = r1.msgs.length;
+        r1.send({ t: 'preview', camera: wired.id });
+        await hold(150);
+        check('a bottom-row tap (preview) with no ATEM is refused cleanly: atem-offline', lastDenied(from) === 'atem-offline');
+        const st1 = (await api('/api/status')).body;
+        check('and the preview and controlled camera did not change', st1.previewCamera === st0.previewCamera && st1.controlledCamera === st0.controlledCamera && st1.programCamera === st0.programCamera);
+        from = r1.msgs.length;
+        r1.send({ t: 'preview', camera: 'no-such-camera' });
+        await hold(150);
+        check('preview of an unknown camera is refused: no-camera', lastDenied(from) === 'no-camera');
+        from = r1.msgs.length;
+        r1.send({ t: 'preview', camera: 'cam 1; drop' });
+        r1.send({ t: 'preview' });
+        await hold(150);
+        check('a malformed preview is dropped by validation (no answer, nothing changed)', lastDenied(from) === undefined && (await api('/api/status')).body.previewCamera === st0.previewCamera);
+        from = r1.msgs.length;
+        r1.send({ t: 'transition' });
+        await hold(150);
+        check('TRANSITION with no ATEM is refused cleanly and takes nothing', ['atem-offline', 'nothing-to-take', 'no-input'].includes(lastDenied(from) ?? '') && (await api('/api/status')).body.programCamera === st0.programCamera);
+        check('the activity log records the refusal', ((await api('/api/activity')).body.entries ?? []).some((e: any) => /^(Preview|Transition) refused: (atem-offline|no-input|nothing-to-take|no-camera)/.test(e.message ?? '')));
+
+        // Hold an arrow on the RS3's pane: select it for control only (preview stays), then right-stick frames; release stops it.
+        r1.send({ t: 'select', camera: rs3Id, preview: false });
+        await hold(150);
+        const st2 = (await api('/api/status')).body;
+        check('select with preview:false controls the camera but leaves the preview where it was', st2.controlledCamera === rs3Id && st2.previewCamera === st0.previewCamera);
+        const arrowMark = rs3.log.length;
+        const holding = r1.stream(700, [0, 0, 0.6, 0]);
+        await sleep(400);
+        check('holding the right arrow pans the gimbal', rs3.velPan > 0, `velPan=${rs3.velPan}`);
+        await holding;
+        r1.frame([0, 0, 0, 0]);
+        check('releasing the arrow (neutral frame) stops the gimbal within 300 ms', await stoppedSince(arrowMark, 300));
+        await hold(300);
+        check('the page keeps the seat on neutral heartbeat frames after the release', (await ownerNow()) === 'remote');
       }
       const streaming = r1.stream(900, [0, 0, 0.8, 0]);
       await sleep(500);
@@ -676,6 +722,11 @@ async function selfTest(): Promise<number> {
       spectator.send({ t: 'select', camera: ((await api('/api/config')).body.cameras as any[]).map((c) => c.id).find((id: string) => id !== controlledBefore) });
       await sleep(150);
       check('a page that does not hold control cannot select a camera: not-owner', spectator.msgs.some((m) => m.t === 'denied' && m.reason === 'not-owner') && (await api('/api/status')).body.controlledCamera === controlledBefore);
+      spectator.send({ t: 'preview', camera: ((await api('/api/config')).body.cameras as any[])[0].id });
+      spectator.send({ t: 'transition' });
+      spectator.send({ t: 'select', camera: ((await api('/api/config')).body.cameras as any[])[0].id, preview: false });
+      await sleep(150);
+      check('a page that does not hold control cannot set preview, transition or control-only select: not-owner each time', spectator.msgs.filter((m) => m.t === 'denied' && m.reason === 'not-owner').length >= 4 && (await api('/api/status')).body.controlledCamera === controlledBefore);
       await spectator.stream(400, [0, 0, 0.8, 0]);
       check('frames from the spectator move nothing', rs3.velPan === 0);
       await keepAlive;

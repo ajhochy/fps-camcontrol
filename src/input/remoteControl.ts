@@ -281,7 +281,7 @@ export class RemoteControlHub {
   /** Tell the page why a preview/transition was refused, and leave a line in the activity log. */
   private refuse(s: Session, what: string, reason: string): void {
     this.deps.activityLog?.setContext(this.labelOf(s), what, 'Refused');
-    this.deps.activityLog?.addSystemEntry(`${what} refused`, reason);
+    this.deps.activityLog?.addSystemEntry(`${what} refused`, `${what} refused: ${reason}`);
     this.send(s, { t: 'denied', reason });
   }
 
