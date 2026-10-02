@@ -315,6 +315,7 @@ async function selfTest(): Promise<number> {
     const health = (await api('/api/status')).body.health;
     check('every rig has a health verdict, and rigs with a Sony camera have one for the camera too', !!health && Object.keys(health.rigs).length === 4 && Object.keys(health.cameras).length >= 1);
     check('the Status page shows an alert banner and a health log', pageHtml.includes('health-alerts') && pageHtml.includes('id="health-log"') && pageHtml.includes("'/api/health/events'"));
+    check('the top bar has a notification bell with an unread badge, a Mark read action and per-browser read state', pageHtml.includes('id="bell-btn"') && pageHtml.includes('id="bell-badge"') && pageHtml.includes('bellMarkAll') && pageHtml.includes('fps-bell-read-v1') && pageHtml.includes('alertFirstSeen'));
     const rigsForHealth = (await api('/api/rigs')).body;
     const mountedOnVbot = rigsForHealth.sonyDevices.find((d: any) => d.key === rigsForHealth.rigs[0].camera);
     if (mountedOnVbot?.sonyCameraId) {

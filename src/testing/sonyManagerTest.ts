@@ -3,7 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { SonyStateStore, SonyCameraApproval } from '../sony/sonyStateStore';
-import { SonyManager, SonyManagerDependencies, SonyChildProcess, overheatState } from '../sony/sonyManager';
+import { SonyManager, SonyManagerDependencies, SonyChildProcess, overheatState, macOf, addressFromArp } from '../sony/sonyManager';
 
 /**
  * Deterministic lifecycle checks. Every timer, process, clock, and HTTP call is
@@ -20,7 +20,7 @@ const criteria = new Set<string>();
 
 function record(name: string): void {
   const criterion = name.split(':')[0];
-  assert.ok(/^c(?:[1-9]|1[0-7])$/.test(criterion), `check name must start with a criterion id: ${name}`);
+  assert.ok(/^c(?:[1-9]|1[0-8])$/.test(criterion), `check name must start with a criterion id: ${name}`);
   assert.ok(!checks.includes(name), `duplicate check name: ${name}`);
   checks.push(name);
   criteria.add(criterion);
@@ -188,6 +188,7 @@ const build = (
       setTimeout: clock.setTimeout,
       clearTimeout: clock.clearTimeout,
       random: () => 0.5,
+      lookupAddress: async () => null,
       timeoutSignal: (milliseconds) => { timeouts.push(milliseconds); return new AbortController().signal; },
       ...extra,
     },
@@ -777,8 +778,46 @@ async function main(): Promise<void> {
     overheatState({ data: { formatted: 'Overheating' } }), overheatState({ data: { value: '0x2' } }), overheatState({ data: { formatted: '' } }),
   ], ['normal', 'pre', 'over', 'over', null]);
 
+  // -- c18: a camera discovery missed is reconnected directly by its network address --
+  checkEqual('c18: a MAC ID is normalised; a USB ID is not a MAC', [macOf('10:32:2c:7d:84:31'), macOf('9c:50:d1:ac:7b:2'), macOf('D0123456')], ['10:32:2C:7D:84:31', '9C:50:D1:AC:7B:02', null]);
+  checkEqual('c18: the address is read from the ARP table by MAC', [
+    addressFromArp('? (192.168.50.1) at 0:11:22:33:44:55 on en0 ifscope [ethernet]\n? (192.168.50.122) at 10:32:2c:7d:84:31 on en0 ifscope [ethernet]', '10:32:2C:7D:84:31'),
+    addressFromArp('? (192.168.50.9) at (incomplete) on en0 ifscope [ethernet]', '10:32:2C:7D:84:31'),
+  ], ['192.168.50.122', null]);
+  {
+    const vbot = '10:32:2C:7D:84:31';
+    let address: string | null = '192.168.50.122';
+    let linked = false;
+    const listed = () => json(200, { cameras: linked ? [{ id: vbot, model: 'ILME-FX3A', connectionType: 'Network', connected: true }] : [] });
+    // Like the patched service: discovery never lists the camera; a connect finds it only with its address and model.
+    const upstream = (url: string, init?: RequestInit): Response => {
+      if (url.endsWith('/api/server/status')) return healthy();
+      if (url.endsWith('/api/cameras')) return listed();
+      if (url.endsWith('/connection') && init?.method === 'POST') {
+        const body = JSON.parse(String(init.body));
+        if (body.ip !== '192.168.50.122' || body.model !== 'ILME-FX3A') return json(404, { success: false, message: `Camera with ID '${vbot}' not found` });
+        linked = true;
+        return json(200, { success: true, camera: { connected: true, model: 'ILME-FX3A', id: vbot } });
+      }
+      if (url.endsWith('/connection')) return json(200, { success: true, camera: { connected: linked, id: vbot } });
+      return json(200, {});
+    };
+    await new SonyStateStore(file('direct.json')).approve({ id: vbot, model: 'ILME-FX3A', connectionType: 'Network' });
+    const reborn = build({ stateFile: file('direct.json') }, upstream, { lookupAddress: async (mac: string) => (mac === vbot ? address : null) });
+    address = null;
+    reborn.manager.start();
+    await reborn.clock.run(reborn.manager, 0);
+    checkEqual('c18: an approved camera missed by discovery and unseen on the network is not tried', reborn.calls.filter((c) => c.startsWith('POST') && c.endsWith('/connection')).length, 0);
+    address = '192.168.50.122';
+    await reborn.clock.run(reborn.manager, 60000);
+    check('c18: once this Mac sees it on the network it is connected directly, by address and model',
+      reborn.bodies.some((b) => b.includes('"ip":"192.168.50.122"') && b.includes('"model":"ILME-FX3A"') && b.includes('"reconnecting":"on"')));
+    checkEqual('c18: and it shows connected', reborn.manager.getStatus().cameras.find((c) => c.id === vbot)?.state, 'connected');
+    await reborn.manager.stop();
+  }
+
   const covered = [...criteria].sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
-  assert.strictEqual(covered.length, 17, `every criterion needs a check; covered: ${covered.join(',')}`);
+  assert.strictEqual(covered.length, 18, `every criterion needs a check; covered: ${covered.join(',')}`);
   assert.strictEqual(new Set(checks).size, checks.length, 'check names must be unique');
   console.log(`sony manager: ${checks.length} checks passed across ${covered.length} criteria (${covered.join(' ')})`);
 }
