@@ -1,12 +1,92 @@
-# Current plan — packaging-first Electron delivery (supersedes the plan below)
+# Current plan — GitHub testing release, mirroring Rhythm
 
-> **Integration branch note (`integration/combine-open-prs`).** This file is the Electron line's plan (PR #57/#58).
+> **Integration branch note (`integration/combine-open-prs`).** This file is the Electron line's plan as of PR #58 (release plan first, then the PR #57 packaging plan).
 > Also in flight on the production line: the iPad gamepad remote (PR #59), plan at
 > `docs/ai/plans/2026-10-01-ipad-gamepad-remote.md`, and the Device Config rigs redesign (PR #36), plan at
 > `docs/ai/plans/2026-09-30-device-config-rigs-ui.md`. The click-to-track plan that `current-plan.md` held on
 > main and on the production line is archived verbatim at `docs/ai/plans/2026-09-30-click-to-track.md`.
 
-2026-10-01 · Implementation resumed; manual packaging and real runtime verification are underway.
+2026-10-01 user follow-up authorizes building the release workflow and publishing
+test builds of PR57 and PR58. It supersedes only the earlier no-release restriction.
+No PR merge, main-branch write, keychain export, live-hardware operation, cleanup,
+third PR, or change to Rhythm is authorized.
+
+## Intent, scope, and clarification
+
+Goal: provide one clearly labeled GitHub prerelease containing the separately
+identified manual and tracking Apple Silicon installers, and a repeatable hosted
+release workflow based on Rhythm's Electron workflow.
+The user's follow-up selects the reference architecture. Credential reuse is the
+one open external setup question, asked explicitly; do not copy secrets without
+an answer. Preserve both existing PRs; add release tooling to the tracking PR,
+which checks out each artifact's exact source SHA independently. Foundation stays
+frozen. App code/version and existing notarized bytes need not change to publish
+the initial testing release. A release label may differ from the embedded 0.1.0
+app version and must say so explicitly.
+
+Tension: GitHub has no signing secrets, but two signed/notarized local builds
+already exist. Implement hosted build/sign/notarize/verify/publish regardless;
+publish the already-qualified bytes if hosted credentials are unavailable, with
+honest local-build provenance. Never label that as a successful hosted build.
+
+## Prior art
+
+Read-only reference: Rhythm `.github/workflows/electron_release.yml`: manual
+version/prerelease/qualification inputs, macOS build, temporary signing keychain,
+Apple acceptance, signed bundle smoke, artifact upload and GitHub publication.
+Adapt to ARM64 only, two FPS variants, exact source SHA checkouts, staged native
+dependencies, least-privilege secrets, cleanup, checksums, immutable assets and
+prerelease-only publication from unmerged PRs. No Rhythm/Hermes/Colony resources.
+Tag-triggered testing bootstrap avoids merging merely to register a dispatch
+workflow; manual dispatch is documented for after workflow registration.
+
+## Ordered work and acceptance
+
+| Order | Work | Likely files | Required evidence |
+| --- | --- | --- | --- |
+| R1 | Freeze contract before implementation | tests/release, docs/ai/contracts | Runnable failing contract tests |
+| R2 | Implement mirrored workflow and release helper | .github/workflows/electron_release.yml, .github/electron-release-sources.json, scripts/electron-release.cjs, docs/releasing.md | Workflow syntax; input/provenance/security/publication negative tests |
+| R3 | Independently verify | scripts/checks.cjs, run record | Full repo gate; exact asset hash/signature/staple/runtime evidence; diff review |
+| R4 | Push existing tracking PR and publish testing release | PR58, GitHub Releases | Both downloadable DMGs with matching SHA256, source commits, separate identities and explicit remaining human gates |
+
+Concrete criteria: manual dispatch and testing-tag trigger exist; manual and
+tracking sources are full pinned SHAs from this repository; only ARM64 macOS is
+built; credentials fail closed and never reach dependency installation; hosted
+runner keychain is temporary and cleaned even on failure; both signed/notarized
+DMGs pass packaged checks before a single prerelease publication job; qualifying
+only never publishes; each asset has size/hash/source/version/minimum-OS metadata;
+duplicate releases/assets are refused rather than overwritten; downloaded public
+asset bytes must match their receipt. Real-person tracking, clean-OS/TCC and
+physical camera/gimbal smoke remain NOT TESTED until witnessed.
+
+## Completion checklist
+
+- [x] Read context and Rhythm reference; inspect live PRs, secrets and runners.
+- [x] Write contract and observe expected failures (8 runnable assertion failures;
+  missing workflow/helper/pins, no test-import or syntax errors).
+- [x] Implement workflow/helper/docs and independently review (11 focused tests
+  plus actionlint pass; no remaining blocking review finding).
+- [x] Run full repository and release-specific verification (PR gate exit0,
+  smoke268/sandbox104; exact final DMGs rechecked and mounted runtimes pass).
+- [x] Publish and verify both testing downloads; record hosted versus local proof.
+  `electron-local-testing-2026.10.01` is public; both unauthenticated downloads
+  match original sizes/hashes. These are locally built, not hosted-built DMGs.
+- [x] Update project state and hand off release links, without merging.
+
+Release: https://github.com/ajhochy/fps-camcontrol/releases/tag/electron-local-testing-2026.10.01
+Hosted PR validation: https://github.com/ajhochy/fps-camcontrol/actions/runs/36938086068
+Full hosted signing still awaits authorized GitHub secret setup. Clean-Mac and
+real-person/physical-rig acceptance remain unverified; publication does not close
+those gates or either draft PR.
+
+No TodoWrite/update_plan tool is exposed in this session; this durable checklist
+is the workflow tracking fallback.
+
+---
+
+# Prior plan — packaging-first Electron delivery
+
+2026-10-01 · Delivered exactly two drafts: manual PR57/source133ae8d and stacked tracking PR58/source3711a9e. Both final signed/notarized/stapled DMGs pass exact mounted runtime. Clean-OS/physical gates remain MANUAL_PENDING; see `runs/2026-10-01-electron-delivery.md`. Historical sections below do not expand active scope.
 
 ## Status and clarification interview
 
@@ -83,11 +163,11 @@ The actual packaged tracking DMG is `com.ajhochhalter.fpscamcontrol.tracking`, h
 
 ## Completion checklist
 
-- [ ] PR1 only contains packaging/lifecycle/persistence/security/resource fixes needed by the existing app and has an independently verified, signed/notarized manual DMG.
-- [ ] PR2 is stacked from the exact PR1 SHA, contains actual tracking plus its separately identified signed/notarized DMG, and does not mutate the manual artifact.
-- [ ] Every automated gate has a command/result; each external/manual criterion is `PASS`, `MANUAL_PENDING`, `BLOCKED`, or `NOT_RUN`, never implied.
-- [ ] PR descriptions credit carried PR #36 work and use closing keywords only for genuinely completed scoped issues.
-- [ ] Project-state update occurs after implementation evidence, not during this plan-only task.
+- [x] PR1 only contains packaging/lifecycle/persistence/security/resource fixes needed by the existing app and has an independently verified, signed/notarized manual DMG (inherited PR36 work credited).
+- [x] PR2 is stacked from the exact PR1 SHA, contains actual tracking plus its separately identified signed/notarized DMG, and does not mutate the manual artifact.
+- [x] Every automated gate has a command/result; each external/manual criterion is explicitly qualified, never implied.
+- [x] PR descriptions credit carried PR #36 work and use closing keywords only for genuinely completed scoped issues.
+- [x] Project-state update follows implementation, independent review, Apple acceptance and exact final-byte runtime evidence.
 
 ---
 

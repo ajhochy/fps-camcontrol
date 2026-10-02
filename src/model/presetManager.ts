@@ -6,6 +6,7 @@ import { getUserPath } from '../config/paths';
 import { shiftPresetsAfterRemoval } from './presetShift';
 import { MotionDevice, DevicePosition } from '../devices/motionDevice';
 import { logger } from '../index';
+import { trackingFor } from '../app/trackingHooks';
 
 const ViscaPositionSchema = z.object({
   kind: z.literal('visca'),
@@ -97,6 +98,7 @@ export class PresetManager {
     const device = this.devices.get(cameraId);
     if (!device) return;
     try {
+      trackingFor(this.state)?.manager.operatorOverride(cameraId);
       await device.moveTo(pos);
     } catch (err) {
       logger.error({ err, cameraId, slot }, 'preset recall error');

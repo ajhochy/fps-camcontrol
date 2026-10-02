@@ -1,0 +1,57 @@
+{
+  "issue": 28,
+  "generated": "2026-10-01",
+  "criteria": [
+    {
+      "criterion_id": "issue-28-c1",
+      "text": "Invalid body/coords ⇒ `400`; unknown `sourceId` ⇒ `404`; tracking disabled ⇒ `409`; source unavailable (gimbal not in profile / detached) ⇒ `409` with a curated reason.",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-28.spec.ts",
+      "test_id": "issue-28-c1",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-28-c2",
+      "text": "`select` while the gimbal's device is disconnected is refused, not queued.",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-28.spec.ts",
+      "test_id": "issue-28-c2",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-28-c3",
+      "text": "`cancel` is idempotent and always results in `stop()` being sent.",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-28.spec.ts",
+      "test_id": "issue-28-c3",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-28-c4",
+      "text": "`/api/status` remains backward compatible (only additive keys).",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-28.spec.ts",
+      "test_id": "issue-28-c4",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-28-c5",
+      "text": "No route blocks on the sidecar: `select` returns after the command is handed to the client (state then flows through status).",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-28.spec.ts",
+      "test_id": "issue-28-c5",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-28-c6",
+      "text": "Rate-limit or coalesce repeated `select` (e.g. ≥ 250 ms between accepted selects per source).",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-28.spec.ts",
+      "test_id": "issue-28-c6",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [],
+  "verification": "Root ai-workflow checks --level pr exit0 (2026-10-01, tracking changes atop133ae8d); physical/finalDMG gates separate."
+}

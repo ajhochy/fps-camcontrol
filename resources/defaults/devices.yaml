@@ -6,3 +6,7 @@ cameras: []
 sony:
   enabled: false
   apiUrl: http://127.0.0.1:8181
+# Tracking is opt-in. See docs/tracking.md for an inventory-key source mapping.
+tracking:
+  enabled: false
+  sources: []

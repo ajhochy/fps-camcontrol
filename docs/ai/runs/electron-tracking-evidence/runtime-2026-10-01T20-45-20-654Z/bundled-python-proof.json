@@ -1,0 +1,143 @@
+{
+  "testedAt": "2026-10-01T20:45:26.534Z",
+  "scope": "packaged-runtime",
+  "app": "/var/folders/f0/kwf9lqtx57qgt3j4rbtvg1ym0000gn/T/fps tracking mounted runtime aiaT3T/Mounted DMG/FPS CamControl Tracking.app",
+  "model": {
+    "path": "/var/folders/f0/kwf9lqtx57qgt3j4rbtvg1ym0000gn/T/fps tracking mounted runtime aiaT3T/Mounted DMG/FPS CamControl Tracking.app/Contents/Resources/models/object_detection_yolox_2022nov.onnx",
+    "bytes": 35858002,
+    "sha256": "c5c2d13e59ae883e6af3b45daea64af4833a4951c92d116ec270d9ddbe998063"
+  },
+  "hostArchitecture": "arm64",
+  "cleanOS": "NOT_TESTED",
+  "physicalHID": "NOT_TESTED",
+  "inference": {
+    "modelSha256": "c5c2d13e59ae883e6af3b45daea64af4833a4951c92d116ec270d9ddbe998063",
+    "provider": "CoreMLExecutionProvider",
+    "inferenceCount": 2,
+    "shape": [
+      1,
+      8400,
+      85
+    ],
+    "finite": true,
+    "inputDependent": true,
+    "detectP50Ms": 22.419709246605635,
+    "detectP95Ms": 23.890999611467123,
+    "fps": 43.18655553576925,
+    "frameAgeMs": 23.890999611467123,
+    "personCounts": [
+      0,
+      0
+    ],
+    "fixture": "generated RGB only; not accuracy proof",
+    "timingScope": "inference only; not source transport or camera exposure latency"
+  },
+  "networkDeniedInference": "PASS",
+  "helper": {
+    "handshake": "PASS",
+    "selectTrackingCancelIdle": "PASS",
+    "heartbeat": "PASS",
+    "ownedStopAwaited": "PASS",
+    "shutdownMs": 15
+  },
+  "liveFrame": {
+    "scope": "actual packaged live Python and model",
+    "anonymousWebSocketStatus": 401,
+    "anonymousFrameStatus": 403,
+    "deniedFrames": 1,
+    "frames": [
+      {
+        "capturedAt": 1790887533102,
+        "bytes": 6860,
+        "jpegAccepted": true
+      }
+    ],
+    "invalidMessages": 0,
+    "hello": {
+      "protocol": 1,
+      "type": "hello",
+      "version": "1.0.0",
+      "capabilities": [
+        "person"
+      ],
+      "detector": "yolox-s-opencv-zoo-2022nov",
+      "provider": "CoreMLExecutionProvider",
+      "degradedTiming": true
+    },
+    "metrics": [
+      {
+        "protocol": 1,
+        "type": "status",
+        "sourceId": "fixture",
+        "fps": 1,
+        "dropped": 0,
+        "busy": 0,
+        "detectP50Ms": 23.38187489658594,
+        "detectP95Ms": 23.38187489658594,
+        "frameAgeMs": 55,
+        "degradedTiming": false
+      }
+    ],
+    "tracks": [
+      {
+        "protocol": 1,
+        "type": "track",
+        "sourceId": "fixture",
+        "sessionId": "b30837f7-0185-4660-9a43-c27121c21912",
+        "seq": 0,
+        "state": "locking",
+        "cx": 0,
+        "cy": 0,
+        "w": 0,
+        "h": 0,
+        "conf": 0,
+        "frameTs": 0,
+        "processedAt": 1790887532955
+      },
+      {
+        "protocol": 1,
+        "type": "track",
+        "sourceId": "fixture",
+        "sessionId": "b30837f7-0185-4660-9a43-c27121c21912",
+        "seq": 1,
+        "state": "idle",
+        "cx": 0,
+        "cy": 0,
+        "w": 0,
+        "h": 0,
+        "conf": 0,
+        "frameTs": 0,
+        "processedAt": 1790887533157
+      }
+    ],
+    "errors": [
+      {
+        "code": "no_target",
+        "sourceId": "fixture",
+        "sessionId": "b30837f7-0185-4660-9a43-c27121c21912"
+      }
+    ],
+    "imageRetention": "generated geometric JPEG only, memory-only; no identifiable footage or persisted frame"
+  },
+  "motionIntegration": {
+    "scope": "actual packaged Python + packaged TS control + virtual gimbal",
+    "motion": "PASS",
+    "manualOverrideResume": "PASS",
+    "helperCrashStopNoReplay": "PASS",
+    "manualStop": {
+      "explicitStopReceived": true,
+      "stopMs": 0.5646250000008877,
+      "watchdogMs": 250,
+      "handledStopCommands": 1,
+      "watchdogFired": false
+    },
+    "crashStop": {
+      "explicitStopReceived": true,
+      "stopMs": 2.1135830000002898,
+      "watchdogMs": 250,
+      "handledStopCommands": 1,
+      "watchdogFired": false
+    },
+    "physicalHardware": "NOT_TESTED"
+  }
+}

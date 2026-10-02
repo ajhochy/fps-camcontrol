@@ -14,3 +14,4 @@ Index of dated architecture/workflow decisions. Full records live in
 - [2026-10-01 — iPad remote: the desk always wins; HTTP in v1, Tailscale Serve for HTTPS](decisions/2026-10-01-ipad-remote-desk-wins-and-https.md)
 - [2026-09-30 — Auto-tracking: Python vision sidecar, TypeScript control loop](decisions/2026-09-30-auto-tracking-architecture.md)
 - [2026-09-30 — Stacked Electron foundation and tracking deliverables](decisions/2026-09-30-electron-foundation.md)
+- [2026-10-01 — Dual-variant testing releases modeled on Rhythm](decisions/2026-10-01-electron-testing-release.md)

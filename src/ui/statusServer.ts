@@ -1,6 +1,7 @@
 import express from 'express';
 import http from 'http';
 import path from 'path';
+import crypto from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import { AppState, CameraId, trackDeviceLinkState, clearCameraLinkState } from '../app/state';
 // NOTE: "profile" is overloaded in this codebase — profileDetector deals with
@@ -31,6 +32,10 @@ import { SonyManager, SonyRetryableError, SonyUpstreamError } from '../sony/sony
 import { RemoteControlHub } from '../input/remoteControl';
 import { emergencyStopAll } from '../safety/emergencyStop';
 import { getResourcePath, getUserPath } from '../config/paths';
+import { trackingFor, TrackingHooks } from '../app/trackingHooks';
+import { installTrackingRoutes, trackingSnapshot } from './trackingRoutes';
+import { resolveTrackingSources } from '../tracking/sourceResolver';
+import { installTrackingCalibrationRoutes } from './trackingCalibrationRoutes';
 
 export function createStatusServer(
   state: AppState,
@@ -41,10 +46,21 @@ export function createStatusServer(
   devices: Map<CameraId, MotionDevice>,
   sonyManager?: SonyManager,
   remoteHub?: RemoteControlHub,
+  getTracking: () => TrackingHooks | undefined = () => trackingFor(state),
+  access?: { frameToken: string },
 ): express.Express {
   const app = express();
   if (process.env.CAMCONTROL_EMBEDDED) app.use((req, res, next) => {
     const origin = `http://127.0.0.1:${req.socket.localPort}`;
+    const expectedFrameToken = access?.frameToken;
+    const given = req.headers.authorization?.replace(/^Bearer /, '');
+    const expectedBytes = Buffer.from(expectedFrameToken ?? '');
+    const givenBytes = Buffer.from(given ?? '');
+    const frameOnly = expectedBytes.length > 0 && givenBytes.length === expectedBytes.length &&
+      crypto.timingSafeEqual(givenBytes, expectedBytes) && req.method === 'GET' && !req.headers.origin &&
+      req.headers.host === `127.0.0.1:${req.socket.localPort}` &&
+      (config.tracking?.sources ?? []).some(source => req.url === `/api/sony/cameras/${encodeURIComponent(source.sonyCameraId)}/live-view/frame`);
+    if (frameOnly) { next(); return; }
     const cookie = (req.headers.cookie ?? '').split(';').map(v => v.trim());
     if (!process.env.CAMCONTROL_SESSION || req.headers.host !== `127.0.0.1:${req.socket.localPort}` ||
         !cookie.includes(`fps-session=${process.env.CAMCONTROL_SESSION}`) ||
@@ -55,6 +71,8 @@ export function createStatusServer(
     next();
   });
   app.use(express.json());
+  installTrackingRoutes(app, config, getTracking);
+  installTrackingCalibrationRoutes(app, config, devices, getTracking);
   // The rigs screen is plain JS/CSS files (not part of the page template) so they can be syntax-checked and
   // tested on their own. dist/ui and src/ui are both two levels below the repo root.
   app.use('/ui', express.static(path.join(__dirname, '../../ui'), { index: false, setHeaders: (res) => { res.setHeader('Cache-Control', 'no-cache'); } }));
@@ -208,12 +226,13 @@ export function createStatusServer(
   const idleStopped = new Set<string>();
   app.get('/api/sony/cameras/:id/live-view/frame', async (req, res) => {
     const manager = sony(res); const id = sonyId(req, res); if (!manager || !id) return;
+    // Any frame reader (a watching page, or the tracking helper) keeps live view running; after the idle stop it restarts.
     lastFrameAsk.set(id, Date.now());
     if (idleStopped.has(id)) {
       idleStopped.delete(id);
       try { await manager.liveViewStart(id); } catch { /* the frame read below reports trouble */ }
     }
-    void manager.liveViewFrame(id).then(frame => res.type(frame.contentType).send(frame.body)).catch(error => sonyError(res, error));
+    void manager.liveViewFrame(id).then(frame => res.set('X-Frame-Captured-At', String(frame.capturedAt)).set('Cache-Control', 'no-store').type(frame.contentType).send(frame.body)).catch(error => sonyError(res, error));
   });
   setInterval(() => {
     if (!sonyManager) return;
@@ -242,7 +261,7 @@ export function createStatusServer(
   // switch the gimbal on). Both maps omit direct-link cameras (VISCA) entirely:
   // a missing key means "no second stage", not "broken".
   app.get('/api/status', (_req, res) => {
-    res.json(state);
+    res.json({ ...state, tracking: trackingSnapshot(config, getTracking()) });
   });
 
   // ---- health: one verdict per rig (motion) and per rig's Sony camera, every second, with a change log
@@ -468,6 +487,7 @@ export function createStatusServer(
     config.activeProfile = fresh.activeProfile;
     config.working = fresh.working;
     config.workingNotice = fresh.workingNotice;
+    config.tracking = fresh.tracking;
     reconcileCameras(fresh.cameras);
   };
   const splitVersion = (body: unknown): { expectedVersion: string | undefined; change: unknown } => {
@@ -540,6 +560,7 @@ export function createStatusServer(
       dropWorking();
       const fresh = loadConfig();
       config.devices = fresh.devices; config.profiles = fresh.profiles; config.activeProfile = fresh.activeProfile;
+      config.tracking = fresh.tracking;
       reconcileCameras(fresh.cameras);
       keepControlValid();
       res.json({ ok: true, ...rigsBody() });
@@ -734,6 +755,8 @@ export function createStatusServer(
   }
 
   function reconcileCameras(newCameras: AppConfig['cameras']): void {
+    const tracking = getTracking();
+    tracking?.manager.invalidateAll('binding_changed');
     const oldIds = new Set(devices.keys());
     const newIds = new Set(newCameras.map(c => c.id as CameraId));
 
@@ -775,6 +798,10 @@ export function createStatusServer(
     // sees the new entries without being rebuilt.
     config.cameras.length = 0;
     for (const cam of newCameras) config.cameras.push(cam);
+    if (tracking && config.tracking) {
+      tracking.refreshSources?.();
+      tracking.manager.reconcile(config.tracking, resolveTrackingSources(config), devices);
+    }
   }
 
   // GET /api/profiles — inventory + profile definitions + which one is active.
@@ -896,6 +923,7 @@ export function createStatusServer(
   app.post('/api/reconnect/camera/:id', (req, res) => {
     const device = devices.get(req.params.id as CameraId);
     if (!device) { res.status(404).json({ error: 'unknown camera' }); return; }
+    getTracking()?.manager.invalidateCamera(req.params.id, 'device_reconnect');
     device.close();
     device.connect();
     res.json({ ok: true });
@@ -1089,6 +1117,7 @@ function statusHtml(): string {
 </script>
 <title>FPS CamControl</title>
 <link rel="stylesheet" href="/ui/rigs/rigs.css">
+<link rel="stylesheet" href="/ui/tracking/tracking.css">
 <style>
   :root {
     --bg:        oklch(0.11 0.008 235);
@@ -1948,6 +1977,7 @@ function statusHtml(): string {
 
 <script src="/ui/rigs/rigsModel.js" defer></script>
 <script src="/ui/rigs/rigs.js" defer></script>
+<script src="/ui/tracking/tracking.js" defer></script>
 <script>
 function switchTab(name, btn) {
   document.querySelectorAll('.tab-panel').forEach(function(p) {
@@ -2308,6 +2338,7 @@ function renderSonyCameras(cameras, rigs) {
   });
   // Put the cards in rig order, moving only those out of place (a moved card keeps its preview and settings).
   nodes.forEach(function(node, i) { if (root.children[i] !== node) root.insertBefore(node, root.children[i] || null); });
+  if (window.fpsTracking) window.fpsTracking.renderWidgets();
 }
 
 function sonyDashboardStatus(message, error) {

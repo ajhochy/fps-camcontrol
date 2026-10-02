@@ -86,7 +86,7 @@ export interface SonyStatus {
 }
 
 /** Binary live-view frames never pass through JSON parsing. */
-export interface SonyFrame { contentType: string; body: Buffer }
+export interface SonyFrame { contentType: string; body: Buffer; capturedAt: number }
 
 export interface SonySpawnOptions { cwd: string; shell: false; stdio: ['ignore', 'pipe', 'pipe'] }
 
@@ -903,7 +903,8 @@ export class SonyManager {
     const response = await this.fetchUpstream(endpoint, undefined, timeoutMs);
     const body = Buffer.from(await response.arrayBuffer());
     if (!response.ok) throw new SonyUpstreamError(response.status, `Sony upstream ${response.status}`);
-    return { contentType: response.headers.get('content-type') ?? 'image/jpeg', body };
+    // Receipt time after the complete upstream body, not sensor exposure time.
+    return { contentType: response.headers.get('content-type') ?? 'image/jpeg', body, capturedAt: this.now().getTime() };
   }
 
   private async fetchUpstream(endpoint: string, init: RequestInit | undefined, timeoutMs: number): Promise<Response> {

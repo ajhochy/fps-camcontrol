@@ -1,4 +1,5 @@
 import pino from 'pino';
+import crypto from 'node:crypto';
 
 export const logger = (global as any).__testLogger ?? pino({
   transport: { target: 'pino-pretty', options: { colorize: true } },
@@ -28,6 +29,8 @@ import { startWatchdog } from './safety/watchdog';
 import { CalibrationWizard } from './input/calibrationWizard';
 import { SonyStateStore } from './sony/sonyStateStore';
 import { SonyManager } from './sony/sonyManager';
+import { startTrackingRuntime } from './app/trackingRuntime';
+import { stopMotionBeforeHelpers } from './app/stopMotionBeforeHelpers';
 
 export interface ApplicationLifecycle {
   server: ReturnType<typeof startStatusServer>;
@@ -186,11 +189,16 @@ export async function startApplication(
   remoteHub.setEnabled(!controlsPaused && (config.remoteControl?.enabled ?? false));
   remoteHub.start();
 
-  const app = createStatusServer(state, config, presetManager, activityLog, atem, devices, sonyManager, remoteHub);
+  const frameToken = process.env.CAMCONTROL_EMBEDDED === '1' ? crypto.randomBytes(32).toString('base64url') : process.env.TRACKER_FRAME_TOKEN ?? crypto.randomBytes(32).toString('base64url');
+  // remoteHub (PR #59) and the tracking hooks/frame token (PR #58) are separate parameters; getTracking keeps its default.
+  const app = createStatusServer(state, config, presetManager, activityLog, atem, devices, sonyManager, remoteHub, undefined, { frameToken });
   const port = options.statusPort ?? parseInt(process.env.STATUS_PORT ?? '8080', 10);
   // The CLI honours server.host (iPad over the LAN); the embedded backend's startServer stays loopback-only.
   const server = startServer(app, activityLog, port, config.serverHost ?? '127.0.0.1', remoteHub);
   await waitForListening(server);
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('Local server address unavailable');
+  const tracking = startTrackingRuntime(state, config, devices, `http://127.0.0.1:${address.port}`, frameToken, controlsPaused);
 
   logger.info({ controlledCamera: state.controlledCamera }, 'FPS CamControl running');
 
@@ -203,17 +211,20 @@ export async function startApplication(
       stopControllerLoop();
       if (watchdog) clearInterval(watchdog);
       supervisor.stop();
+      const failures: unknown[] = [];
       // Revoke any iPad seat (stops its camera) and close remote sockets before devices stop.
-      remoteHub.stop();
-      for (const [, device] of devices) device.stop();
-      // Yield after enqueueing stops, before closing their transports.
-      await new Promise<void>(resolve => setImmediate(resolve));
+      try { remoteHub.stop(); } catch (error) { failures.push(error); }
+      // Halts tracking, stops every device and flushes the stops before ending the tracking helper.
+      try { await stopMotionBeforeHelpers(tracking, devices.values()); } catch (error) { failures.push(error); }
       server.emit('shutdown');
       server.closeAllConnections();
-      await new Promise<void>((resolve, reject) => server.close(err => err ? reject(err) : resolve()));
-      atem.disconnect();
-      for (const [, device] of devices) device.close();
-      await sonyManager.stop();
+      try { await new Promise<void>((resolve, reject) => server.close(err => err ? reject(err) : resolve())); } catch (error) { failures.push(error); }
+      try { atem.disconnect(); } catch (error) { failures.push(error); }
+      for (const [, device] of devices) {
+        try { device.close(); } catch (error) { failures.push(error); }
+      }
+      try { await sonyManager.stop(); } catch (error) { failures.push(error); }
+      if (failures.length) throw new AggregateError(failures, 'Application shutdown could not confirm every resource');
     })();
     return shutdownPromise;
   };

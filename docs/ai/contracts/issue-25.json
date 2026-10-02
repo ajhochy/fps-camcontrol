@@ -1,0 +1,59 @@
+{
+  "issue": 25,
+  "generated": "2026-10-01",
+  "criteria": [
+    {
+      "criterion_id": "issue-25-c1",
+      "text": "Pure module: no timers, sockets, or imports from devices/UI; time injected.",
+      "mode": "unit",
+      "test_file": "tests/tracking/controller.spec.cjs",
+      "test_id": "issue-25-c1: pure control module uses injected time without timers or device imports",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-25-c2",
+      "text": "Simulator models: 8 fps frame arrival, configurable capture-to-command delay, 20 Hz output cap, command quantization, and a velocity→angle plant with a first-order lag.",
+      "mode": "unit",
+      "test_file": "tests/tracking/controller.spec.cjs",
+      "test_id": "issue-25-c2: simulator records 8fps captures, bounded20Hz quantized commands and first-order plant lag",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-25-c3",
+      "text": "For delays of **150, 300, and 500 ms** a step target offset settles inside the deadzone with no sustained oscillation (define and assert a concrete metric, e.g. ≤ 1 sign reversal after first crossing, and overshoot ≤ X% — record X in the PR).",
+      "mode": "unit",
+      "test_file": "tests/tracking/controller.spec.cjs",
+      "test_id": "issue-25-c3: delay sweep settles by30s with <=20percent overshoot and <=1 reversal after crossing",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-25-c4",
+      "text": "Stationary subject ⇒ zero output for the full run; target leaving frame ⇒ zero output within one tick and stays zero.",
+      "mode": "unit",
+      "test_file": "tests/tracking/controller.spec.cjs",
+      "test_id": "issue-25-c4: stationary is exact zero; lost stops within one tick and never resumes from missing data",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-25-c5",
+      "text": "Never outputs beyond `maxSpeed`; never NaN/Infinity for `conf=0`, NaN input, or out-of-range coordinates (treated as invalid ⇒ zero).",
+      "mode": "unit",
+      "test_file": "tests/tracking/controller.spec.cjs",
+      "test_id": "issue-25-c5: invalid observations always zero and all valid outputs are finite and speed-capped",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-25-c6",
+      "text": "Sign-mapping and invert tests for all four quadrants.",
+      "mode": "unit",
+      "test_file": "tests/tracking/controller.spec.cjs",
+      "test_id": "issue-25-c6: all four quadrants obey pan-right tilt-up and independent inversion",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [],
+  "test_command": "node --test -r ts-node/register/transpile-only tests/tracking/controller.spec.cjs",
+  "red_evidence": "All6 executable criterion tests failed assertions on absent implementation before code was created.",
+  "green_evidence": "Owned suite28/28 passed including all23 criterion tests and5 additional adversarial safety cases. pnpm build exit0; actual bundled Python integration exit0. Root fullgate and composed app/package verification remain required."
+}
