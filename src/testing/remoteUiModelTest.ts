@@ -55,7 +55,7 @@ check('a pad without the standard mapping is refused and says its mapping', (() 
 check('a disconnected pad is ignored', model.padStatus([{ ...pad([0, 0, 0, 0]), connected: false }]).kind === 'none');
 
 // ---- words
-check('denied reasons have plain wording', ['disabled', 'desk-active', 'other-remote', 'pin'].every((r) => model.deniedText(r).length > 5) && model.deniedText('weird').length > 5);
+check('denied reasons have plain wording', ['disabled', 'desk-active', 'other-remote', 'pin', 'not-owner', 'no-camera'].every((r) => model.deniedText(r).length > 5) && model.deniedText('weird').length > 5);
 check('owner pill: not connected / off / you / desk / other', model.ownerPill(null, false, true).text === 'Not connected' && model.ownerPill({ owner: 'local' }, true, false).text === 'Remote control is off' && model.ownerPill({ owner: 'remote', you: true }, true, true).text === 'You have control' && model.ownerPill({ owner: 'local' }, true, true).text === 'Desk has control' && model.ownerPill({ owner: 'remote', you: false }, true, true).text === 'Another iPad has control');
 check('losing control to the desk is explained, a plain release is not', /desk/.test(model.lostText('desk-override')) && model.lostText('release') === null && model.lostText('idle') === null);
 

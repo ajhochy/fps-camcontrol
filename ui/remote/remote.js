@@ -17,12 +17,14 @@
   var CLAIM_HOLD_MS = 1000;    // hold Menu this long to take control from the pad
   var CLAIM_RETRY_MS = 1500;
   var PREVIEW_MS = 200;        // 5 fps, matching the Sony service
+  var SELECT_POLL_MS = 150;    // re-read the status soon after picking a camera
 
   function $(id) { return document.getElementById(id); }
   var el = {
     conn: $('conn'), connText: $('connText'), rtt: $('rtt'), ownerPill: $('ownerPill'), padPill: $('padPill'),
-    nameBtn: $('nameBtn'), banner: $('banner'), previewImg: $('previewImg'), previewNote: $('previewNote'),
-    controlInfo: $('controlInfo'), cams: $('cams'), speedLine: $('speedLine'), claimBtn: $('claimBtn'),
+    nameBtn: $('nameBtn'), banner: $('banner'), main: $('main'), paneEls: { pvw: $('pane-pvw'), pgm: $('pane-pgm') }, smallPanes: $('smallPanes'),
+    controlInfo: $('controlInfo'), speedLine: $('speedLine'), claimBtn: $('claimBtn'),
+    sheet: $('sheet'), sheetBack: $('sheetBack'), sheetTitle: $('sheetTitle'), sheetBattery: $('sheetBattery'), sheetRows: $('sheetRows'), sheetStatus: $('sheetStatus'), sheetClose: $('sheetClose'),
     releaseBtn: $('releaseBtn'), stopBtn: $('stopBtn'), hint: $('hint'), wakeHint: $('wakeHint'),
     pinRow: $('pinRow'), pinInput: $('pinInput'), pinBtn: $('pinBtn'),
   };
@@ -248,88 +250,334 @@
     return id || '';
   }
 
-  function renderCameras() {
-    var rows = M.camerasView(cameras, status);
-    el.cams.textContent = '';
-    rows.forEach(function (row) {
-      var li = document.createElement('li');
-      li.className = 'cam' + (row.controlled ? ' controlled' : '');
-      var title = document.createElement('div');
-      title.className = 'cam-name';
-      title.appendChild(document.createTextNode(row.label));
-      [['controlled', 'CTL', 'badge-ctl'], ['program', 'PGM', 'badge-pgm'], ['preview', 'PVW', 'badge-pvw']].forEach(function (b) {
-        if (!row[b[0]]) return;
-        var span = document.createElement('span');
-        span.className = 'badge ' + b[2];
-        span.textContent = b[1];
-        title.appendChild(span);
-      });
-      li.appendChild(title);
-      if (row.healthText) {
-        var h = document.createElement('div');
-        h.className = 'cam-health ' + row.healthLevel;
-        h.textContent = row.healthText;
-        li.appendChild(h);
-      }
-      el.cams.appendChild(li);
-    });
-  }
-
   // ---- data from the app (1 Hz status; config and rigs now and then)
   function getJson(url) { return fetch(url, { cache: 'no-store' }).then(function (r) { if (!r.ok) throw new Error(url); return r.json(); }); }
-  var lastControlled = null;
   function pollStatus() {
     if (document.hidden) return;
     getJson('/api/status').then(function (s) {
       status = s;
       if (s.remoteControl && typeof s.remoteControl.enabled === 'boolean') enabled = s.remoteControl.enabled;
-      renderCameras();
-      if (s.controlledCamera !== lastControlled) { lastControlled = s.controlledCamera; previewTarget = undefined; }
+      renderMultiview();
       render();
     }).catch(function () { /* the connection dot says it */ });
   }
   function loadConfig() {
-    getJson('/api/config').then(function (c) { cameras = c.cameras || []; speeds = c.speeds || null; renderCameras(); render(); }).catch(function () { setTimeout(loadConfig, 3000); });
+    getJson('/api/config').then(function (c) { cameras = c.cameras || []; speeds = c.speeds || null; renderMultiview(); render(); }).catch(function () { setTimeout(loadConfig, 3000); });
   }
-  function loadRigs() { getJson('/api/rigs').then(function (r) { rigs = r; previewTarget = undefined; }).catch(function () { /* keep the old one */ }); }
+  function loadRigs() { getJson('/api/rigs').then(function (r) { rigs = r; renderMultiview(); }).catch(function () { /* keep the old one */ }); }
   setInterval(pollStatus, 1000);
   setInterval(loadRigs, 15000);
 
-  // ---- live preview of the controlled camera's Sony camera (only while the page is visible)
-  var previewTarget;           // undefined = recompute; null = no preview for this rig; string = Sony camera id
-  var previewStartedFor = null;
-  var previewUrl = null;
-  var previewDelay = PREVIEW_MS;
-  function setNote(text) { el.previewNote.textContent = text; el.previewImg.hidden = true; }
-  function previewLoop() {
-    if (document.hidden) { setTimeout(previewLoop, 500); return; }
-    if (previewTarget === undefined) {
-      previewTarget = (status && rigs) ? M.previewCameraId(rigs, status.controlledCamera) : undefined;
-      if (previewTarget === null) setNote('No preview for this rig');
-      else if (previewTarget === undefined) setNote('Waiting for the camera list…');
+  // ---- multiview: PVW and PGM large, one small pane per rig. One frame loop per Sony camera feeds every pane
+  // that shows it (the large PVW/PGM and the small pane of the same camera share a single fetch).
+  var plan = null;
+  var fpNow = { ids: [], users: {} };
+  var nodes = {};              // pane key -> DOM parts
+  var smallKey = '';           // which small panes exist (rebuilt only when the rig list changes)
+  var frames = {};             // Sony camera id -> { url, at, error, started, delay, running, wanted }
+  var FRESH_MS = 4000;         // a picture older than this is not shown as live
+
+  function div(cls, text) { var d = document.createElement('div'); if (cls) d.className = cls; if (text) d.textContent = text; return d; }
+
+  function buildPane(root, key, big) {
+    root.textContent = '';
+    var pic = div('pane-pic');
+    var img = document.createElement('img');
+    img.alt = ''; img.draggable = false; img.hidden = true;
+    var cross = div('crosshair');
+    var note = div('pane-note');
+    pic.appendChild(img); pic.appendChild(cross); pic.appendChild(note);
+    var head = div('pane-head');
+    var title = div('pane-title');
+    var menu = document.createElement('button');
+    menu.type = 'button'; menu.className = 'pane-menu'; menu.textContent = '⋯'; menu.setAttribute('aria-label', 'Camera menu');
+    head.appendChild(title); head.appendChild(menu);
+    var foot = div('pane-foot');
+    root.appendChild(pic); root.appendChild(head); root.appendChild(foot);
+    var n = { key: key, big: big, root: root, img: img, cross: cross, note: note, title: title, menu: menu, foot: foot, sig: '', crossTimer: null, url: '' };
+    menu.addEventListener('click', function (e) { e.stopPropagation(); var pane = paneFor(key); if (pane) openSheet(pane); });
+    if (big) img.addEventListener('pointerup', function (e) { onBigTap(n, e); });
+    else root.addEventListener('click', function () { var pane = paneFor(key); if (pane && pane.rigId) onSmallTap(pane); });
+    nodes[key] = n;
+    return n;
+  }
+
+  function paneFor(key) {
+    if (!plan) return null;
+    if (key === 'pvw') return plan.pvw;
+    if (key === 'pgm') return plan.pgm;
+    for (var i = 0; i < plan.small.length; i++) if (plan.small[i].key === key) return plan.small[i];
+    return null;
+  }
+
+  function badge(text, cls) { var b = document.createElement('span'); b.className = 'badge ' + cls; b.textContent = text; return b; }
+  var BADGE_CLASS = { PGM: 'badge-pgm', PVW: 'badge-pvw', CTL: 'badge-ctl' };
+
+  function updatePaneText(n, pane) {
+    var sig = [pane.rigId, pane.label, pane.tags.join('+'), pane.sonyId, pane.healthLevel, pane.healthText].join('|');
+    if (sig === n.sig) return;
+    n.sig = sig;
+    n.title.textContent = '';
+    if (n.big) n.title.appendChild(badge(n.key === 'pgm' ? 'PGM' : 'PVW', n.key === 'pgm' ? 'badge-pgm' : 'badge-pvw'));
+    n.title.appendChild(document.createTextNode(pane.rigId ? pane.label : (n.key === 'pgm' ? 'No program camera' : 'No preview camera')));
+    pane.tags.forEach(function (t) { if (!n.big || t === 'CTL') n.title.appendChild(badge(t, BADGE_CLASS[t])); });
+    n.menu.disabled = !pane.sonyId;
+    n.foot.textContent = pane.healthText;
+    n.foot.className = 'pane-foot ' + (pane.healthLevel || '');
+    n.root.classList.toggle('controlled', pane.tags.indexOf('CTL') >= 0);
+  }
+
+  // The picture (or the reason there is none) for one pane, from the shared frame of its Sony camera.
+  function updatePaneMedia(n, pane) {
+    var f = pane.sonyId ? frames[pane.sonyId] : null;
+    var fresh = !!(pane.wantsPicture && f && f.url && Date.now() - f.at < FRESH_MS);
+    if (fresh) {
+      if (n.url !== f.url) { n.url = f.url; n.img.src = f.url; }
+      n.img.alt = 'Live view of ' + pane.label;
+      if (n.img.hidden) n.img.hidden = false;
+      n.note.textContent = '';
+      return;
     }
-    if (!previewTarget) { setTimeout(previewLoop, 500); return; }
-    var id = previewTarget;
-    var begin = previewStartedFor === id ? Promise.resolve() : fetch('/api/sony/cameras/' + encodeURIComponent(id) + '/live-view/start', { method: 'POST' }).then(function (r) { if (r.ok) previewStartedFor = id; });
-    begin.then(function () { return fetch('/api/sony/cameras/' + encodeURIComponent(id) + '/live-view/frame', { cache: 'no-store' }); })
-      .then(function (r) {
-        if (r.ok) return r.blob();
-        // Say why, so "unavailable" is not a mystery: the Sony camera or service is down, or it is reconnecting.
-        throw new Error(r.status === 503 ? 'Sony camera busy or the Sony service is off' : r.status === 404 ? 'Sony camera not found' : 'Sony camera not connected');
-      })
-      .then(function (blob) {
-        if (id !== previewTarget) return;
-        var next = URL.createObjectURL(blob);
-        var old = previewUrl;
-        previewUrl = next;
-        el.previewImg.onload = function () { if (old) URL.revokeObjectURL(old); };
-        el.previewImg.src = next;
-        el.previewImg.hidden = false;
-        el.previewNote.textContent = ''; // a picture is showing: clear any earlier "waiting" / "unavailable" note
-        previewDelay = PREVIEW_MS;
-      })
-      .catch(function (error) { setNote('Preview unavailable: ' + (error && error.message && error.message !== 'Failed to fetch' ? error.message : 'CamControl not reachable')); previewDelay = Math.min(previewDelay * 2, 4000); })
-      .then(function () { setTimeout(previewLoop, previewDelay); });
+    n.img.hidden = true;
+    var text, cls = '';
+    if (!pane.rigId) text = pane.healthText || 'No camera';
+    else if (!pane.wantsPicture) { text = pane.healthText; cls = pane.healthLevel; }
+    else if (f && f.error) { text = f.error; cls = 'check'; }
+    else text = 'Waiting for picture…';
+    n.note.textContent = text;
+    n.note.className = 'pane-note ' + cls;
+  }
+
+  function renderMultiview() {
+    if (!nodes.pvw) { buildPane(el.paneEls.pvw, 'pvw', true); buildPane(el.paneEls.pgm, 'pgm', true); nodes.pvw.note.textContent = nodes.pgm.note.textContent = 'Waiting for the camera list…'; }
+    if (!status || !rigs || !cameras.length) return;
+    plan = M.multiviewPlan(cameras, status, rigs);
+    var key = plan.small.map(function (p) { return p.key; }).join(',');
+    if (key !== smallKey) {
+      smallKey = key;
+      Object.keys(nodes).forEach(function (k) { if (k !== 'pvw' && k !== 'pgm') delete nodes[k]; });
+      el.smallPanes.textContent = '';
+      plan.small.forEach(function (p) {
+        var root = document.createElement('section');
+        root.className = 'pane pane-small'; root.dataset.pane = p.key;
+        el.smallPanes.appendChild(root);
+        buildPane(root, p.key, false);
+      });
+    }
+    fpNow = M.framePlan(plan);
+    syncLoops();
+    ['pvw', 'pgm'].concat(plan.small.map(function (p) { return p.key; })).forEach(function (k) { var pane = paneFor(k); if (pane && nodes[k]) { updatePaneText(nodes[k], pane); updatePaneMedia(nodes[k], pane); } });
+  }
+
+  function onFrame(sonyId) {
+    (fpNow.users[sonyId] || []).forEach(function (k) { var pane = paneFor(k); if (pane && nodes[k]) updatePaneMedia(nodes[k], pane); });
+  }
+
+  function syncLoops() {
+    Object.keys(frames).forEach(function (id) { frames[id].wanted = fpNow.ids.indexOf(id) >= 0; });
+    fpNow.ids.forEach(function (id) {
+      var f = frames[id];
+      if (!f) f = frames[id] = { url: null, at: 0, error: '', started: false, delay: PREVIEW_MS, running: false, wanted: true };
+      f.wanted = true;
+      if (!f.running) runLoop(id, f);
+    });
+  }
+
+  function frameError(code) {
+    return code === 503 ? 'Sony camera busy or the Sony service is off' : code === 404 ? 'Sony camera not found' : 'Sony camera not connected';
+  }
+  function runLoop(id, f) {
+    f.running = true;
+    var base = '/api/sony/cameras/' + encodeURIComponent(id);
+    (function step() {
+      if (!f.wanted) { f.running = false; return; }
+      if (document.hidden) { setTimeout(step, 500); return; }
+      var begin = f.started ? Promise.resolve() : fetch(base + '/live-view/start', { method: 'POST' }).then(function (r) { if (!r.ok) throw new Error(frameError(r.status)); f.started = true; });
+      begin.then(function () { return fetch(base + '/live-view/frame', { cache: 'no-store' }); })
+        .then(function (r) { if (r.ok) return r.blob(); throw new Error(frameError(r.status)); })
+        .then(function (blob) {
+          var old = f.url;
+          f.url = URL.createObjectURL(blob);
+          f.at = Date.now(); f.error = ''; f.delay = M.nextFrameDelay(f.delay, true, PREVIEW_MS);
+          if (old) setTimeout(function () { URL.revokeObjectURL(old); }, 1500);
+          onFrame(id);
+        })
+        .catch(function (error) {
+          f.started = false;
+          f.error = 'Preview unavailable: ' + (error && error.message && error.message !== 'Failed to fetch' ? error.message : 'CamControl not reachable');
+          f.delay = M.nextFrameDelay(f.delay, false, PREVIEW_MS);
+          onFrame(id);
+        })
+        .then(function () { setTimeout(step, f.delay); });
+    })();
+  }
+
+  function layout() { el.main.dataset.layout = M.layoutFor(window.innerWidth, window.innerHeight); }
+  window.addEventListener('resize', layout);
+  window.addEventListener('orientationchange', layout);
+  layout();
+
+  // ---- tap a camera: small pane = select it for control (needs the seat), big picture = touch focus
+  function onSmallTap(pane) {
+    var block = M.selectBlock(enabled, owner);
+    if (block) { showBanner(block, true, 3000); return; }
+    send({ t: 'select', camera: pane.rigId });
+    setTimeout(pollStatus, SELECT_POLL_MS);
+  }
+
+  function apiError(r) {
+    return r.json().catch(function () { return {}; }).then(function (b) { throw new Error(b.error || ('HTTP ' + r.status)); });
+  }
+  var REMOTE_JSON = { 'content-type': 'application/json', 'x-remote': '1' };
+
+  function onBigTap(n, ev) {
+    var pane = paneFor(n.key);
+    if (!pane || !pane.sonyId) return;
+    var pt = M.containedPoint(n.img.getBoundingClientRect(), n.img.naturalWidth, n.img.naturalHeight, ev.clientX, ev.clientY);
+    if (!pt) return;
+    var block = M.sonyWriteBlock(enabled);
+    if (block) { showBanner(block, true, 3000); return; }
+    n.cross.style.left = pt.px + 'px'; n.cross.style.top = pt.py + 'px';
+    n.cross.classList.add('on');
+    clearTimeout(n.crossTimer);
+    n.crossTimer = setTimeout(function () { n.cross.classList.remove('on'); }, 900);
+    fetch('/api/sony/cameras/' + encodeURIComponent(pane.sonyId) + '/touch', { method: 'POST', headers: REMOTE_JSON, body: JSON.stringify({ normalized: { x: pt.x, y: pt.y } }) })
+      .then(function (r) { if (!r.ok) return apiError(r); })
+      .catch(function (e) { showBanner('Touch focus failed: ' + (e && e.message ? e.message : 'unknown error'), true, 3500); });
+  }
+
+  // ---- camera menu: the desk card's Sony settings in a sheet
+  var sheetState = null;       // { id, label, pending, confirmed, views, tries, timers, holders }
+  function sheetSay(text, bad) { el.sheetStatus.textContent = text; el.sheetStatus.className = 'sheet-status' + (bad ? ' bad' : ''); }
+  function sleep(ms) { return new Promise(function (resolve) { setTimeout(resolve, ms); }); }
+
+  function openSheet(pane) {
+    if (!pane.sonyId) return;
+    closeSheet();
+    var st = sheetState = { id: pane.sonyId, label: pane.label, pending: {}, confirmed: {}, views: {}, tries: 0, timers: [], holders: {} };
+    el.sheetTitle.textContent = pane.label + ' camera';
+    el.sheetBattery.textContent = ''; el.sheetBattery.className = 'muted';
+    el.sheetRows.textContent = '';
+    M.PROPERTY_NAMES.forEach(function (name) {
+      var row = div('sheet-row'), label = document.createElement('label');
+      label.textContent = M.propertyView(name, null).label;
+      var holder = div('');
+      holder.style.flex = '1'; holder.style.display = 'flex';
+      row.appendChild(label); row.appendChild(holder);
+      el.sheetRows.appendChild(row);
+      st.holders[name] = holder;
+      holder.appendChild(div('ro', 'Loading…'));
+    });
+    var block = M.sonyWriteBlock(enabled);
+    sheetSay(block ? block + ' Settings are read-only.' : 'Loading camera settings…', !!block);
+    el.sheet.hidden = false; el.sheetBack.hidden = false;
+    loadSheetProps(st);
+    loadSheetBattery(st);
+  }
+  function closeSheet() {
+    if (sheetState) sheetState.timers.forEach(clearTimeout);
+    sheetState = null;
+    el.sheet.hidden = true; el.sheetBack.hidden = true;
+  }
+  el.sheetClose.addEventListener('click', closeSheet);
+  el.sheetBack.addEventListener('click', closeSheet);
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && sheetState) closeSheet(); });
+
+  function loadSheetBattery(st) {
+    getJson('/api/sony/status').then(function (s) {
+      if (sheetState !== st) return;
+      var entry = M.sonyCameraEntry(s, st.id);
+      var info = entry ? M.batteryInfo(entry) : { text: 'Battery unknown', level: 'idle' };
+      el.sheetBattery.textContent = info.text;
+      el.sheetBattery.className = 'muted lvl-' + info.level;
+    }).catch(function () { /* the line just stays empty */ })
+      .then(function () { if (sheetState === st) st.timers.push(setTimeout(function () { loadSheetBattery(st); }, 10000)); });
+  }
+
+  function loadSheetProps(st) {
+    getJson('/api/sony/cameras/' + encodeURIComponent(st.id) + '/properties').then(function (body) {
+      if (sheetState !== st) return;
+      var props = (body.data && body.data.properties) || body.properties || {};
+      var incomplete = false;
+      M.PROPERTY_NAMES.forEach(function (name) {
+        if (st.pending[name]) return; // never redraw a setting that is mid-change
+        var p = props[name];
+        if (!p || !Array.isArray(p.available_values)) incomplete = true;
+        else st.confirmed[name] = p.current_value;
+        drawProp(st, name, p);
+      });
+      if (incomplete && st.tries++ < 6) st.timers.push(setTimeout(function () { loadSheetProps(st); }, 2000));
+      else if (incomplete) sheetSay('Some settings are not reported by this camera.', false);
+      else if (!M.sonyWriteBlock(enabled)) sheetSay('Settings loaded.');
+    }).catch(function () {
+      if (sheetState !== st) return;
+      sheetSay('Could not read camera settings yet; retrying…', true);
+      if (st.tries++ < 6) st.timers.push(setTimeout(function () { loadSheetProps(st); }, 2000));
+    });
+  }
+
+  function drawProp(st, name, prop) {
+    var view = M.propertyView(name, prop, st.pending[name] ? st.pending[name].value : undefined);
+    st.views[name] = view;
+    var holder = st.holders[name];
+    holder.textContent = '';
+    if (view.kind !== 'select') { holder.appendChild(div('ro', view.text)); return; }
+    var sel = document.createElement('select');
+    sel.style.flex = '1';
+    view.options.forEach(function (o, i) { var opt = document.createElement('option'); opt.value = String(i); opt.textContent = o.text; sel.appendChild(opt); });
+    for (var i = 0; i < view.options.length; i++) if (view.options[i].value === view.selected) sel.value = String(i);
+    sel.disabled = !!M.sonyWriteBlock(enabled);
+    sel.addEventListener('change', function () { saveProp(st, name, sel); });
+    holder.appendChild(sel);
+  }
+
+  // The camera applies a change a moment after accepting it and reports it later still, so the menu keeps the
+  // chosen value as pending and re-reads that one setting a few times until the camera says the same (as the desk does).
+  function saveProp(st, name, sel) {
+    var view = st.views[name], option = view && view.options[Number(sel.value)];
+    if (!option) return;
+    function revert() { var c = st.confirmed[name]; for (var i = 0; i < view.options.length; i++) if (view.options[i].value === c) sel.value = String(i); }
+    var block = M.sonyWriteBlock(enabled);
+    if (block) { sheetSay(block, true); revert(); return; }
+    var token = { value: option.value };
+    st.pending[name] = token;
+    sel.disabled = true;
+    var url = '/api/sony/cameras/' + encodeURIComponent(st.id) + '/properties/' + name;
+    var attempt = 0;
+    function put() {
+      return fetch(url, { method: 'PUT', headers: REMOTE_JSON, body: JSON.stringify({ value: M.sendValue(option) }) }).then(function (r) {
+        if (r.status === 503 && attempt < 3) { attempt++; return sleep(400 * attempt).then(put); } // the camera is handling another action
+        if (!r.ok) return apiError(r);
+      });
+    }
+    sheetSay('Applying ' + view.label + ' ' + option.text + '…');
+    put().then(function () {
+      sel.disabled = !!M.sonyWriteBlock(enabled);
+      var waits = [300, 500, 700, 1000, 1500], reported = null, i = 0;
+      function poll() {
+        if (i >= waits.length) return Promise.resolve();
+        return sleep(waits[i++]).then(function () {
+          if (st.pending[name] !== token || sheetState !== st) return 'gone';
+          return fetch(url, { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; }).then(function (b) { if (b) reported = M.sonyReported(b); }).catch(function () { /* keep waiting */ })
+            .then(function () { return reported === option.value ? undefined : poll(); });
+        });
+      }
+      return poll().then(function (gone) {
+        if (gone === 'gone' || st.pending[name] !== token) return;
+        delete st.pending[name];
+        if (reported === option.value) { st.confirmed[name] = reported; sheetSay(view.label + ' saved: ' + option.text + '.'); }
+        else if (reported !== null) {
+          st.confirmed[name] = reported; revert();
+          var shown = view.options.filter(function (o) { return o.value === reported; })[0];
+          sheetSay('The camera kept ' + view.label + ' at ' + (shown ? shown.text : reported) + ' (it may not allow ' + option.text + ' right now).', true);
+        } else { st.confirmed[name] = option.value; sheetSay(view.label + ' sent: ' + option.text + ' (the camera did not confirm yet).'); }
+      });
+    }).catch(function (e) {
+      if (st.pending[name] === token) delete st.pending[name];
+      sel.disabled = !!M.sonyWriteBlock(enabled);
+      revert();
+      sheetSay(view.label + ' save failed (' + (e && e.message ? e.message : 'unknown error') + '); restored confirmed value.', true);
+    });
   }
 
   // ---- keep the screen on (needs https; see docs/ipad-remote.md)
@@ -352,7 +600,7 @@
   loadConfig();
   pollStatus();
   loadRigs();
-  previewLoop();
+  renderMultiview();
   lockScreen();
   connect();
 })();

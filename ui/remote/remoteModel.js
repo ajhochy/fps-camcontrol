@@ -74,6 +74,8 @@
     'desk-active': 'The desk controller is in use. Try again when it is quiet.',
     'other-remote': 'Another iPad has control.',
     pin: 'Wrong PIN.',
+    'not-owner': 'Take control first',
+    'no-camera': 'That camera is not available.',
   };
   function deniedText(reason) { return DENIED[reason] || 'Control was refused.'; }
 
