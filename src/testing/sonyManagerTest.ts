@@ -20,7 +20,7 @@ const criteria = new Set<string>();
 
 function record(name: string): void {
   const criterion = name.split(':')[0];
-  assert.ok(/^c(?:[1-9]|1[0-8])$/.test(criterion), `check name must start with a criterion id: ${name}`);
+  assert.ok(/^c(?:[1-9]|1[0-9])$/.test(criterion), `check name must start with a criterion id: ${name}`);
   assert.ok(!checks.includes(name), `duplicate check name: ${name}`);
   checks.push(name);
   criteria.add(criterion);
@@ -816,8 +816,53 @@ async function main(): Promise<void> {
     await reborn.manager.stop();
   }
 
+  // -- c19: a camera the SDK calls connected but that sends no pictures is not shown as connected --
+  {
+    const cam = 'AA:BB:CC:DD:EE:19';
+    let sending = true;
+    let sessions = 0;
+    const deletes: string[] = [];
+    const upstream = (url: string, init?: RequestInit): Response => {
+      if (url.endsWith('/api/server/status')) return healthy();
+      // The SDK keeps the camera "connected" while it tries to reconnect, whatever the camera is doing.
+      if (url.endsWith('/api/cameras')) return json(200, { cameras: [{ id: cam, model: 'ILME-FX3A', connectionType: 'Network', connected: true }] });
+      if (url.endsWith('/connection') && init?.method === 'DELETE') { deletes.push(url); return json(200, { success: true }); }
+      if (url.endsWith('/connection') && init?.method === 'POST') { sessions++; return json(200, { success: true, camera: { connected: true, model: 'ILME-FX3A', id: cam } }); }
+      if (url.endsWith('/connection')) return json(200, { success: true, camera: { connected: true, id: cam } });
+      if (url.endsWith('/live-view/frame')) return sending ? new Response(new Uint8Array([0xff, 0xd8, 1]), { status: 200, headers: { 'content-type': 'image/jpeg' } }) : json(404, { success: false, message: 'No live view frame available: the camera is not sending pictures' });
+      return json(200, {});
+    };
+    const fz = build({ stateFile: file('frozen.json') }, upstream);
+    const state = () => fz.manager.getStatus().cameras.find((c) => c.id === cam);
+    fz.manager.start();
+    await fz.clock.run(fz.manager, 0);
+    await fz.manager.connect(cam);
+    await fz.manager.liveViewFrame(cam);
+    checkEqual('c19: (setup) a camera sending pictures is connected', state()?.state, 'connected');
+    sending = false;
+    await fz.manager.liveViewFrame(cam).catch(() => undefined);
+    await fz.clock.run(fz.manager, 3000);
+    await fz.manager.liveViewFrame(cam).catch(() => undefined);
+    checkEqual('c19: a few seconds without pictures is not yet a verdict', state()?.state, 'connected');
+    await fz.clock.run(fz.manager, 3500);
+    await fz.manager.liveViewFrame(cam).catch(() => undefined);
+    check('c19: after 6 s without pictures it says so, though the SDK still calls it connected', state()?.state === 'disconnected' && /Not sending pictures/.test(state()?.message ?? ''));
+    await fz.clock.run(fz.manager, 5000);
+    checkEqual('c19: discovery does not flip it back to connected', state()?.state, 'disconnected');
+    sending = true;
+    await fz.clock.run(fz.manager, 5000);
+    checkEqual('c19: the link check sees pictures again by itself, and it is connected again', state()?.state, 'connected');
+    sending = false;
+    for (let i = 0; i < 3; i++) { await fz.manager.liveViewFrame(cam).catch(() => undefined); await fz.clock.run(fz.manager, 3500); }
+    checkEqual('c19: (setup) frozen again', state()?.state, 'disconnected');
+    const before = sessions;
+    await fz.manager.connect(cam).catch(() => undefined);
+    check('c19: a reconnect drops the dead session first, then really connects', deletes.length >= 1 && sessions === before + 1);
+    await fz.manager.stop();
+  }
+
   const covered = [...criteria].sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
-  assert.strictEqual(covered.length, 18, `every criterion needs a check; covered: ${covered.join(',')}`);
+  assert.strictEqual(covered.length, 19, `every criterion needs a check; covered: ${covered.join(',')}`);
   assert.strictEqual(new Set(checks).size, checks.length, 'check names must be unique');
   console.log(`sony manager: ${checks.length} checks passed across ${covered.length} criteria (${covered.join(' ')})`);
 }

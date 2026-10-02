@@ -418,7 +418,7 @@
   }
 
   function frameError(code) {
-    return code === 503 ? 'Sony camera busy or the Sony service is off' : code === 404 ? 'Sony camera not found' : 'Sony camera not connected';
+    return code === 503 ? 'Sony camera busy or the Sony service is off' : code === 404 ? 'Camera not sending pictures' : 'Sony camera not connected';
   }
   function runLoop(id, f) {
     f.running = true;

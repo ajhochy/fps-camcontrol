@@ -14,6 +14,12 @@ const PROPERTIES_TIMEOUT_MS = 15000;
 const DISCOVERY_TIMEOUT_MS = 30000;
 const FRAME_TIMEOUT_MS = 3000;
 const LINK_CHECK_MS = 5000;
+const FROZEN_MESSAGE = 'Not sending pictures: the camera stopped responding';
+/**
+ * A "connected" camera whose pictures have failed this long is shown as not sending pictures. The Sony SDK keeps a
+ * camera connected while it tries to reconnect, so its connected flag alone is not proof the camera is there.
+ */
+const FROZEN_AFTER_MS = 6000;
 const LINK_CHECK_TIMEOUT_MS = 2000;
 /**
  * Battery is read slowly: the sidecar is single-threaded and already busy with live-view frames. One read per
@@ -225,6 +231,10 @@ export class SonyManager {
   private cameras = new Map<string, CameraRecord>();
   private lanes = new Map<string, Promise<unknown>>();
   private reads = new Map<string, Promise<unknown>>();
+  /** When each connected camera's pictures started failing (cleared by the next good picture). */
+  private frameFailingSince = new Map<string, number>();
+  /** Cameras the SDK calls connected that have stopped sending pictures. */
+  private frozen = new Set<string>();
   private tasks = new Set<Promise<unknown>>();
 
   constructor(
@@ -571,7 +581,7 @@ export class SonyManager {
       seen.add(id);
       const previous = this.cameras.get(id);
       const approved = this.approved.has(id);
-      const connected = this.connectedFlag(raw);
+      const connected = this.connectedFlag(raw) && !this.frozen.has(id);
       if (previous?.missing && approved) this.burstIndex = 0; // reappearance starts a fresh burst
       const nowMs = this.now().getTime();
       const sdkGraceUntil = connected ? undefined
@@ -588,7 +598,7 @@ export class SonyManager {
         connectionType: typeof raw.connectionType === 'string' ? raw.connectionType : previous?.connectionType,
         lastSeenAt: this.now().toISOString(),
         nextRetryAt: null,
-        message: connected ? null : previous?.message ?? null,
+        message: connected ? null : this.frozen.has(id) ? FROZEN_MESSAGE : previous?.message ?? null,
         missing: false,
         sdkGraceUntil,
         battery: previous?.battery ?? null,
@@ -652,7 +662,7 @@ export class SonyManager {
 
   /** A camera that loses power never announces it, so re-check the link of every camera shown as connected. */
   private refreshLinkCheck(): void {
-    const watching = !this.stopped && this.state === 'healthy' && [...this.cameras.values()].some((camera) => camera.state === 'connected');
+    const watching = !this.stopped && this.state === 'healthy' && ([...this.cameras.values()].some((camera) => camera.state === 'connected') || this.frozen.size > 0);
     if (!watching) { this.cancelLinkCheck(); return; }
     if (this.linkTimer) return;
     const epoch = this.epoch;
@@ -677,6 +687,10 @@ export class SonyManager {
           lost = true;
         }
       } catch (_) { /* inconclusive: a sidecar outage is handled by the health probe, not here */ }
+    }
+    for (const id of [...this.frozen]) {
+      if (this.isStale(epoch)) return;
+      try { await this.liveViewFrame(id); } catch (_) { /* still not sending; frameFailed keeps it marked */ }
     }
     if (lost) { this.burstIndex = 0; this.refreshDiscoverySchedule(); }
   }
@@ -782,6 +796,13 @@ export class SonyManager {
     await this.operation(id, async () => {
       const previous = this.cameras.get(id);
       if (previous) previous.state = 'connecting';
+      // A camera that stopped sending pictures still has a session the service calls connected, and a connect would
+      // just return "already connected". Drop that dead session so this is a real reconnect.
+      if (this.frozen.has(id)) {
+        try { await this.request(`${this.cameraPath(id)}/connection`, { method: 'DELETE' }, CONNECT_TIMEOUT_MS); } catch (_) { /* already gone */ }
+        this.frozen.delete(id);
+        this.frameFailingSince.delete(id);
+      }
       try {
         // `reconnecting: "on"` lets the SDK resume this session by itself after a Wi-Fi blip (no re-pairing).
         // ip/model let the service connect directly when its discovery broadcast missed the camera
@@ -824,6 +845,7 @@ export class SonyManager {
     this.approved.delete(id);
     this.lanes.delete(id);
     this.batteryAttempts.delete(id);
+    this.frozen.delete(id); this.frameFailingSince.delete(id);
     for (const key of [...this.reads.keys()]) if (key.startsWith(`${id}:`)) this.reads.delete(key);
     const camera = this.cameras.get(id);
     if (camera) { camera.approved = false; camera.state = 'discovered_unapproved'; camera.nextRetryAt = null; camera.message = null; }
@@ -856,7 +878,36 @@ export class SonyManager {
   }
 
   liveViewFrame(id: string): Promise<SonyFrame> {
-    return this.readOnce(id, 'frame', () => this.requestBinary(`${this.cameraPath(id)}/live-view/frame`, FRAME_TIMEOUT_MS));
+    const read = this.readOnce(id, 'frame', () => this.requestBinary(`${this.cameraPath(id)}/live-view/frame`, FRAME_TIMEOUT_MS)) as Promise<SonyFrame>;
+    read.then(() => this.frameArrived(id), (error) => this.frameFailed(id, error));
+    return read;
+  }
+
+  private frameArrived(id: string): void {
+    this.frameFailingSince.delete(id);
+    if (!this.frozen.delete(id)) return;
+    const camera = this.cameras.get(id);
+    if (camera && camera.state === 'disconnected' && camera.message === FROZEN_MESSAGE) {
+      camera.state = 'connected'; camera.message = null; camera.missing = false;
+      this.refreshDiscoverySchedule();
+    }
+  }
+
+  /** The service answers 404 when it has no fresh picture (scripts/sony-sidecar-zzz-frame-age.patch). */
+  private frameFailed(id: string, error: unknown): void {
+    if ((error as SonyUpstreamError)?.statusCode !== 404) return; // busy or slow is not proof of anything
+    const camera = this.cameras.get(id);
+    if (!camera || camera.state !== 'connected') return;
+    const nowMs = this.now().getTime();
+    const since = this.frameFailingSince.get(id);
+    if (since === undefined) { this.frameFailingSince.set(id, nowMs); return; }
+    if (nowMs - since < FROZEN_AFTER_MS) return;
+    this.frozen.add(id);
+    camera.state = 'disconnected';
+    camera.message = FROZEN_MESSAGE;
+    camera.sdkGraceUntil = nowMs + SDK_RECONNECT_GRACE_MS; // the SDK is still trying; let it
+    this.burstIndex = 0;
+    this.refreshDiscoverySchedule();
   }
 
   touch(id: string, normalized: { x: number; y: number }): Promise<unknown> {
