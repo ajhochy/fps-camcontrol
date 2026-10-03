@@ -57,6 +57,8 @@ export interface AppState {
   cameraGimbalAsleep: Record<string, boolean>;
   /** True when a gimbal's bridge can wake it (bridges >= 0.5.0 advertise "wake"); absent otherwise. */
   cameraGimbalCanWake: Record<string, boolean>;
+  /** True when a gimbal's bridge can put it to sleep (bridges >= 0.7.0 advertise "sleep"). */
+  cameraGimbalCanSleep: Record<string, boolean>;
   /** Which Bluetooth gimbal a DJI rig's bridge drives (bridges >= 0.6.0); absent for older bridges or while unreachable. */
   cameraGimbalBluetooth?: Record<string, GimbalBluetoothView>;
   /** A DJI gimbal's own battery report (bridges >= 0.6.0): percent and how old the report is; absent when not reported. */
@@ -98,6 +100,7 @@ export const defaultState: AppState = {
   cameraGimbalSignal: {},
   cameraGimbalAsleep: {},
   cameraGimbalCanWake: {},
+  cameraGimbalCanSleep: {},
   cameraAnswering: {},
   cameraLastReplyAt: {},
   viscaRepliesHeard: null,
@@ -129,6 +132,7 @@ export function createInitialState(overrides: Partial<AppState> = {}): AppState 
     cameraGimbalSignal: {},
     cameraGimbalAsleep: {},
     cameraGimbalCanWake: {},
+  cameraGimbalCanSleep: {},
     cameraAnswering: {},
     cameraLastReplyAt: {},
     viscaRepliesHeard: null,
@@ -181,13 +185,16 @@ export function rateGimbalSignal(link: GimbalLinkHealth | null | undefined): Gim
 export function applyDeviceLinkState(
   state: AppState,
   cameraId: string,
-  link: { connected: boolean; gimbalAttached?: boolean; reportedGimbalModel?: string | null; motionResponsive?: boolean; linkHealth?: GimbalLinkHealth | null; reportedAsleep?: boolean | null; capabilities?: { wake?: boolean }; bluetoothGimbal?: GimbalBluetoothView | null; battery?: GimbalBattery | null }
+  link: { connected: boolean; gimbalAttached?: boolean; reportedGimbalModel?: string | null; motionResponsive?: boolean; linkHealth?: GimbalLinkHealth | null; reportedAsleep?: boolean | null; capabilities?: { wake?: boolean; sleep?: boolean }; bluetoothGimbal?: GimbalBluetoothView | null; battery?: GimbalBattery | null }
 ): void {
   if (link.connected && typeof link.reportedAsleep === 'boolean') state.cameraGimbalAsleep[cameraId] = link.reportedAsleep;
   else delete state.cameraGimbalAsleep[cameraId];
   if (!state.cameraGimbalCanWake) state.cameraGimbalCanWake = {};
   if (link.connected && link.capabilities?.wake === true) state.cameraGimbalCanWake[cameraId] = true;
   else delete state.cameraGimbalCanWake[cameraId];
+  if (!state.cameraGimbalCanSleep) state.cameraGimbalCanSleep = {};
+  if (link.connected && link.capabilities?.sleep === true) state.cameraGimbalCanSleep[cameraId] = true;
+  else delete state.cameraGimbalCanSleep[cameraId];
   if (!state.cameraGimbalBluetooth) state.cameraGimbalBluetooth = {};
   if (link.connected && link.bluetoothGimbal) state.cameraGimbalBluetooth[cameraId] = { ...link.bluetoothGimbal };
   else delete state.cameraGimbalBluetooth[cameraId];
@@ -225,7 +232,7 @@ interface LinkStateSource {
   readonly motionResponsive?: boolean;
   readonly linkHealth?: GimbalLinkHealth | null;
   readonly reportedAsleep?: boolean | null;
-  readonly capabilities?: { wake?: boolean };
+  readonly capabilities?: { wake?: boolean; sleep?: boolean };
   readonly bluetoothGimbal?: GimbalBluetoothView | null;
   readonly battery?: GimbalBattery | null;
   on(event: string, listener: (...args: unknown[]) => void): unknown;
@@ -268,6 +275,7 @@ export function clearCameraLinkState(state: AppState, cameraId: string): void {
   delete state.cameraGimbalSignal[cameraId];
   delete state.cameraGimbalAsleep[cameraId];
   if (state.cameraGimbalCanWake) delete state.cameraGimbalCanWake[cameraId];
+  if (state.cameraGimbalCanSleep) delete state.cameraGimbalCanSleep[cameraId];
   if (state.cameraGimbalBluetooth) delete state.cameraGimbalBluetooth[cameraId];
   if (state.cameraGimbalBattery) delete state.cameraGimbalBattery[cameraId];
   delete state.cameraAnswering[cameraId];

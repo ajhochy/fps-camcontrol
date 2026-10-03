@@ -46,7 +46,7 @@ GIMBAL_POLL_S = 2.0
 
 log = logging.getLogger("dji-bridge")
 
-BRIDGE_VERSION = "0.6.0"
+BRIDGE_VERSION = "0.7.0"
 INFO_PATH = "/info"
 GIMBALS_PATH = "/gimbals"
 GIMBAL_PATH = "/gimbal"
@@ -272,6 +272,13 @@ class Session:
                 raise NotSupported("wake is not supported by this gimbal driver")
             log.warning("WAKE sent to the gimbal (asked by client %s)", self.client_id or "unknown")
             await wake()
+            return {}
+        if method == "sleep":
+            sleep = getattr(self.driver, "sleep", None)
+            if sleep is None or "sleep" not in tuple(self.driver.capabilities):
+                raise NotSupported("sleep is not supported by this gimbal driver")
+            log.warning("SLEEP sent to the gimbal (asked by client %s)", self.client_id or "unknown")
+            await sleep()
             return {}
         if method == "setMode":
             await self.driver.set_mode(str(params.get("mode", "follow")))

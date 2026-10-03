@@ -94,3 +94,26 @@ One gimbal at a time, and only after the new Pi's bridge is installed and its te
 
 Rollback: on the new Pi `systemctl --user disable --now dji-bridge`, then on bridge 1
 `sudo systemctl enable --now dji-bridge@<instance>` and point the rig back at `dji-bridge.local:<port>`.
+
+## Sleep and Wake (bridge 0.7.0)
+
+Each DJI tile on the Status page has a **Wake gimbal** button (only while the gimbal reports it is asleep; bridge
+0.5.0+) and a **Sleep gimbal** button (while it is awake; bridge 0.7.0+). Above the tiles, **Sleep all gimbals** and
+**Wake all gimbals** do the same for every DJI rig. Sleep takes two taps (the first turns the button into "Tap again to
+sleep" for 3 seconds); Wake asks with a confirm dialog. Both are logged in the activity log.
+
+The bridge methods are `sleep` (capability `sleep`, DJI command `0x04/0x0f`, payload `23 01 01`) and `wake` (payload
+`23 01 00`). Neither marks the gimbal asleep or awake by itself: the tile follows the gimbal's own sleep report
+(`0x04/0x27`).
+
+Sleep is refused (HTTP 409, with the reason) when the rig is on PROGRAM, has an active tracking session, or is being
+driven (the shared motion ledger says it is moving, or a stick/preset move was commanded in the last 2 seconds). Sleep
+all skips those rigs, and any already asleep or unreachable, and lists each skipped rig with its reason. A bridge older
+than 0.7.0 answers "Update the Pi bridge to 0.7.0 to use Sleep".
+
+Caveats:
+
+* Sleep (`23 01 01`) comes from the upstream protocol notes and has **not been tested on hardware** here. Try it on a
+  gimbal that is not on air first.
+* A gimbal left asleep long enough may power off fully and drop its Bluetooth link. Wake cannot reach a gimbal that is
+  off: press its power button, and the bridge reconnects on its own.

@@ -23,7 +23,7 @@ MOCK_NEARBY = (
 class MockDriver:
     name = "mock"
     model = "mock-RS4Pro"
-    capabilities = ("velocity", "position", "moveTo", "recenter", "mode", "wake")
+    capabilities = ("velocity", "position", "moveTo", "recenter", "mode", "wake", "sleep")
     connected = False
     mode = "follow"
 
@@ -38,6 +38,7 @@ class MockDriver:
         self._lock = asyncio.Lock()
         self.asleep: bool | None = None
         self.wakes = 0
+        self.sleeps = 0
         # Bluetooth gimbal selection, simulated: which fake gimbal this "bridge" drives, and what a scan hears.
         self.address: str | None = None
         self.nearby = [dict(g) for g in MOCK_NEARBY]
@@ -122,6 +123,10 @@ class MockDriver:
         self.wakes += 1
         if self.asleep:
             self.asleep = False
+
+    async def sleep(self) -> None:
+        self.sleeps += 1
+        self.asleep = True
 
     async def set_mode(self, mode: str) -> None:
         if mode not in ("follow", "pan", "fpv", "lock"):

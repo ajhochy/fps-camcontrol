@@ -32,6 +32,7 @@ import { SonyManager, SonyRetryableError, SonyUpstreamError } from '../sony/sony
 import { RemoteControlHub } from '../input/remoteControl';
 import { emergencyStopAll } from '../safety/emergencyStop';
 import { getResourcePath, getUserPath } from '../config/paths';
+import { sleepRefusal, SLEEP_OLD_BRIDGE_MESSAGE } from '../app/gimbalSleep';
 import { trackingFor, trackingRuntimeFor, TrackingHooks } from '../app/trackingHooks';
 import { installTrackingRoutes, trackingSnapshot } from './trackingRoutes';
 import { resolveTrackingSources } from '../tracking/sourceResolver';
@@ -177,6 +178,95 @@ export function createStatusServer(
     } catch (error) {
       res.status(502).json({ ok: false, error: error instanceof Error ? error.message : 'the bridge did not answer' });
     }
+  });
+  // Sleep a gimbal (bridge 0.7.0+, DJI command 0x04/0x0f 23 01 01; NOT yet tested on hardware). The motors go off and
+  // the gimbal goes limp, so it is operator-initiated with { confirm: true } and refused (409) while the rig is on
+  // PROGRAM, has an active tracking session, or is being driven (see app/gimbalSleep.ts). Nothing here marks the gimbal
+  // asleep: the health verdict follows the gimbal's own sleep report.
+  const gimbalTarget = (id: string) => {
+    const device = devices.get(id as CameraId);
+    const cam = config.cameras.find((c) => c.id === id);
+    return device && cam && cam.protocol === 'dji-bridge' ? { device, cam } : null;
+  };
+  const bridgeAddr = (cam: { bridge?: { host: string; port: number } }) => (cam.bridge ? `${cam.bridge.host}:${cam.bridge.port}` : '');
+  /** null = may sleep; otherwise the 409 message. */
+  const sleepBlock = (id: string, device: MotionDevice): string | null => {
+    if (!device.connected) return 'the Pi bridge for this gimbal is not reachable';
+    if (device.gimbalAttached === false) return 'the gimbal is not linked to its Pi bridge';
+    if (!device.capabilities.sleep || typeof device.sleep !== 'function') return SLEEP_OLD_BRIDGE_MESSAGE;
+    return sleepRefusal(id, { state, device, tracking: getTracking() });
+  };
+  app.post('/api/cameras/:id/sleep', async (req, res) => {
+    const id = req.params.id;
+    if (!/^cam[0-9]{1,2}$/.test(id)) { res.status(400).json({ ok: false, error: 'invalid camera id' }); return; }
+    const target = gimbalTarget(id);
+    if (!target) { res.status(404).json({ ok: false, error: 'that rig is not a gimbal' }); return; }
+    const { device, cam } = target;
+    const body = (req.body ?? {}) as { confirm?: unknown };
+    if (body.confirm !== true) { res.status(409).json({ ok: false, error: 'sleeping switches the gimbal motors off and it goes limp: confirm first (send { confirm: true })' }); return; }
+    const blocked = sleepBlock(id, device);
+    if (blocked) {
+      activityLog.addEntry({ protocol: 'DJI-BRIDGE', message: `sleep refused: ${blocked}`, targetName: cam.label, targetIp: bridgeAddr(cam) });
+      res.status(409).json({ ok: false, error: blocked });
+      return;
+    }
+    try {
+      await device.sleep!();
+      activityLog.addEntry({ protocol: 'DJI-BRIDGE', message: 'sleep sent (operator confirmed); waiting for the gimbal to report asleep', targetName: cam.label, targetIp: bridgeAddr(cam) });
+      res.json({ ok: true, sent: true });
+    } catch (error) {
+      res.status(502).json({ ok: false, error: error instanceof Error ? error.message : 'the bridge did not answer' });
+    }
+  });
+  // Sleep every gimbal that may sleep right now; the ones that may not (program, tracking, driven, unreachable,
+  // old bridge) are skipped and reported with the reason. Already-asleep gimbals are left alone.
+  app.post('/api/gimbals/sleep-all', async (req, res) => {
+    const body = (req.body ?? {}) as { confirm?: unknown };
+    if (body.confirm !== true) { res.status(409).json({ ok: false, error: 'confirm first (send { confirm: true })' }); return; }
+    const slept: Array<{ id: string; label: string }> = [];
+    const skipped: Array<{ id: string; label: string; reason: string }> = [];
+    for (const cam of config.cameras) {
+      const target = gimbalTarget(cam.id);
+      if (!target) continue;
+      if (state.cameraGimbalAsleep?.[cam.id] === true) { skipped.push({ id: cam.id, label: cam.label, reason: 'already asleep' }); continue; }
+      const blocked = sleepBlock(cam.id, target.device);
+      if (blocked) {
+        activityLog.addEntry({ protocol: 'DJI-BRIDGE', message: `sleep (all gimbals) skipped: ${blocked}`, targetName: cam.label, targetIp: bridgeAddr(cam) });
+        skipped.push({ id: cam.id, label: cam.label, reason: blocked });
+        continue;
+      }
+      try {
+        await target.device.sleep!();
+        activityLog.addEntry({ protocol: 'DJI-BRIDGE', message: 'sleep sent (operator confirmed, all gimbals); waiting for the gimbal to report asleep', targetName: cam.label, targetIp: bridgeAddr(cam) });
+        slept.push({ id: cam.id, label: cam.label });
+      } catch (error) {
+        skipped.push({ id: cam.id, label: cam.label, reason: error instanceof Error ? error.message : 'the bridge did not answer' });
+      }
+    }
+    res.json({ ok: true, slept, skipped });
+  });
+  // Wake every gimbal that reports asleep and whose bridge can wake it.
+  app.post('/api/gimbals/wake-all', async (req, res) => {
+    const body = (req.body ?? {}) as { confirm?: unknown };
+    if (body.confirm !== true) { res.status(409).json({ ok: false, error: 'confirm first (send { confirm: true })' }); return; }
+    const woke: Array<{ id: string; label: string }> = [];
+    const skipped: Array<{ id: string; label: string; reason: string }> = [];
+    for (const cam of config.cameras) {
+      const target = gimbalTarget(cam.id);
+      if (!target) continue;
+      const { device } = target;
+      if (state.cameraGimbalAsleep?.[cam.id] !== true) { skipped.push({ id: cam.id, label: cam.label, reason: 'not reported asleep' }); continue; }
+      if (!device.connected || device.gimbalAttached === false) { skipped.push({ id: cam.id, label: cam.label, reason: 'bridge or gimbal not reachable' }); continue; }
+      if (!device.capabilities.wake || typeof device.wake !== 'function') { skipped.push({ id: cam.id, label: cam.label, reason: 'bridge cannot wake it (update to 0.5.0 or later)' }); continue; }
+      try {
+        await device.wake();
+        activityLog.addEntry({ protocol: 'DJI-BRIDGE', message: 'wake sent (operator confirmed, all gimbals); waiting for the gimbal to report awake', targetName: cam.label, targetIp: bridgeAddr(cam) });
+        woke.push({ id: cam.id, label: cam.label });
+      } catch (error) {
+        skipped.push({ id: cam.id, label: cam.label, reason: error instanceof Error ? error.message : 'the bridge did not answer' });
+      }
+    }
+    res.json({ ok: true, woke, skipped });
   });
   // The running rigs in order, with the Sony camera each carries, so the dashboard lays its cards out under them.
   const sonyRigOrder = () => {
@@ -1600,7 +1690,8 @@ function statusHtml(): string {
   .sony-widget--placeholder { opacity:.6; border-style:dashed; }
   .sony-placeholder__why { color:var(--text-2); font-size:13px; }
   .sony-placeholder__note { color:var(--text-3, var(--text-2)); font-size:12px; }
-  .cam-card__line--ok { color:var(--ok-text); } .cam-card__line--warn { color:var(--warn-text); } .cam-card__line--err { color:var(--err-text); }
+  /* Each line is coloured by its own state, never by the tile verdict (a low gimbal battery must not turn the camera line yellow). */
+  .cam-card .cam-card__status.cam-card__line--ok { color:var(--ok-text); } .cam-card .cam-card__status.cam-card__line--warn { color:var(--warn-text); } .cam-card .cam-card__status.cam-card__line--err { color:var(--err-text); }
   .health-alerts { display:flex; flex-direction:column; gap:6px; margin:0 0 12px; }
   .health-alert { border:1px solid var(--border); border-left-width:4px; border-radius:4px; padding:8px 10px; background:var(--surface-2, transparent); font-size:13px; }
   .health-alert--warn { border-left-color:var(--warn-text); } .health-alert--err { border-left-color:var(--err-text); }
@@ -1660,6 +1751,11 @@ function statusHtml(): string {
   .cam-wake { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:6px 0 2px; padding-left:16px; }
   .cam-wake .btn-sm { min-height:36px; }
   .cam-wake__status { font-size:12px; color:var(--text-2); }
+  .gimbal-bulk { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:0 0 8px; }
+  .gimbal-bulk .btn-sm { min-height:36px; }
+  .gimbal-bulk__label { font-size:12px; color:var(--text-2); }
+  .gimbal-bulk__result { font-size:12px; color:var(--text-2); flex-basis:100%; }
+  .btn-sm--armed { border-color:var(--warn-text); color:var(--warn-text); }
   .sony-roll__label { width:100%; font-size:12px; color:var(--text-2); }
   .sony-roll__status { font-size:12px; color:var(--text-2); }
   .sony-preview-loading::after { content:'Live preview loading…'; position:absolute; inset:50% auto auto 50%; transform:translate(-50%,-50%); color:var(--text-2); white-space:nowrap; }
@@ -2246,6 +2342,8 @@ function renderStatus(s, c) {
     const camera = healthOf(s.health && s.health.cameras && s.health.cameras[cam.id]);
     const battery = healthOf(s.health && s.health.batteries && s.health.batteries[cam.id]);
     const link = worse(worse(motion, camera), battery);
+    // Say which part the verdict is about, so CHECK on a tile never reads as "everything here is suspect".
+    const verdictReason = link === battery ? 'Low battery' : link === camera ? 'Camera' : (cam.protocol === 'dji-bridge' ? 'Gimbal' : 'Control');
     const camName = 'CAM ' + String(i + 1).padStart(2, '0') + ' ' + cam.label;
     if (motion.cls !== 'ok') alerts.push({ cls: motion.cls, what: camName + (cam.protocol === 'dji-bridge' ? ' gimbal' : ' control'), text: motion.text, hint: motion.hint, since: motion.since });
     if (camera && camera.cls !== 'ok') alerts.push({ cls: camera.cls, what: camName + ' camera', text: camera.text, hint: camera.hint, since: camera.since });
@@ -2267,19 +2365,21 @@ function renderStatus(s, c) {
     camGrid +=
       '<div class="' + cardClasses + '">' +
         '<div class="cam-card__meta"><span class="cam-card__index">CAM ' + String(i + 1).padStart(2, '0') + '</span>' +
-        '<span class="cam-card__status" title="' + esc(link.text + (link.hint ? ' \u2014 ' + link.hint : '')) + '">' + verdictText(link.cls) + '</span></div>' +
+        '<span class="cam-card__status" title="' + esc(link.text + (link.hint ? ' \u2014 ' + link.hint : '')) + '">' + verdictText(link.cls) + (link.cls !== 'ok' ? ' \u00b7 ' + esc(verdictReason) : '') + '</span></div>' +
         '<span class="cam-card__name">' + esc(cam.label) + '</span>' +
         '<span class="cam-card__status cam-card__line--' + motion.cls + '">' + esc(motion.text) + '</span>' +
         (motion.hint && motion.cls !== 'ok' ? '<span class="cam-card__hint">' + esc(motion.hint) + '</span>' : '') +
         '<span class="cam-card__bt">' + signalBadge(s.cameraGimbalSignal && s.cameraGimbalSignal[cam.id]) +
         batteryBadge(s.health && s.health.batteries && s.health.batteries[cam.id]) + '</span>' +
         wakeHtml(cam, motion, s) +
+        sleepHtml(cam, motion, s) +
         (camera ? '<span class="cam-card__status cam-card__line--' + camera.cls + '" title="' + esc(camera.hint) + '">Camera: ' + esc(camera.text) + '</span>' +
           (camera.hint && camera.cls !== 'ok' ? '<span class="cam-card__hint">' + esc(camera.hint) + '</span>' : '') : '') +
         '<div class="cam-card__roles">' + roles + '</div>' +
       '</div>';
   }
   camGrid += '</div>';
+  camGrid = gimbalBulkHtml(cams, s) + camGrid;
   if (cams.length === 0) camGrid = '<div class="empty-state">No cameras configured. Add a camera in Device Config.</div>';
 
   const modes = [
@@ -2597,6 +2697,122 @@ async function wakeGimbal(button) {
     if (!line) { line = document.createElement('span'); line.setAttribute('aria-live', 'polite'); box.appendChild(line); }
     line.className = 'cam-wake__status' + (next.phase === 'error' ? ' error-state' : '');
     line.textContent = next.text;
+  }
+}
+
+// Sleep a gimbal from its camera tile, and Sleep all / Wake all above the tiles. Sleep switches the motors off and
+// the gimbal goes limp, so every one is two taps: the first arms the button ("Tap again to sleep") for 3 s, the
+// second sends. The server refuses a rig that is on program, tracking or being driven, and says why. State lives
+// here (not in the DOM) because the tiles are rebuilt on every status poll.
+var gimbalSleep = {};
+var bulkState = { armed: null, armedAt: 0, busy: false, text: '', error: false };
+var ARM_MS = 3000;
+function sleepArmed(st) { return !!st && st.phase === 'armed' && Date.now() - st.at < ARM_MS; }
+function sleepHtml(cam, motion, s) {
+  var st = gimbalSleep[cam.id];
+  var linked = cam.protocol === 'dji-bridge' && !!(s && s.cameraConnected && s.cameraConnected[cam.id]);
+  if (!linked || gimbalAsleepText(motion.text)) {
+    if (st && st.phase !== 'sending') delete gimbalSleep[cam.id];
+    return '';
+  }
+  if (st && st.phase === 'armed' && !sleepArmed(st)) { delete gimbalSleep[cam.id]; st = null; }
+  var armed = sleepArmed(st);
+  var sending = !!st && st.phase === 'sending';
+  var recent = !!st && st.phase === 'sent' && Date.now() - st.at < WAKE_HOLD_MS;
+  var label = sending ? 'Sleeping…' : armed ? 'Tap again to sleep' : 'Sleep gimbal';
+  var status = st && (st.phase === 'sent' || st.phase === 'error') ? '<span class="cam-wake__status' + (st.phase === 'error' ? ' error-state' : '') + '" aria-live="polite">' + esc(st.text) + '</span>' : '';
+  return '<div class="cam-wake"><button class="btn-sm' + (armed ? ' btn-sm--armed' : '') + '" data-cam="' + esc(cam.id) + '"' +
+    (sending || recent ? ' disabled' : '') + ' title="Switch the gimbal motors off (tap twice)" onclick="sleepGimbal(this)">' + label + '</button>' + status + '</div>';
+}
+async function sleepGimbal(button) {
+  var id = button.dataset.cam;
+  var st = gimbalSleep[id];
+  if (st && st.phase === 'sending') return;
+  if (!sleepArmed(st)) {
+    gimbalSleep[id] = { phase: 'armed', text: '', at: Date.now() };
+    button.textContent = 'Tap again to sleep'; button.classList.add('btn-sm--armed');
+    setTimeout(function() {
+      var now = gimbalSleep[id];
+      if (now && now.phase === 'armed' && !sleepArmed(now)) {
+        delete gimbalSleep[id];
+        if (button.isConnected) { button.textContent = 'Sleep gimbal'; button.classList.remove('btn-sm--armed'); }
+      }
+    }, ARM_MS + 100);
+    return;
+  }
+  gimbalSleep[id] = { phase: 'sending', text: '', at: Date.now() };
+  button.disabled = true; button.textContent = 'Sleeping…'; button.classList.remove('btn-sm--armed');
+  var next;
+  try {
+    var response = await fetch('/api/cameras/' + encodeURIComponent(id) + '/sleep', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirm: true }) });
+    var result = await response.json().catch(function() { return {}; });
+    if (!response.ok || result.ok === false) throw new Error(result.error || ('HTTP ' + response.status));
+    next = { phase: 'sent', text: 'Sleep sent — waiting for it to report asleep', at: Date.now() };
+  } catch (error) {
+    next = { phase: 'error', text: 'Sleep failed: ' + (error && error.message ? error.message : 'unknown error'), at: Date.now() };
+  }
+  gimbalSleep[id] = next;
+  var box = button.parentNode;
+  if (box && box.isConnected) {
+    var b = box.querySelector('button');
+    if (b) { b.disabled = next.phase === 'sent'; b.textContent = 'Sleep gimbal'; }
+    var line = box.querySelector('.cam-wake__status');
+    if (!line) { line = document.createElement('span'); line.setAttribute('aria-live', 'polite'); box.appendChild(line); }
+    line.className = 'cam-wake__status' + (next.phase === 'error' ? ' error-state' : '');
+    line.textContent = next.text;
+  }
+}
+function bulkArmed(kind) { return bulkState.armed === kind && Date.now() - bulkState.armedAt < ARM_MS; }
+function gimbalBulkHtml(cams, s) {
+  var gimbals = cams.filter(function(c) { return c.protocol === 'dji-bridge'; });
+  if (!gimbals.length) return '';
+  var busy = bulkState.busy;
+  var sleepLabel = busy ? 'Working…' : bulkArmed('sleep') ? 'Tap again to sleep all' : 'Sleep all gimbals';
+  var wakeLabel = busy ? 'Working…' : bulkArmed('wake') ? 'Tap again to wake all' : 'Wake all gimbals';
+  var result = bulkState.text ? '<span class="gimbal-bulk__result' + (bulkState.error ? ' error-state' : '') + '" aria-live="polite">' + esc(bulkState.text) + '</span>' : '';
+  return '<div class="gimbal-bulk"><span class="gimbal-bulk__label">Gimbals</span>' +
+    '<button class="btn-sm' + (bulkArmed('sleep') ? ' btn-sm--armed' : '') + '" data-kind="sleep"' + (busy ? ' disabled' : '') + ' title="Switch every gimbal motors off, except rigs on program or tracking (tap twice)" onclick="bulkGimbals(this)">' + sleepLabel + '</button>' +
+    '<button class="btn-sm' + (bulkArmed('wake') ? ' btn-sm--armed' : '') + '" data-kind="wake"' + (busy ? ' disabled' : '') + ' title="Switch every sleeping gimbal motors back on (tap twice)" onclick="bulkGimbals(this)">' + wakeLabel + '</button>' + result + '</div>';
+}
+async function bulkGimbals(button) {
+  var kind = button.dataset.kind;
+  if (bulkState.busy) return;
+  if (!bulkArmed(kind)) {
+    bulkState.armed = kind; bulkState.armedAt = Date.now();
+    button.textContent = kind === 'sleep' ? 'Tap again to sleep all' : 'Tap again to wake all';
+    button.classList.add('btn-sm--armed');
+    setTimeout(function() {
+      if (bulkState.armed === kind && !bulkArmed(kind)) {
+        bulkState.armed = null;
+        if (button.isConnected) { button.textContent = kind === 'sleep' ? 'Sleep all gimbals' : 'Wake all gimbals'; button.classList.remove('btn-sm--armed'); }
+      }
+    }, ARM_MS + 100);
+    return;
+  }
+  bulkState.armed = null; bulkState.busy = true; bulkState.text = ''; bulkState.error = false;
+  var box = button.parentNode;
+  box.querySelectorAll('button').forEach(function(b) { b.disabled = true; b.textContent = 'Working…'; b.classList.remove('btn-sm--armed'); });
+  try {
+    var response = await fetch('/api/gimbals/' + kind + '-all', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirm: true }) });
+    var result = await response.json().catch(function() { return {}; });
+    if (!response.ok || result.ok === false) throw new Error(result.error || ('HTTP ' + response.status));
+    var done = (kind === 'sleep' ? result.slept : result.woke) || [];
+    var skipped = result.skipped || [];
+    var verb = kind === 'sleep' ? 'Sleep' : 'Wake';
+    bulkState.text = verb + ' sent to ' + done.length + (done.length === 1 ? ' gimbal' : ' gimbals') +
+      (skipped.length ? '. Skipped: ' + skipped.map(function(x) { return x.label + ' (' + x.reason + ')'; }).join('; ') : '.');
+    bulkState.error = skipped.some(function(x) { return x.reason !== 'already asleep' && x.reason !== 'not reported asleep'; });
+  } catch (error) {
+    bulkState.text = (kind === 'sleep' ? 'Sleep' : 'Wake') + ' all failed: ' + (error && error.message ? error.message : 'unknown error');
+    bulkState.error = true;
+  }
+  bulkState.busy = false;
+  if (box.isConnected) {
+    box.querySelectorAll('button').forEach(function(b) { b.disabled = false; b.textContent = b.dataset.kind === 'sleep' ? 'Sleep all gimbals' : 'Wake all gimbals'; });
+    var line = box.querySelector('.gimbal-bulk__result');
+    if (!line) { line = document.createElement('span'); line.setAttribute('aria-live', 'polite'); box.appendChild(line); }
+    line.className = 'gimbal-bulk__result' + (bulkState.error ? ' error-state' : '');
+    line.textContent = bulkState.text;
   }
 }
 

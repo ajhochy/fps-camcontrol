@@ -323,6 +323,26 @@ class WakeDispatchTests(unittest.TestCase):
         with self.assertRaises(dji_bridge.NotSupported):
             asyncio.run(session._dispatch("wake", {}))
 
+    def test_sleep_dispatches_to_the_driver_and_logs_who_asked(self):
+        from drivers.mock_driver import MockDriver
+
+        driver = MockDriver()
+        session = Session(IdleSocket(), driver, 250, 7879)
+        result = asyncio.run(session._dispatch("hello", {"clientId": "app-2"}))
+        self.assertIn("sleep", result["capabilities"])
+        with self.assertLogs(dji_bridge.log, level="WARNING") as logs:
+            asyncio.run(session._dispatch("sleep", {}))
+        self.assertEqual(driver.sleeps, 1)
+        self.assertIs(driver.asleep, True)
+        self.assertTrue(any("SLEEP" in line and "app-2" in line for line in logs.output))
+
+    def test_sleep_is_not_supported_without_the_capability(self):
+        session = Session(IdleSocket(), self.OldDriver(), 250, 7879)
+        result = asyncio.run(session._dispatch("hello", {"clientId": "app"}))
+        self.assertNotIn("sleep", result["capabilities"])
+        with self.assertRaises(dji_bridge.NotSupported):
+            asyncio.run(session._dispatch("sleep", {}))
+
     def test_mock_driver_wakes(self):
         from drivers.mock_driver import MockDriver
 

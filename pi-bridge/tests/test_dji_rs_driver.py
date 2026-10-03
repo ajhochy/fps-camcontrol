@@ -407,6 +407,41 @@ class WakeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.transport.frames), before, "nothing written on a dead link")
 
 
+class SleepTests(unittest.IsolatedAsyncioTestCase):
+    """Sleep (0x04/0x0f, payload 23 01 01) is sent only when an operator asks for it; untested on hardware."""
+
+    async def asyncSetUp(self):
+        self.transport = FakeTransport(None, None)
+        self.driver = DjiRsDriver("48:1C:B9:56:31:95", transport_factory=lambda *_: self.transport, max_joystick=DEFAULT_MAX_JOYSTICK)
+        await self.driver.connect()
+
+    def test_sleep_is_advertised(self):
+        self.assertIn("sleep", DjiRsDriver.capabilities)
+
+    async def test_sleep_writes_exactly_the_documented_frame(self):
+        before = len(self.transport.frames)
+        await self.driver.sleep()
+        self.assertEqual(len(self.transport.frames), before + 1, "sleep writes exactly one frame")
+        frame = self.transport.frames[-1]
+        self.assertEqual(frame[9:11], b"\x04\x0f")
+        self.assertEqual(payload(frame), bytes((0x23, 0x01, 0x01)), "23 01 01 = sleep")
+        self.assertEqual(frame[5], 0x04)
+        sequence = frame[6] | (frame[7] << 8)
+        self.assertEqual(frame, _frame(sequence, 0x04, 0x0F, bytes.fromhex("230101")))
+
+    async def test_sleep_does_not_pretend_the_gimbal_slept(self):
+        await self.transport.push(status_frame(0x04, 0x27, bytes.fromhex("0000000000")))
+        await self.driver.sleep()
+        self.assertIsNot(self.driver.asleep, True, "only the gimbal's own report may set asleep")
+
+    async def test_sleep_is_refused_when_not_connected(self):
+        self.transport.drop()
+        before = len(self.transport.frames)
+        with self.assertRaises(GimbalError):
+            await self.driver.sleep()
+        self.assertEqual(len(self.transport.frames), before)
+
+
 class StaleLinkTests(unittest.IsolatedAsyncioTestCase):
     """A gimbal BlueZ still holds a link to does not advertise; the bridge must release it, not wait forever."""
 

@@ -45,3 +45,5 @@ class GimbalDriver(Protocol):
     async def set_mode(self, mode: str) -> None: ...
     # Optional: drivers that advertise the "wake" capability also implement
     # `async def wake(self) -> None` (switch a sleeping gimbal's motors back on).
+    # Optional: drivers that advertise the "sleep" capability also implement
+    # `async def sleep(self) -> None` (put the gimbal to sleep; operator-initiated only).

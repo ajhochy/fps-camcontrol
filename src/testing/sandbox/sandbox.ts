@@ -302,6 +302,39 @@ async function selfTest(): Promise<number> {
       check('once the gimbal reports awake its health returns to ready', awake.level === 'ready');
       check('the wake is in the activity log', ((await api('/api/activity')).body.entries ?? []).some((e: any) => /wake sent/.test(e.message ?? '')));
       check('the Status page draws a Wake gimbal button that asks first and keeps its state across re-renders', pageHtml.includes('function wakeHtml') && pageHtml.includes('Wake gimbal') && pageHtml.includes("'/wake'") && pageHtml.includes('window.confirm(') && pageHtml.includes('var gimbalWake = {}') && pageHtml.includes('Make sure nobody is touching it.'));
+      // Sleep gimbal (bridge 0.7.0): the reverse, with the same confirm, plus Sleep all / Wake all and the safety refusals.
+      bridge.reportSleep = true; bridge.asleep = false;
+      await waitFor('the gimbal to be awake and able to sleep', async () => { const st = (await api('/api/status')).body; return st.cameraGimbalAsleep?.[gimbalRig.id] === false && st.cameraGimbalCanSleep?.[gimbalRig.id] === true; });
+      const sleepsBefore = bridge.sleeps;
+      const sleepUnconfirmed = await post(`/api/cameras/${gimbalRig.id}/sleep`, {});
+      check('a sleep without { confirm: true } is refused (409) and sends nothing', sleepUnconfirmed.status === 409 && /confirm/.test(sleepUnconfirmed.body.error) && bridge.sleeps === sleepsBefore);
+      check('sleep is refused for a rig that is not a gimbal (404) and a bad id (400)', (await post('/api/cameras/cam1/sleep', { confirm: true })).status === 404 && (await post('/api/cameras/nope/sleep', { confirm: true })).status === 400);
+      const programNow = (await api('/api/status')).body.programCamera;
+      if (programNow === gimbalRig.id) {
+        const onProgram = await post(`/api/cameras/${gimbalRig.id}/sleep`, { confirm: true });
+        check('a gimbal on program is refused sleep (409)', onProgram.status === 409 && /PROGRAM/.test(onProgram.body.error) && bridge.sleeps === sleepsBefore);
+      } else {
+        check('the gimbal rig is not on program in the sandbox, so it may sleep', programNow !== gimbalRig.id);
+      }
+      const slept = programNow === gimbalRig.id ? null : await post(`/api/cameras/${gimbalRig.id}/sleep`, { confirm: true });
+      if (slept) {
+        check('a confirmed sleep is sent once (200)', slept.status === 200 && slept.body.ok === true && bridge.sleeps === sleepsBefore + 1);
+        const nowAsleep = await waitFor('the gimbal to report asleep', async () => { const h = await rigHealthOf(); return h?.text === 'Asleep' && h; });
+        check('once the gimbal reports asleep its tile shows Asleep', nowAsleep.text === 'Asleep');
+        check('the sleep is in the activity log', ((await api('/api/activity')).body.entries ?? []).some((e: any) => /sleep sent/.test(e.message ?? '')));
+        const wokeAgain = await post(`/api/cameras/${gimbalRig.id}/wake`, { confirm: true });
+        check('wake restores a slept gimbal', wokeAgain.status === 200 && !!(await waitFor('the gimbal to report awake again', async () => { const h = await rigHealthOf(); return h?.level === 'ready' && h; })));
+      }
+      const sleepAllUnconfirmed = await post('/api/gimbals/sleep-all', {});
+      check('Sleep all without { confirm: true } is refused (409)', sleepAllUnconfirmed.status === 409);
+      const sleepAll = await post('/api/gimbals/sleep-all', { confirm: true });
+      check('Sleep all answers which gimbals slept and which were skipped with a reason', sleepAll.status === 200 && Array.isArray(sleepAll.body.slept) && Array.isArray(sleepAll.body.skipped) && sleepAll.body.skipped.every((x: any) => typeof x.reason === 'string' && x.reason.length > 0));
+      check('Sleep all skips a rig on program', programNow !== gimbalRig.id || sleepAll.body.skipped.some((x: any) => x.id === gimbalRig.id && /PROGRAM/.test(x.reason)));
+      const wakeAll = await post('/api/gimbals/wake-all', { confirm: true });
+      check('Wake all answers which gimbals woke', wakeAll.status === 200 && Array.isArray(wakeAll.body.woke) && Array.isArray(wakeAll.body.skipped));
+      check('Wake all without { confirm: true } is refused (409)', (await post('/api/gimbals/wake-all', {})).status === 409);
+      for (const b of fakes.bridges) { b.asleep = false; }
+      check('the Status page draws Sleep gimbal, Sleep all and Wake all with a two-tap confirm', pageHtml.includes('function sleepHtml') && pageHtml.includes('Sleep gimbal') && pageHtml.includes('Tap again to sleep') && pageHtml.includes("'/sleep'") && pageHtml.includes('function gimbalBulkHtml') && pageHtml.includes('Sleep all gimbals') && pageHtml.includes('Wake all gimbals') && pageHtml.includes("'-all'") && pageHtml.includes('var gimbalSleep = {}'));
       bridge.reportSleep = false;
     }
 

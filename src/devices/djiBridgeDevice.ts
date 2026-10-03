@@ -99,6 +99,7 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
     position: false,
     moveTo: false,
     wake: false,
+    sleep: false,
   };
 
   private ws: WebSocket | null = null;
@@ -296,7 +297,14 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
     this.pending.clear();
   }
 
+  /** When a non-zero stick velocity or a move-to was last commanded (0 = never). */
+  private lastDriveAt = 0;
+  recentlyDriven(withinMs: number, now = Date.now()): boolean {
+    return this.lastDriveAt > 0 && now - this.lastDriveAt <= withinMs;
+  }
+
   setPanTilt(panSpeed: number, tiltSpeed: number): void {
+    if (panSpeed !== 0 || tiltSpeed !== 0) this.lastDriveAt = Date.now();
     this.lastPan = panSpeed;
     this.lastTilt = tiltSpeed;
     this.judgeMotion(panSpeed, tiltSpeed);
@@ -341,6 +349,7 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
     if (pos.kind !== 'gimbal') {
       throw new Error(`${this.id}: DJI bridge requires gimbal position, got ${pos.kind}`);
     }
+    this.lastDriveAt = Date.now();
     await this.request('moveToPosition', { yaw: pos.yaw, pitch: pos.pitch, roll: pos.roll }, 5000);
   }
 
@@ -359,6 +368,19 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
     }
     logger.warn({ id: this.id }, 'DJI gimbal wake requested by the operator');
     await this.request('wake', {}, 5000);
+  }
+
+  /**
+   * Ask the gimbal to go to sleep (motors off). Operator-initiated only; the app refuses it while the rig is on
+   * program, tracking or being driven. NOT yet tested on hardware. The ack only means the bridge sent it:
+   * whether the gimbal slept comes from its own sleep report.
+   */
+  async sleep(): Promise<void> {
+    if (!this.capabilities.sleep) {
+      throw new Error(`${this.id}: Update the Pi bridge to 0.7.0 to use Sleep`);
+    }
+    logger.warn({ id: this.id }, 'DJI gimbal sleep requested by the operator');
+    await this.request('sleep', {}, 5000);
   }
 
   async probe(timeoutMs = 1000): Promise<boolean> {
@@ -483,6 +505,7 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
       position: set.has('position'),
       moveTo: set.has('moveTo'),
       wake: set.has('wake'),
+      sleep: set.has('sleep'),
     };
   }
 

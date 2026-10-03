@@ -4,7 +4,7 @@ import http from 'http';
 const PROTOCOL_VERSION = 1;
 
 /** Methods the real Pi driver rejects outright when it has no BLE link. */
-const GIMBAL_TOUCHING_METHODS = new Set(['moveVelocity', 'getPosition', 'moveToPosition', 'recenter', 'setMode', 'wake']);
+const GIMBAL_TOUCHING_METHODS = new Set(['moveVelocity', 'getPosition', 'moveToPosition', 'recenter', 'setMode', 'wake', 'sleep']);
 
 interface Frame {
   v: number;
@@ -85,6 +85,8 @@ export class VirtualDjiBridge {
   wakes = 0;
   /** When false the bridge acks a wake but the gimbal stays asleep (e.g. motor protection on an RS3 Pro). */
   wakeWorks = true;
+  /** Sleep commands received (bridge 0.7.0+ "sleep"). */
+  sleeps = 0;
   /** Bluetooth link figures sent with every status (like a bridge >= 0.3.0); null sends none. */
   link: { drops10m: number; framesLastMin: number; corruptLastMin: number; linkedForS: number | null } | null = { drops10m: 0, framesLastMin: 60, corruptLastMin: 0, linkedForS: 100 };
   /** GET /info requests answered (they open no session). */
@@ -109,7 +111,7 @@ export class VirtualDjiBridge {
 
   constructor(opts: VirtualDjiBridgeOptions = {}) {
     this.port = opts.port ?? 0;
-    this.capabilities = opts.capabilities ?? ['velocity', 'position', 'moveTo', 'wake'];
+    this.capabilities = opts.capabilities ?? ['velocity', 'position', 'moveTo', 'wake', 'sleep'];
     this.gimbalModel = opts.gimbalModel ?? 'mock-RS4Pro';
     this.safetyTimeoutMs = opts.safetyTimeoutMs ?? 250;
     this.gimbalConnected = opts.gimbalConnected ?? true;
@@ -391,6 +393,15 @@ export class VirtualDjiBridge {
         if (!this.capabilities.includes('wake')) { this.nack(ws, frame.id, 'not_supported', 'unknown method wake'); return; }
         this.wakes++;
         if (this.wakeWorks) this.asleep = false;
+        this.ack(ws, frame.id, {});
+        return;
+      }
+      case 'sleep': {
+        if (!this.capabilities.includes('sleep')) { this.nack(ws, frame.id, 'not_supported', 'unknown method sleep'); return; }
+        this.sleeps++;
+        this.asleep = true;
+        this.velPan = 0;
+        this.velTilt = 0;
         this.ack(ws, frame.id, {});
         return;
       }
