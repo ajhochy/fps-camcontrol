@@ -37,7 +37,9 @@ export class AtemClient extends EventEmitter {
   constructor(ip: string) {
     super();
     this.ip = ip;
-    this.atem = new Atem();
+    // The Electron utility process already provides isolation; no unowned Node
+    // subprocess may outlive it when the desktop is force-quit.
+    this.atem = new Atem({ disableMultithreaded: process.env.CAMCONTROL_EMBEDDED === '1' });
 
     this.atem.on('connected', () => {
       this.connecting = false;

@@ -1,8 +1,17 @@
 node_modules/
 dist/
+release/
 .env
 *.js.map
 logs/
 .DS_Store
 .claude/
 .claire/
+
+# Sandbox runtime copy (recreated by `pnpm sandbox`)
+sandbox/.run/
+
+# Per-machine Sony camera approvals and any unsaved rig draft
+config/sony-cameras.json
+config/working-profile.json
+config/working-profile.json.orphaned-*

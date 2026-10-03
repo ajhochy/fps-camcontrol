@@ -1,0 +1,80 @@
+{
+  "issue": 30,
+  "generated": "2026-10-01",
+  "criteria": [
+    {
+      "criterion_id": "issue-30-c1",
+      "text": "At most **one** in-flight frame request per source; honors `Retry-After`; capped backoff on 503/timeouts/decode errors; never tight-loops.",
+      "mode": "unit",
+      "test_file": "tracker-sidecar/tests/test_issue_30.py",
+      "test_id": "test_issue30_c1",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-30-c2",
+      "text": "Skips frames it has already processed (same `capturedAt`) instead of re-detecting.",
+      "mode": "unit",
+      "test_file": "tracker-sidecar/tests/test_issue_30.py",
+      "test_id": "test_issue30_c2",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-30-c3",
+      "text": "Uses `capturedAt` as `frameTs`; if the header is missing, falls back to receive time and flags `degradedTiming` in `hello`/status.",
+      "mode": "unit",
+      "test_file": "tracker-sidecar/tests/test_issue_30.py",
+      "test_id": "test_issue30_c3",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-30-c4",
+      "text": "Detection interface: `detect(image) -> [ {x,y,w,h,conf} ]` normalized, person class only; a stub detector for tests.",
+      "mode": "unit",
+      "test_file": "tracker-sidecar/tests/test_issue_30.py",
+      "test_id": "test_issue30_c4",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-30-c5",
+      "text": "ONNX Runtime implementation with a **permissively licensed** model; model and runtime licenses are recorded in the PR and `tracker-sidecar/THIRD_PARTY_NOTICES.md`. `ultralytics` is **not** used without an explicit license decision.",
+      "mode": "unit",
+      "test_file": "tracker-sidecar/tests/test_issue_30.py",
+      "test_id": "test_issue30_c5",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-30-c6",
+      "text": "Execution provider selection prefers CoreML/Apple acceleration when available, falls back to CPU; chosen provider reported in `hello`.",
+      "mode": "unit",
+      "test_file": "tracker-sidecar/tests/test_issue_30.py",
+      "test_id": "test_issue30_c6",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-30-c7",
+      "text": "Measured end-to-end numbers (frames/s, detect ms p50/p95, frame age at emit) on the target Mac are pasted into the PR and feed the plan's `pipelineDelayMs` default.",
+      "mode": "integration",
+      "test_file": "tracker-sidecar/tests/test_issue_30.py",
+      "test_id": "test_issue30_c7",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-30-c8",
+      "text": "Model weights are **not** committed; a documented script/command fetches them to a git-ignored path.",
+      "mode": "unit",
+      "test_file": "tracker-sidecar/tests/test_issue_30.py",
+      "test_id": "test_issue30_c8",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-30-c9",
+      "text": "Per-source metrics (fps, dropped, 503 count) available via an `error`-free status message or log line (throttled).",
+      "mode": "unit",
+      "test_file": "tracker-sidecar/tests/test_issue_30.py",
+      "test_id": "test_issue30_c9",
+      "status": "pass"
+    }
+  ],
+  "stack": "python",
+  "not_tested": []
+}

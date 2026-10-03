@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0a0d10">
+<title>CamControl Remote</title>
+<link rel="stylesheet" href="/ui/remote/remote.css">
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-head" viewBox="0 0 24 24"><path d="M12 3v7M12 10l-6 10M12 10l6 10M8 16h8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="4" r="2" fill="currentColor"/></symbol>
+  <symbol id="i-cam" viewBox="0 0 24 24"><path d="M4 8h4l2-2h4l2 2h4v11H4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.2" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="i-bars" viewBox="0 0 24 24"><rect class="b1" x="3" y="15" width="4" height="6" rx="1"/><rect class="b2" x="10" y="10" width="4" height="11" rx="1"/><rect class="b3" x="17" y="4" width="4" height="17" rx="1"/><path class="slash" d="M3 3l18 18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></symbol>
+</svg>
+<div id="app">
+  <header id="topbar">
+    <div class="status-chip" aria-live="polite">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M10 14a4 4 0 0 1 0-5.6l3-3a4 4 0 0 1 5.6 5.6l-1.3 1.3M14 10a4 4 0 0 1 0 5.6l-3 3a4 4 0 0 1-5.6-5.6l1.3-1.3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <span id="conn" class="dot dot-off"></span>
+      <span id="connText" class="sr-only">Connecting…</span>
+      <span id="rtt" class="muted"></span>
+    </div>
+    <span id="ownerPill" class="pill pill-wait" role="img" aria-label="Connecting">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="17.5" r="1.2" fill="currentColor"/></svg>
+      <span class="dot seat-dot"></span>
+    </span>
+    <span id="padPill" class="pill pill-wait">No controller</span>
+    <button id="claimBtn" class="btn btn-primary btn-claim" type="button" data-map="seat">Take control</button>
+    <button id="releaseBtn" class="btn btn-claim" type="button" hidden data-map="seat">Release</button>
+    <p id="hint" class="muted">Tap Take control to drive with touch, or wake the controller and hold Menu for 1 s.</p>
+    <p id="wakeHint" class="muted" hidden></p>
+    <div id="banner" class="banner" role="status" aria-live="polite" hidden></div>
+    <span id="mapBar" class="map-bar" hidden><button id="mapClear" class="btn btn-sm" type="button">Clear</button><button id="mapDone" class="btn btn-sm btn-primary" type="button">Done</button></span>
+    <button id="padBtn" class="icon-btn" type="button" aria-label="Game controller (Bluetooth)">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M7 7l10 10-5 5V2l5 5L7 17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span id="padDot" class="dot pad-dot"></span>
+    </button>
+    <button id="menuBtn" class="icon-btn" type="button" aria-label="Menu">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>
+  </header>
+
+
+  <form id="pinRow" class="pin-row" hidden onsubmit="return false">
+    <label for="pinInput">Enter the desk PIN to take control</label>
+    <input id="pinInput" type="password" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="4–8 digits">
+    <button id="pinBtn" class="btn btn-primary" type="button">Unlock</button>
+  </form>
+
+  <div id="stage">
+    <div id="viewCol">
+      <main id="main" data-layout="wide">
+        <div id="multiview" aria-label="Multiview">
+          <section class="pane pane-big pane-pvw" id="pane-pvw" data-pane="pvw"></section>
+          <section class="pane pane-big pane-pgm" id="pane-pgm" data-pane="pgm"></section>
+          <div id="smallPanes" class="small-panes"></div>
+        </div>
+      </main>
+      <div id="infoBar" class="muted"><span id="controlInfo"></span><span id="speedLine"></span></div>
+    </div>
+
+    <footer id="actions" aria-label="Controls">
+      <div class="rail-zoom" aria-label="Zoom (preview camera)">
+        <button id="zoomIn" class="btn zoom-btn" type="button" aria-label="Zoom in" data-map="zoomIn"><span aria-hidden="true">+</span></button>
+        <button id="zoomOut" class="btn zoom-btn" type="button" aria-label="Zoom out" data-map="zoomOut"><span aria-hidden="true">−</span></button>
+        <div id="zoomLever" class="lever" aria-label="Zoom lever: up zooms in, down zooms out" hidden><div class="lever-track"></div><div id="zoomLeverKnob" class="lever-knob"></div></div>
+      </div>
+      <div class="rail-left">
+        <button id="transitionBtn" class="btn btn-transition" type="button" aria-label="Transition: take preview to program" data-map="transition">TRANSITION<small>PVW → PGM</small></button>
+        <button id="ltBtn" class="btn btn-lt" type="button" aria-pressed="false" data-map="lowerThirds"><span class="lt-dot" aria-hidden="true"></span>LOWER THIRD<small id="ltState">OFF</small></button>
+        <button id="stopBtn" class="btn btn-stop" type="button" data-map="stop">STOP</button>
+      </div>
+      <div class="rail-mid">
+        <div class="label">Speed</div>
+        <div id="speedBtns" class="seg" role="group" aria-label="Touch speed">
+          <button type="button" class="seg-btn" data-speed="slow" data-map="speedSlow">Slow</button>
+          <button type="button" class="seg-btn" data-speed="normal" data-map="speedNormal">Normal</button>
+          <button type="button" class="seg-btn" data-speed="fast" data-map="speedFast">Fast</button>
+        </div>
+      </div>
+      <div class="rail-right">
+        <div id="stick" class="stick" aria-label="Joystick: pans and tilts the preview camera"><div id="stickKnob" class="stick-knob"></div></div>
+        <div id="dpad" class="dpad" aria-label="Arrows: pan and tilt the preview camera" hidden>
+          <button type="button" class="arrow arrow-up" data-dir="up" aria-label="Tilt up">▲</button>
+          <button type="button" class="arrow arrow-left" data-dir="left" aria-label="Pan left">◀</button>
+          <button type="button" class="arrow arrow-right" data-dir="right" aria-label="Pan right">▶</button>
+          <button type="button" class="arrow arrow-down" data-dir="down" aria-label="Tilt down">▼</button>
+        </div>
+        <div id="stickLabel" class="stick-label label">Preview</div>
+      </div>
+    </footer>
+  </div>
+
+  <div id="sheetBack" class="sheet-back" hidden></div>
+  <section id="sheet" class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle" hidden>
+    <div class="sheet-head">
+      <div><h2 id="sheetTitle">Camera</h2><div id="sheetBattery" class="muted"></div></div>
+      <button id="sheetClose" class="btn btn-sm" type="button">Done</button>
+    </div>
+    <div id="sheetRows" class="sheet-rows"></div>
+    <div id="sheetStatus" class="sheet-status" aria-live="polite"></div>
+  </section>
+  <section id="padSheet" class="sheet" role="dialog" aria-modal="true" aria-labelledby="padSheetTitle" hidden>
+    <div class="sheet-head">
+      <div><h2 id="padSheetTitle">Game controller</h2><div id="padStatus" class="pad-status muted">No controller</div></div>
+      <button id="padSheetClose" class="btn btn-sm" type="button">Done</button>
+    </div>
+    <ol class="steps">
+      <li>Pair the controller in <b>Settings › Bluetooth</b> on this iPad (hold its pairing button until the light blinks).</li>
+      <li>Come back here and <b>press any button</b> on it. The status above names it when the page sees it.</li>
+      <li><b>Hold Menu for 1 second</b> to take control; the sticks and buttons then work like the desk controller.</li>
+    </ol>
+    <p class="muted small">While a stick or button is being touched the controller wins over the on-screen joystick. Letting the
+      iPad sleep or switching away hands control back.</p>
+    <div class="sheet-row name-row"><label>Button mapping</label><button id="mapBtn" class="btn btn-sm" type="button">Map buttons…</button></div>
+    <p class="muted small">Like MIDI mapping: tap a control on the screen, then press the controller button that should drive it.
+      Mapped buttons stop doing their desk job while this page is open. The sticks and triggers are not remapped.</p>
+    <div id="mapList" class="map-list muted small"></div>
+  </section>
+  <section id="menuSheet" class="sheet" role="dialog" aria-modal="true" aria-labelledby="menuSheetTitle" hidden>
+    <div class="sheet-head">
+      <div><h2 id="menuSheetTitle">This iPad</h2><div class="muted">CamControl Remote</div></div>
+      <button id="menuSheetClose" class="btn btn-sm" type="button">Done</button>
+    </div>
+    <div class="sheet-row"><label>Pan / tilt control</label><div id="driveMode" class="seg" role="group" aria-label="Pan/tilt control"><button type="button" class="seg-btn" data-drive="stick">Joystick</button><button type="button" class="seg-btn" data-drive="arrows">Arrows</button></div></div>
+    <div class="sheet-row"><label>Zoom control</label><div id="zoomMode" class="seg" role="group" aria-label="Zoom control"><button type="button" class="seg-btn" data-zoom="keys">+ / − keys</button><button type="button" class="seg-btn" data-zoom="lever">Lever</button></div></div>
+    <div class="sheet-row"><label>Program feed</label><div id="programMode" class="seg" role="group" aria-label="Program pane picture"><button type="button" class="seg-btn" data-program="camera">Camera</button><button type="button" class="seg-btn" data-program="live">Live</button></div></div>
+    <div id="programDeviceRow" class="sheet-row" hidden><label for="programDevice">Capture device</label><select id="programDevice"></select></div>
+    <p id="programNote" class="muted small">Camera: the PGM pane shows the program camera. Live: the switcher's program output from the capture card on the CamControl Mac.</p>
+    <div class="sheet-row"><label for="nameBtn">Name shown on the desk</label><button id="nameBtn" class="name-btn" type="button">iPad</button></div>
+    <p class="muted small">The desk shows this name as the owner of the seat while this iPad has control.</p>
+    <div class="sheet-row"><label>Desk</label><a id="rigConfigLink" class="btn btn-sm key-link" href="/#rigs" target="_blank" rel="noopener">Open rig configs</a></div>
+    <p class="muted small">Opens the desk app's Device Config in a new tab. Changes there apply to every operator.</p>
+  </section>
+</div>
+
+<script src="/ui/remote/remoteModel.js"></script>
+<script src="/ui/remote/remote.js"></script>
+</body>
+</html>

@@ -1,8 +1,10 @@
 import { EventEmitter } from 'events';
 import WebSocket from 'ws';
 import { MotionDevice, DeviceCapabilities, DevicePosition } from './motionDevice';
+import { GimbalLinkHealth, GimbalBattery, rateGimbalSignal } from '../app/state';
 import { ActivityLog } from '../app/activityLog';
 import { logger } from '../index';
+import { BluetoothGimbal, parseBluetoothGimbal } from './gimbalScan';
 
 const PROTOCOL_VERSION = 1;
 const HEARTBEAT_INTERVAL_MS = 1000;
@@ -42,6 +44,18 @@ const GIMBAL_CHECK_INTERVAL_MS = 10000;
  * from `stop()` when it has no link, so a detached gimbal acks it happily.
  */
 const GIMBAL_PROOF_METHODS = new Set(['moveVelocity', 'getPosition', 'moveToPosition', 'recenter']);
+
+/**
+ * A gimbal can be linked and streaming its pose while ignoring every move: asleep (the RS3 Pro does this when
+ * unbalanced), motors off, or not activated. Pushing the stick for this long with no change in pose marks it as
+ * not responding; any real change in pose clears that. Only the operator's own input is watched: the app never
+ * moves a camera to test it. The pose arrives about once a second, so the window covers at least one fresh pose.
+ */
+const UNRESPONSIVE_AFTER_MS = 2500;
+/** A stick push smaller than this is too gentle to judge by. */
+const MOTION_JUDGE_MIN_SPEED = 0.15;
+/** Pose change (degrees, yaw or pitch) that proves the gimbal moved. */
+const MOTION_PROOF_DEG = 0.3;
 
 export interface BridgeConfig {
   host: string;
@@ -84,6 +98,8 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
     zoom: false,
     position: false,
     moveTo: false,
+    wake: false,
+    sleep: false,
   };
 
   private ws: WebSocket | null = null;
@@ -101,6 +117,14 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
   private lastPos: DevicePosition | null = null;
   private _connected = false;
   private _gimbalAttached = false;
+  private _reportedGimbalModel: string | null = null;
+  private _motionResponsive = true;
+  private _linkHealth: GimbalLinkHealth | null = null;
+  private _reportedAsleep: boolean | null = null;
+  private _bluetooth: BluetoothGimbal | null = null;
+  private _battery: { percent: number; reportedAt: number } | null = null;
+  /** While the operator pushes the stick: when the push began and the pose then. */
+  private motionJudge: { since: number; from: DevicePosition | null } | null = null;
   /** When we last had positive evidence of a gimbal, or 0 if never. */
   private lastGimbalProofAt = 0;
   /** When the `hello` handshake last succeeded; starts the first quiet window. */
@@ -133,6 +157,120 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
     return this._gimbalAttached;
   }
 
+  /**
+   * False when the gimbal is linked but did not move while the operator pushed the stick (asleep, motors off).
+   * True otherwise, including before anyone has tried to move it.
+   */
+  get motionResponsive(): boolean {
+    return this._motionResponsive;
+  }
+
+  private setMotionResponsive(responsive: boolean, reason: string): void {
+    if (this._motionResponsive === responsive) return;
+    this._motionResponsive = responsive;
+    if (responsive) logger.info({ id: this.id, reason }, 'DJI gimbal responding to moves again');
+    else logger.warn({ id: this.id, reason }, 'DJI gimbal is linked but not moving — asleep, unbalanced or motors off?');
+    this.emit(responsive ? 'gimbalResponsive' : 'gimbalUnresponsive');
+  }
+
+  /** Watch a stick push: start judging when it is firm enough, stop when it ends. */
+  private judgeMotion(pan: number, tilt: number): void {
+    if (Math.max(Math.abs(pan), Math.abs(tilt)) < MOTION_JUDGE_MIN_SPEED) { this.motionJudge = null; return; }
+    if (!this.motionJudge) this.motionJudge = { since: Date.now(), from: this.lastPos };
+  }
+
+  /** Called with every pose the bridge reports. */
+  private judgePose(pos: DevicePosition): void {
+    if (pos.kind !== 'gimbal') return;
+    const movedSince = (ref: DevicePosition | null): boolean => !!ref && ref.kind === 'gimbal'
+      && Math.max(Math.abs(pos.yaw - ref.yaw), Math.abs(pos.pitch - ref.pitch)) >= MOTION_PROOF_DEG;
+    const judge = this.motionJudge;
+    // Any real change proves the gimbal is awake, whether from the stick, a preset or a hand.
+    if (movedSince(this.lastPose) || (judge && movedSince(judge.from))) {
+      this.setMotionResponsive(true, 'pose changed');
+      if (judge) { judge.from = pos; judge.since = Date.now(); }
+      return;
+    }
+    if (!judge) return;
+    if (!judge.from) { judge.from = pos; return; }
+    if (Date.now() - judge.since >= UNRESPONSIVE_AFTER_MS) this.setMotionResponsive(false, `no movement after ${UNRESPONSIVE_AFTER_MS} ms of stick input`);
+  }
+  private lastPose: DevicePosition | null = null;
+
+  /** The gimbal's own sleep report, passed on by the bridge (>= 0.4.0): true asleep, false awake, null unknown. */
+  get reportedAsleep(): boolean | null {
+    return this._reportedAsleep;
+  }
+
+  /** The Bluetooth link figures from the bridge's latest status (bridges >= 0.3.0); null when not reported. */
+  get linkHealth(): GimbalLinkHealth | null {
+    return this._linkHealth;
+  }
+
+  private takeLinkHealth(raw: unknown): void {
+    const l = raw as Partial<GimbalLinkHealth> | null | undefined;
+    const next: GimbalLinkHealth | null = l && typeof l.drops10m === 'number' && typeof l.framesLastMin === 'number' && typeof l.corruptLastMin === 'number'
+      ? { drops10m: l.drops10m, framesLastMin: l.framesLastMin, corruptLastMin: l.corruptLastMin, linkedForS: typeof l.linkedForS === 'number' ? l.linkedForS : null }
+      : null;
+    const before = rateGimbalSignal(this._linkHealth);
+    this._linkHealth = next;
+    const after = rateGimbalSignal(next);
+    // Tell listeners only when what the operator would see changes, not on every 0.5 s status frame.
+    if ((before?.rating ?? null) !== (after?.rating ?? null) || (before?.summary ?? null) !== (after?.summary ?? null)) {
+      if (after && after.rating !== 'good') logger.warn({ id: this.id, signal: after.summary }, 'DJI gimbal Bluetooth signal is ' + after.rating);
+      this.emit('linkHealth');
+    }
+  }
+
+  /**
+   * Which Bluetooth gimbal the bridge is set to drive (bridges >= 0.6.0: name, address, last RSSI, how chosen),
+   * from its hello and every status; null for an older bridge or while the bridge is unreachable.
+   */
+  get bluetoothGimbal(): BluetoothGimbal | null {
+    return this._bluetooth;
+  }
+
+  /**
+   * The gimbal's own battery report, passed on by the bridge (>= 0.6.0; DUML 0x0d/0x02, last payload byte, matched
+   * against an RS3's screen; assumed the same on an RS3 Pro). Null when the bridge has not heard one on this link.
+   */
+  get battery(): GimbalBattery | null {
+    if (!this._battery) return null;
+    return { percent: this._battery.percent, ageS: Math.max(0, Math.round((Date.now() - this._battery.reportedAt) / 1000)) };
+  }
+
+  private takeBattery(raw: unknown): void {
+    const b = raw as { percent?: unknown; ageS?: unknown } | null | undefined;
+    const percent = b && typeof b.percent === 'number' && Number.isInteger(b.percent) && b.percent >= 0 && b.percent <= 100 ? b.percent : null;
+    const ageS = b && typeof b.ageS === 'number' && Number.isFinite(b.ageS) && b.ageS >= 0 ? b.ageS : 0;
+    const before = this._battery?.percent ?? null;
+    this._battery = percent === null ? null : { percent, reportedAt: Date.now() - ageS * 1000 };
+    // Tell listeners when the number changes, not on every 0.5 s status frame.
+    if (percent !== before) {
+      if (percent !== null && percent < 15 && (before === null || before >= 15)) logger.warn({ id: this.id, percent }, 'DJI gimbal battery low');
+      this.emit('battery');
+    }
+  }
+
+  /** Where this rig's bridge listens, for the app's GET/POST proxies to the bridge's /gimbals and /gimbal. */
+  get bridgeAddress(): { host: string; port: number } {
+    return { host: this.bridge.host, port: this.bridge.port };
+  }
+
+  private takeBluetooth(raw: unknown): void {
+    const next = parseBluetoothGimbal(raw);
+    if (JSON.stringify(next) === JSON.stringify(this._bluetooth)) return;
+    const before = this._bluetooth;
+    this._bluetooth = next;
+    if (next && next.address !== (before?.address ?? null)) logger.info({ id: this.id, gimbal: next.address, gimbalName: next.name, chosenBy: next.chosenBy }, 'DJI bridge drives Bluetooth gimbal');
+    this.emit('bluetoothGimbal');
+  }
+
+  /** The gimbal model the bridge named in its last `hello`; null before the first handshake. */
+  get reportedGimbalModel(): string | null {
+    return this._reportedGimbalModel;
+  }
+
   setActivityLog(log: ActivityLog, label: string): void {
     this.activityLog = log;
     this.label = label;
@@ -159,9 +297,17 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
     this.pending.clear();
   }
 
+  /** When a non-zero stick velocity or a move-to was last commanded (0 = never). */
+  private lastDriveAt = 0;
+  recentlyDriven(withinMs: number, now = Date.now()): boolean {
+    return this.lastDriveAt > 0 && now - this.lastDriveAt <= withinMs;
+  }
+
   setPanTilt(panSpeed: number, tiltSpeed: number): void {
+    if (panSpeed !== 0 || tiltSpeed !== 0) this.lastDriveAt = Date.now();
     this.lastPan = panSpeed;
     this.lastTilt = tiltSpeed;
+    this.judgeMotion(panSpeed, tiltSpeed);
     this.sendCommand('moveVelocity', { pan: panSpeed, tilt: tiltSpeed });
   }
 
@@ -175,6 +321,7 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
   stop(): void {
     this.lastPan = 0;
     this.lastTilt = 0;
+    this.motionJudge = null;
     this.sendCommand('stop', {});
   }
 
@@ -202,11 +349,38 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
     if (pos.kind !== 'gimbal') {
       throw new Error(`${this.id}: DJI bridge requires gimbal position, got ${pos.kind}`);
     }
+    this.lastDriveAt = Date.now();
     await this.request('moveToPosition', { yaw: pos.yaw, pitch: pos.pitch, roll: pos.roll }, 5000);
   }
 
   async recenter(): Promise<void> {
     await this.request('recenter', {}, 5000);
+  }
+
+  /**
+   * Ask a sleeping gimbal to switch its motors back on. Operator-initiated only: an unbalanced gimbal can
+   * jerk when its motors re-engage. The ack only means the bridge sent it; whether the gimbal woke comes
+   * from its own sleep report (or from it moving), never from this call.
+   */
+  async wake(): Promise<void> {
+    if (!this.capabilities.wake) {
+      throw new Error(`${this.id}: bridge does not advertise wake capability (update the Pi bridge to 0.5.0 or later)`);
+    }
+    logger.warn({ id: this.id }, 'DJI gimbal wake requested by the operator');
+    await this.request('wake', {}, 5000);
+  }
+
+  /**
+   * Ask the gimbal to go to sleep (motors off). Operator-initiated only; the app refuses it while the rig is on
+   * program, tracking or being driven. NOT yet tested on hardware. The ack only means the bridge sent it:
+   * whether the gimbal slept comes from its own sleep report.
+   */
+  async sleep(): Promise<void> {
+    if (!this.capabilities.sleep) {
+      throw new Error(`${this.id}: Update the Pi bridge to 0.7.0 to use Sleep`);
+    }
+    logger.warn({ id: this.id }, 'DJI gimbal sleep requested by the operator');
+    await this.request('sleep', {}, 5000);
   }
 
   async probe(timeoutMs = 1000): Promise<boolean> {
@@ -218,15 +392,25 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
   }
 
   private openSocket(): void {
+    if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
     if (this.ws) {
-      try { this.ws.close(); } catch { /* ignore */ }
+      const old = this.ws;
+      this.ws = null;
+      try { old.close(); } catch { /* ignore */ }
+      this.markDisconnected(); // the link is down until the new socket's hello, said once here
     }
     const url = `ws://${this.bridge.host}:${this.bridge.port}`;
     logger.info({ id: this.id, url }, 'DJI bridge connecting');
     const ws = new WebSocket(url);
     this.ws = ws;
 
+    // Events from a socket this device has already replaced must not touch the current one: a replaced socket's
+    // `close` used to mark the new connection down and schedule another reconnect, which closed the new one in
+    // turn, so one overlapping reconnect became a reconnect every second for good (seen live, 2026-10-01).
+    const current = (): boolean => this.ws === ws;
+
     ws.on('open', () => {
+      if (!current()) { try { ws.close(); } catch { /* ignore */ } return; }
       this.backoffIndex = 0;
       this.lastPongAt = Date.now();
       // Capability handshake first, then mark connected.
@@ -234,9 +418,11 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
         .then(res => {
           const r = res as {
             capabilities?: string[]; gimbalModel?: string; bridgeVersion?: string;
-            gimbalConnected?: boolean;
+            gimbalConnected?: boolean; bluetooth?: unknown;
           };
           this.applyCapabilities(r.capabilities ?? []);
+          this.takeBluetooth(r.bluetooth);
+          this._reportedGimbalModel = typeof r.gimbalModel === 'string' && r.gimbalModel.trim() ? r.gimbalModel.trim().slice(0, 32) : null;
           this._connected = true;
           this.connectedAt = Date.now();
           this.lastGimbalProofAt = 0;
@@ -258,14 +444,17 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
         });
     });
 
-    ws.on('message', (data) => this.handleFrame(data.toString()));
+    ws.on('message', (data) => { if (current()) this.handleFrame(data.toString()); });
 
     ws.on('close', () => {
+      if (!current()) return;
+      this.ws = null;
       this.markDisconnected();
       if (!this.closing) this.scheduleReconnect();
     });
 
     ws.on('error', (err) => {
+      if (!current()) return;
       logger.warn({ id: this.id, err: String(err) }, 'DJI bridge socket error');
     });
   }
@@ -277,6 +466,12 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
     this.lastGimbalProofAt = 0;
     this.connectedAt = 0;
     this.inFlightMethods.clear();
+    this.motionJudge = null;
+    this.lastPose = null;
+    this._reportedAsleep = null;
+    if (this._bluetooth) { this._bluetooth = null; this.emit('bluetoothGimbal'); }
+    if (this._battery) { this._battery = null; this.emit('battery'); }
+    this.setMotionResponsive(true, 'link reset');
     this.setGimbalAttached(false, 'bridge unreachable');
     if (this._connected) {
       this._connected = false;
@@ -309,6 +504,8 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
       zoom: set.has('zoom'),
       position: set.has('position'),
       moveTo: set.has('moveTo'),
+      wake: set.has('wake'),
+      sleep: set.has('sleep'),
     };
   }
 
@@ -411,9 +608,24 @@ export class DjiBridgeDevice extends EventEmitter implements MotionDevice {
         const p = frame.params as {
           position?: { yaw: number; pitch: number; roll: number };
           gimbalConnected?: boolean;
+          link?: unknown;
         } | undefined;
+        this.takeLinkHealth(p?.link); // absent (an older bridge, or none reported) clears any earlier rating
+        if (p && 'bluetooth' in p) this.takeBluetooth((p as { bluetooth?: unknown }).bluetooth);
+        if (p && 'battery' in p) this.takeBattery((p as { battery?: unknown }).battery);
+        const asleep = typeof (p as { asleep?: unknown } | undefined)?.asleep === 'boolean' ? (p as { asleep: boolean }).asleep : null;
+        if (asleep !== this._reportedAsleep) {
+          if (asleep === true) logger.warn({ id: this.id }, 'DJI gimbal reports it is asleep');
+          else if (asleep === false && this._reportedAsleep === true) logger.info({ id: this.id }, 'DJI gimbal reports it is awake');
+          this._reportedAsleep = asleep;
+          if (asleep === false) this.setMotionResponsive(true, 'gimbal reports awake');
+          this.emit('sleepReport');
+        }
         if (p?.position) {
-          this.lastPos = { kind: 'gimbal', yaw: p.position.yaw, pitch: p.position.pitch, roll: p.position.roll };
+          const pose: DevicePosition = { kind: 'gimbal', yaw: p.position.yaw, pitch: p.position.pitch, roll: p.position.roll };
+          this.judgePose(pose);
+          this.lastPose = pose;
+          this.lastPos = pose;
         }
         // Prefer the bridge's own verdict; otherwise pose telemetry can only
         // have come from a gimbal that is powered and linked, so infer from it.

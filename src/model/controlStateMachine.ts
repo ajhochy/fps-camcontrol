@@ -12,6 +12,9 @@ import { applyCurve, applyDeadzone, clamp } from '../visca/speedCurves';
 import { emergencyStopAll } from '../safety/emergencyStop';
 import { ActivityLog } from '../app/activityLog';
 import { logger } from '../index';
+import { trackingFor } from '../app/trackingHooks';
+import { SonyZoom, ZoomTarget, sonyZoomSpeed, zoomTarget } from './zoomTarget';
+import { SonyRetryableError } from '../sony/sonyManager';
 
 const TRIGGER_DEADZONE = 0.05;
 const FACE_CAMERA_BUTTONS = ['X', 'A', 'B', 'Y'] as const;
@@ -27,6 +30,10 @@ const GIMBAL_MIN_SEND_MS = 50;    // ceiling of ~20 commands/sec per gimbal
 // arriving for that long the gimbal is auto-stopped, so too slow a heartbeat
 // would make a held stick stutter to a halt.
 const GIMBAL_HEARTBEAT_MS = 150;
+// Sony zoom goes over HTTP to the sidecar: at most 5 sends/s, on change only (the camera holds a speed until told 0).
+const SONY_ZOOM_MIN_SEND_MS = 200;
+// After the Sony camera refuses zoom (no power zoom, Clear Image Zoom off), zoom the head for this long, then retry.
+const SONY_ZOOM_FALLBACK_MS = 30000;
 
 /**
  * Whether a motion frame should go out on this tick.
@@ -86,15 +93,25 @@ export class ControlStateMachine {
   private wasMovingPT = false;
   private wasMovingZoom = false;
   private lastPanTilt = new Map<CameraId, LastSent>();
-  private lastZoom = new Map<CameraId, { speed: number; ts: number }>();
+  private lastZoom = new Map<CameraId, { speed: number; ts: number; to: ZoomTarget['kind'] }>();
+  // The Sony camera currently told to zoom (non-zero), so every stop path can tell it 0.
+  private sonyZooming: { cameraId: CameraId; sonyId: string } | null = null;
+  // Sony camera id -> until when its zoom falls back to the head (it refused or failed).
+  private sonyZoomUnsupported = new Map<string, number>();
   private activityLog: ActivityLog | null;
+  // Who is driving, for the activity log ('iPad: Front'); null = the desk controller's profile name.
+  private sourceLabel: string | null = null;
+  // Is the source that is driving still there? Defaults to the HID controller; the input arbiter swaps in
+  // one that also knows about a remote (iPad) owner.
+  private sourceConnected: () => boolean = () => this.state.controllerConnected;
 
   constructor(
     private state: AppState,
     private config: AppConfig,
     private atem: AtemClient,
     private devices: Map<CameraId, MotionDevice>,
-    activityLog: ActivityLog | null = null
+    activityLog: ActivityLog | null = null,
+    private sony: SonyZoom | null = null
   ) {
     this.activityLog = activityLog;
     this.cameraSelector = new CameraSelector(state, config.cameras, atem, devices);
@@ -102,9 +119,95 @@ export class ControlStateMachine {
     this.speedManager = new SpeedManager(state, config);
   }
 
-  updateInput(input: NormalizedInput): void {
+  updateInput(input: NormalizedInput, sourceLabel?: string): void {
     this.lastInput = input;
     this.lastInputTs = Date.now();
+    this.sourceLabel = sourceLabel ?? null;
+  }
+
+  /** The iPad picked a camera: same effects as the face-button hotkeys (stops the old one, moves the ATEM preview). */
+  selectCameraById(id: string, controller = 'iPad', movePreview = true): boolean {
+    const index = this.config.cameras.findIndex((camera) => camera.id === id);
+    if (index < 0) return false;
+    const before = this.state.controlledCamera;
+    this.cameraSelector.selectByIndex(index, movePreview);
+    if (this.state.controlledCamera !== before) {
+      const label = this.config.cameras[index].label;
+      this.activityLog?.setContext(controller, 'Pane tap', `Cam → ${label}`);
+      this.activityLog?.addSystemEntry(`Cam → ${label}`, '—');
+    }
+    return true;
+  }
+
+  /**
+   * The iPad set the ATEM PREVIEW to a camera (tap in the bottom row). Like X/A/B/Y it also makes that camera the
+   * controlled one. Refuses cleanly (and changes nothing) when there is no such camera, it has no ATEM input, or
+   * the ATEM is not connected.
+   */
+  previewCameraById(id: string, controller = 'iPad'): 'ok' | 'no-camera' | 'no-input' | 'atem-offline' {
+    const index = this.config.cameras.findIndex((camera) => camera.id === id);
+    if (index < 0) return 'no-camera';
+    const cam = this.config.cameras[index];
+    if (cam.inputId === undefined) return 'no-input';
+    if (!this.atem.connected) return 'atem-offline';
+    const before = this.state.controlledCamera;
+    this.cameraSelector.selectByIndex(index);
+    if (this.state.previewCamera !== (cam.id as CameraId)) {
+      // Already the controlled camera but the preview bus is elsewhere (changed at the desk or the ATEM panel).
+      this.state.previewCamera = cam.id as CameraId;
+      this.atem.changePreviewInput(cam.inputId).catch((err) => logger.warn({ err }, 'failed to update ATEM preview'));
+    }
+    this.activityLog?.setContext(controller, 'Camera tap', `Preview → ${cam.label}`);
+    this.activityLog?.addSystemEntry(`Preview → ${cam.label}`, this.state.controlledCamera !== before ? 'also controlled' : '—');
+    return 'ok';
+  }
+
+  /**
+   * The iPad's TRANSITION button: the same auto transition as RB, but always of what is in PREVIEW (so a pane-arrow
+   * nudge of the program camera cannot change what is taken). Refuses when preview is already on program.
+   */
+  takePreviewLive(controller = 'iPad'): 'ok' | 'nothing-to-take' | 'no-input' | 'atem-offline' {
+    const pv = this.state.previewCamera;
+    const index = this.config.cameras.findIndex((camera) => camera.id === pv);
+    const cam = index >= 0 ? this.config.cameras[index] : undefined;
+    if (!cam || pv === this.state.programCamera) return 'nothing-to-take';
+    if (cam.inputId === undefined) return 'no-input';
+    if (!this.atem.connected) return 'atem-offline';
+    if (this.state.controlledCamera !== pv) this.cameraSelector.selectByIndex(index);
+    this.activityLog?.setContext(controller, 'TRANSITION button', 'Auto Transition');
+    autoTransitionControlledCamera(this.atem, this.state, this.config.cameras, this.devices)
+      .catch((err) => logger.error({ err }, 'auto transition error'));
+    return 'ok';
+  }
+
+  setSourceConnected(fn: () => boolean): void {
+    this.sourceConnected = fn;
+  }
+
+  /**
+   * The input source changed (desk <-> iPad). Stop whatever is moving right now (a stop is never rate-limited),
+   * forget the old source's last frame, and seed the edge state with the buttons the new source is already
+   * holding so a held button can't fire a rising edge (select a camera, auto-transition) on the handover.
+   */
+  switchSource(seed: NormalizedInput | null): void {
+    if (this.wasMovingPT || this.wasMovingZoom) {
+      const device = this.devices.get(this.state.controlledCamera);
+      if (device) {
+        // Same shared motion ledger as every other manual stop when tracking is present (PR #58).
+        const tracking = trackingFor(this.state);
+        if (tracking) tracking.ledger.stop(device); else device.stop();
+        device.setZoom(0);
+      }
+    }
+    this.stopSonyZoom();
+    this.wasMovingPT = false;
+    this.wasMovingZoom = false;
+    this.lastPanTilt.clear();
+    this.lastZoom.clear();
+    this.lastInput = null;
+    this.lastInputTs = 0;
+    this.sourceLabel = null;
+    this.edgeState.prevButtons = { ...(seed?.buttons ?? {}) };
   }
 
   tick(): void {
@@ -112,11 +215,13 @@ export class ControlStateMachine {
     if (!input) return;
 
     const currentDevice = this.devices.get(this.state.controlledCamera);
-    if (!this.state.controllerConnected || Date.now() - this.lastInputTs > INPUT_STALE_MS) {
+    if (!this.sourceConnected() || Date.now() - this.lastInputTs > INPUT_STALE_MS) {
       if (currentDevice && (this.wasMovingPT || this.wasMovingZoom)) {
-        currentDevice.stop();
+        const tracking = trackingFor(this.state);
+        if (tracking) tracking.ledger.stop(currentDevice); else currentDevice.stop();
         currentDevice.setZoom(0);
       }
+      this.stopSonyZoom();
       this.wasMovingPT = false;
       this.wasMovingZoom = false;
       this.lastPanTilt.clear();
@@ -124,7 +229,7 @@ export class ControlStateMachine {
       return;
     }
 
-    const controller = this.state.activeControllerProfile ?? 'Unknown';
+    const controller = this.sourceLabel ?? this.state.activeControllerProfile ?? 'Unknown';
     this.state.precisionMode = input.buttons['LS'] ?? false;
     this.state.sprintMode = false;
 
@@ -138,6 +243,8 @@ export class ControlStateMachine {
     }
 
     const device = this.devices.get(this.state.controlledCamera);
+    // The controlled camera changed (stick, face button, iPad tap) while a Sony camera was zooming: stop it.
+    if (this.sonyZooming && this.sonyZooming.cameraId !== this.state.controlledCamera) this.stopSonyZoom();
     const rightX = applyDeadzone(input.axes.rightStickX ?? 0);
     const rightY = applyDeadzone(input.axes.rightStickY ?? 0);
     const rightTrigger = input.triggers.rightTrigger ?? 0;
@@ -155,17 +262,22 @@ export class ControlStateMachine {
         this.activityLog?.setContext(controller, INPUT_LABELS.rightStick, 'Pan/Tilt Start');
       } else if (!movingPT && this.wasMovingPT) {
         this.activityLog?.setContext(controller, INPUT_LABELS.rightStick, 'Pan/Tilt Stop');
-        device.stop();
+        const tracking = trackingFor(this.state);
+        const autonomous = tracking && Object.values(tracking.manager.getStatus()).some(source =>
+          source.cameraId === cameraId && source.sessionId && source.state !== 'operator_override');
+        if (!autonomous) { if (tracking) tracking.ledger.stop(device); else device.stop(); }
         this.lastPanTilt.delete(cameraId);
       }
       if (movingPT) {
+        trackingFor(this.state)?.manager.operatorOverride(cameraId);
         const pan = this.getEffectiveSpeed(rightX);
         const tilt = this.getEffectiveSpeed(-rightY);
         const last = this.lastPanTilt.get(cameraId);
         const changed = !last || Math.abs(pan - last.pan) > 0.05 || Math.abs(tilt - last.tilt) > 0.05
           || Math.sign(pan) !== Math.sign(last.pan) || Math.sign(tilt) !== Math.sign(last.tilt);
-        if (shouldSendMotion(device.protocol, changed, last?.ts, now)) {
-          device.setPanTilt(pan, tilt);
+        const tracking = trackingFor(this.state);
+        if (tracking ? tracking.ledger.send(device, pan, tilt, now, changed) : shouldSendMotion(device.protocol, changed, last?.ts, now)) {
+          if (!tracking) device.setPanTilt(pan, tilt);
           this.lastPanTilt.set(cameraId, { pan, tilt, ts: now });
         }
       }
@@ -174,16 +286,30 @@ export class ControlStateMachine {
         this.activityLog?.setContext(controller, zoomAxis > 0 ? 'Right Trigger' : 'Left Trigger', zoomAxis > 0 ? 'Zoom In' : 'Zoom Out');
       } else if (!movingZoom && this.wasMovingZoom) {
         this.activityLog?.setContext(controller, 'Triggers', 'Zoom Stop');
-        device.setZoom(0);
+        if (this.lastZoom.get(cameraId)?.to === 'sony') this.stopSonyZoom(); else device.setZoom(0);
         this.lastZoom.delete(cameraId);
       }
       if (movingZoom) {
         const speed = this.getEffectiveSpeed(zoomAxis);
-        const last = this.lastZoom.get(cameraId);
-        const changed = !last || Math.abs(speed - last.speed) > 0.05 || Math.sign(speed) !== Math.sign(last.speed);
-        if (shouldSendMotion(device.protocol, changed, last?.ts, now)) {
-          device.setZoom(speed);
-          this.lastZoom.set(cameraId, { speed, ts: now });
+        const target = this.zoomTargetFor(cameraId);
+        let last = this.lastZoom.get(cameraId);
+        if (last && last.to !== target.kind) {
+          // The target changed mid-zoom (the Sony camera dropped or refused): stop whichever was zooming.
+          if (last.to === 'sony') this.stopSonyZoom(); else device.setZoom(0);
+          last = undefined;
+        }
+        if (target.kind === 'sony') {
+          const n = sonyZoomSpeed(speed);
+          if (!last || (n !== last.speed && now - last.ts >= SONY_ZOOM_MIN_SEND_MS)) {
+            this.sendSonyZoom(cameraId, target.sonyId, n);
+            this.lastZoom.set(cameraId, { speed: n, ts: now, to: 'sony' });
+          }
+        } else {
+          const changed = !last || Math.abs(speed - last.speed) > 0.05 || Math.sign(speed) !== Math.sign(last.speed);
+          if (shouldSendMotion(device.protocol, changed, last?.ts, now)) {
+            device.setZoom(speed);
+            this.lastZoom.set(cameraId, { speed, ts: now, to: 'head' });
+          }
         }
       }
     }
@@ -194,6 +320,7 @@ export class ControlStateMachine {
     if (risingEdge('RB', input.buttons.RB ?? false, this.edgeState)) {
       const recenterDevice = this.devices.get(this.state.controlledCamera);
       if (input.buttons.LB && recenterDevice?.recenter) {
+        trackingFor(this.state)?.manager.operatorOverride(this.state.controlledCamera);
         this.activityLog?.setContext(controller, 'LB + RB', 'Recenter');
         recenterDevice.recenter().catch(err => logger.error({ err }, 'recenter error'));
       } else {
@@ -243,12 +370,48 @@ export class ControlStateMachine {
         .catch(err => logger.error({ err }, 'lower thirds toggle error'));
     }
 
+    const trackingToggle = this.config.mappings.trackingToggle ?? 'RS';
+    if (risingEdge(trackingToggle, input.buttons[trackingToggle] ?? false, this.edgeState)) {
+      const manager = trackingFor(this.state)?.manager;
+      const session = manager && Object.values(manager.getStatus()).find(source => source.cameraId === this.state.controlledCamera && source.sessionId);
+      if (manager && session) {
+        this.activityLog?.setContext(controller, trackingToggle, 'Tracking');
+        if (session.state === 'operator_override') {
+          try { manager.resume(session.sourceId); this.activityLog?.addSystemEntry('Tracking resumed', 'Explicit controller action'); }
+          catch { this.activityLog?.addSystemEntry('Tracking unavailable', 'Select a fresh target'); }
+        } else { manager.cancel(session.sourceId); this.activityLog?.addSystemEntry('Tracking canceled', 'Gimbal stopped'); }
+      }
+    }
+
     if (risingEdge('back', input.buttons.back ?? false, this.edgeState)) {
       this.activityLog?.setContext(controller, INPUT_LABELS.back, 'Emergency Stop');
       this.activityLog?.addSystemEntry('Emergency Stop', 'All cameras stopped, PTZ halted');
-      emergencyStopAll(this.state, this.config, this.atem, this.devices)
+      emergencyStopAll(this.state, this.config, this.atem, this.devices, this.sony)
         .catch(err => logger.error({ err }, 'emergency stop error'));
     }
+  }
+
+  private zoomTargetFor(cameraId: CameraId): ZoomTarget {
+    const target = zoomTarget(cameraId, this.config, this.sony);
+    if (target.kind === 'sony' && (this.sonyZoomUnsupported.get(target.sonyId) ?? 0) > Date.now()) return { kind: 'head' };
+    return target;
+  }
+
+  /** Fire and forget: a failure never reaches the input loop; a refusal sends zoom to the head for a while. */
+  private sendSonyZoom(cameraId: CameraId, sonyId: string, speed: number): void {
+    if (!this.sony) return;
+    this.sonyZooming = speed === 0 ? null : { cameraId, sonyId };
+    this.sony.zoom(sonyId, speed).catch((err) => {
+      if (err instanceof SonyRetryableError) return; // busy lane: the next change or the stop gets through
+      if (this.sonyZooming?.sonyId === sonyId) this.sonyZooming = null;
+      if ((this.sonyZoomUnsupported.get(sonyId) ?? 0) > Date.now()) return; // already logged
+      this.sonyZoomUnsupported.set(sonyId, Date.now() + SONY_ZOOM_FALLBACK_MS);
+      logger.warn({ err, sonyId }, 'Sony zoom failed: zooming the PTZ head instead for 30 s');
+    });
+  }
+
+  private stopSonyZoom(): void {
+    if (this.sonyZooming) this.sendSonyZoom(this.sonyZooming.cameraId, this.sonyZooming.sonyId, 0);
   }
 
   private getEffectiveSpeed(raw: number): number {

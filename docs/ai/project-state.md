@@ -5,12 +5,147 @@ type: project
 # Project State — fps-camcontrol
 
 ## Current focus
-Prepare the combined Sony dashboard and latest PR #2 work for verification. PR #2 is the latest integration target. The merge is resolved and the combined tree passes build, smoke, Python bridge, and browser checks; it remains uncommitted and unpushed while the verification-gate documentation reconciliation is re-run.
+Integration branch `integration/combine-open-prs` combines the open PRs #36 (Sony fixes, rigs Device Config,
+health, gimbal/Pi bridge), #59 (iPad gamepad remote), #57 (Electron foundation installer) and #58 (opt-in
+Electron tracking) into one draft PR against main for review. The original PRs stay open and unchanged.
+The CLI app (`node dist/index.js`, port 8080) remains the production entry point; the Electron variants
+start the same backend through `src/embed.ts` (loopback-only, session-cookie guarded).
+
+## Tracking autostart + auto sources (integration branch)
+With `tracking.enabled` the app now launches/owns its helper even when not packaged (`dist/tracking-runtime`,
+restart with backoff, unavailable+reason when missing; `TRACKER_WS_TOKEN` keeps the manual developer path).
+Sources are derived from rigs (dji-bridge or visca controller + bound Sony camera) unless `tracking.autoSources: false`;
+explicit `tracking.sources` override per device. VISCA heads (V-BOT) are tracked through `ViscaTrackingDriver`
+(app-side 300 ms dead-man, explicit stop on every end path, discrete speed map, `tracking.viscaMaxSpeed` default 0.3,
+readiness = head answering). Tests: `dist/testing/trackingViscaTest.js` (in `pnpm test:tracking`). Physical V-BOT
+direction/gain/killed-app-stops-head checks are MANUAL_PENDING. Calibration stays DJI-only. See docs/tracking.md.
 
 ## Active branch / PR
+`integration/combine-open-prs` (draft, not to be merged without review and the manual hardware checks of each
+source PR). Merge order: #36, #59, #57, #58 (`git merge --no-ff`).
+
+## iPad remote page redesign (2026-10-02/03, branch `feat/ipad-remote-touch-redesign` off `integration/combine-open-prs` @ ac17a1e — draft PR #62)
+Hardware-panel look (bevelled backlit keys, LED status cluster, tally-strip multiview with centred labels and head /
+battery icons, knob joystick, panel-face drawers). Controls: joystick or arrows (☰), zoom keys or spring-back lever (☰),
+TRANSITION / LOWER THIRD (green on air) / STOP, speed keys, Ableton-style controller button mapping (Bluetooth drawer),
+camera menu with sliders / key rows + Track speed + Zoom setting, ☰ › Open rig configs (desk `/#rigs`). Backend: zoom on a
+rig with a connected Sony drives the Sony camera's own zoom (`src/model/zoomTarget.ts`, `zoom: head` opt-out), remote
+`lowerThirds` message, `tracking.speeds`, and the opt-in live PROGRAM feed (`src/program/programFeed.ts`, ffmpeg
+AVFoundation or DeckLink → MJPEG; `program:` block; `/api/program/*`; fake in the sandbox). Sandbox is demo-ready
+(fake ATEM, SMPTE frame, fake program) and its fake ports are env-overridable. Gate: `pnpm sandbox:check` 253/253.
+**Deploy target:** Mac Studio `~/Developer/fps-camcontrol-live` (launchd `com.fpscamcontrol.app`, node
+`~/.hermes/node/bin/node`, config in `config/` with uncommitted rig edits + ignored `sony-cameras.json` — never overwrite).
+DeckLink build script + vendored SDK 16 headers exist UNCOMMITTED in the working tree (the Studio runs Desktop Video 14.2;
+the SDK must match; no driver changes before the 2026-10-04 show). Open on the show machine: that DeckLink ffmpeg, real
+Sony zoom / zoom-setting on a body, custom sliders on iPad Safari. Per-pass detail: `docs/ai/runs/2026-10-02-ipad-remote-touch-redesign.md`.
+
+## Electron line — state as recorded on PR #58 (codex/electron-tracking, stacked on #57)
+
+### Current focus
+The manual Electron installer is complete as a signed/notarized/stapled artifact
+from frozen foundation commit `133ae8d9620665b1e87b799a765a619ccae06ebc`.
+Tracking is implemented from frozen source `3711a9e6475633a6cf889850ba3a23843a12c450`;
+its separately identified final signed/notarized/stapled DMG passes exact-byte
+mounted runtime. The Rhythm-style GitHub release workflow is implemented in PR58;
+the initial testing prerelease is public with both locally built installers:
+https://github.com/ajhochy/fps-camcontrol/releases/tag/electron-local-testing-2026.10.01
+Both unauthenticated public downloads match their original receipts. Hosted
+signing and human gates remain below.
+
+### Active branch / PR
+Current: `codex/electron-tracking`, branched from the exact foundation above.
+Foundation draft: https://github.com/ajhochy/fps-camcontrol/pull/57, targeting main.
+Tracking draft: https://github.com/ajhochy/fps-camcontrol/pull/58, targeting
+`feat/electron-foundation`. PR36 and its inherited rigs/Sony
+work remain unchanged and credited. Release tooling belongs to PR58 and builds
+each variant from separate pinned source commits. No merge, deployment or cleanup.
+
+### In progress
+- Hosted release qualification awaits authorized credential setup. The committed
+  workflow has manual/tag triggers, ARM64 matrix, scoped Apple secrets, temporary
+  hosted keychain, notarization/final-DMG runtime gates and one receipt-checking publisher.
+  Initial local-build release publication and public checksum readback are done.
+- Tracking #23–35/#50: strict config/protocol, shared motion arbitration,
+  real Python detector/association, API/UI/RS toggle, bounded calibration,
+  pinned runtime/model delivery. Contracts and negative tests precede code.
+- Independent safety review repaired shutdown stop ordering, UTF-8 credential
+  rejection, actual-manager route errors and source reconfiguration.
+- Both final apps and DMGs are Apple Accepted, stapled, strict-signature and
+  Gatekeeper verified. Manual artifact remains immutable. Artifact bytes/hashes,
+  source commits and clean-Mac procedure: `runs/2026-10-01-electron-delivery.md`.
+
+### Risks / known issues
+- MANUAL_PENDING: clean macOS/TCC/download quarantine, physical HID/camera/gimbal,
+  real sleep/wake, calibrated gain/latency and both 30-minute tracking soaks.
+- Developer-host fresh HOME/minimal PATH is not clean-OS proof. Synthetic model
+  inference is not person-detection accuracy or physical stability evidence.
+- Packaged APIs use private authenticated loopback; developer CLI endpoints must
+  not be exposed on a LAN. Remote control/security work is excluded.
+- Historical probe timing failures and unrelated controller #3–6 drafts are
+  preserved. Local exclusions: `docs/ai/issues/tracking-v1-exclusions.md`.
+- #23 comment placement and #26 manager-to-API status projection are implemented
+  adaptations, not literal original file/field changes; no closing keywords.
+  #34/#35 human evidence remains pending. Hosted Apple release execution is not
+  verified: repository signing secrets are absent and no permission to copy them
+  has yet been received. Local artifacts must not be described as hosted builds.
+
+### Test status
+- Release change: 23 release/signing tests, actionlint, syntax and independent
+  diff review pass. Full issue and PR-level gates exit0, including actual Python38,
+  UI9, smoke268 and sandbox104. Fresh mounted runtimes pass for the exact old
+  manual/tracking DMGs at 22:45:57Z and 22:46:42Z; both hashes/signatures/staples
+  and Gatekeeper assessments rechecked. GitHub run36938086068 passed credential-free
+  PR validation at888ee3c; hosted build/sign/publish jobs were skipped. Draft and
+  unauthenticated public readbacks match both DMGs' hashes and sizes plus metadata.
+  See `runs/2026-10-01-github-release.md`.
+- Manual root gate: build/page-JS, 49 focused tests, rig/profile/Sony/Pi suites,
+  isolated smoke268, sandbox104; separate signing tests12, all pass.
+- Final manual app and DMG Apple Accepted, strict codesign/Gatekeeper/staples
+  pass. Exact final DMG runtime passes with empty error arrays:
+  `runs/electron-manual-evidence/runtime-2026-10-01T20-00-00-684Z/runtime.json`.
+- Tracking targeted tests, actual bundled Python mock→TS→VirtualDJI, delay sweep
+  150/300/500ms, model inference and six-viewport UI checks pass in scoped runs.
+  Root serial full repository tracking gate now exits0, including38/38 actual
+  Python/model tests, UI9/9, smoke268 and sandbox104; latest full rerun exit0 and
+  focused harness regressions5/5. Final tracking package has76 arm64 binaries,
+  minimum14.0; exact final runtime passes:
+  `runs/electron-tracking-evidence/runtime-2026-10-01T20-47-24-065Z/runtime.json`.
+  Installed Track click, positive live-model metrics, explicit wire stops and
+  owned helper/backend/parent/sleep/quit cleanup pass. Expected Sony busy retries
+  and deliberately injected disconnect are retained; preview recovery passes.
+  No page JS or unexpected HTTP/console/transport errors.
+
+### Next step
+Human clean-Mac and real-person/physical-rig smoke using the published installers
+and delivery/runbook instructions. Configure hosted signing only with the user's
+credential authorization, then run qualification-only first. Do not merge
+either draft or claim physical approval. Release/test/docs changes after3711a9e
+do not change the shipped tracking production source.
+
+## Production line (PR #36 + #59) — state as recorded on feat/ipad-gamepad-remote
+
+### Current focus
+Prepare the combined Sony dashboard and latest PR #2 work for verification. PR #2 is the latest integration target. The merge is resolved and the combined tree passes build, smoke, Python bridge, and browser checks; it remains uncommitted and unpushed while the verification-gate documentation reconciliation is re-run.
+
+### Active branch / PR
 `feat/sony-dashboard`; updated PR #2 is the integration target. The orchestrator will inspect, verify, commit the merge, and push only after PASS.
 
-## Recently completed
+### Recently completed
+- **One Pi per gimbal + Bluetooth gimbal selection + gimbal battery (draft PR, branch `feat/pi-per-gimbal`, deployed
+  2026-10-02).** Tripod (RS3 PRO-0614BW 48:1C:B9:54:C6:BC) on `dji-bridge-2.local:7878`, Far Right (RS3-06UH13
+  34:D2:62:15:A5:47) on `dji-bridge-3.local:7878`, both as systemd user services (no sudo on the new Pis); bridge 1
+  keeps only `dji-bridge@rs3pro-b` (Center, 7880), `@rs3` and `@rs3pro-a` are disabled. All three run bridge 0.6.0.
+  **`config/devices.yaml` still points Tripod/Far Right at bridge 1 (7879/7878): repoint them.** Bridge saves its
+  gimbal in gimbal.json; Device Config → rig → "Choose gimbal…" lists/switches (confirmed). Battery is the last byte
+  of 0x0d/0x02 (RS3 verified on screen; RS3 Pro assumed). Runbook: `docs/pi-per-gimbal.md`. Follow-ups needing sudo
+  on the new Pis: Wi-Fi off (both on Ethernet + Wi-Fi).
+- **iPad gamepad remote (draft PR, branch `feat/ipad-gamepad-remote`).** An Xbox controller on an iPad drives the
+  cameras over the network: `/remote` page (static, `ui/remote/`) streams the browser Gamepad to
+  `/ws/remote-controller`; `InputArbiter` keeps the desk controller in charge (desk always wins) and every handover
+  stops the camera (`ControlStateMachine.switchSource`). Safety: 250 ms stale-input stop, 1 s seat release, ping
+  timeout, stop on close/idle/release/STOP/disable. Off by default (`remoteControl.enabled`, optional PIN). Verified
+  only with unit suites, the sandbox and the isolated smoke suite; **not yet tried on a real iPad**. See
+  `docs/ipad-remote.md` and `docs/ai/plans/2026-10-01-ipad-gamepad-remote.md`.
 - **`DJI_RS3_MAX_JOYSTICK` is actually read** (uncommitted locally; **deployed to
   the Pi 2026-08-13 15:38**). `dji_rs_driver.py`
   hardcoded `MAX_JOYSTICK = 80` while `systemd/dji-bridge@.service` documented the
@@ -42,12 +177,12 @@ Prepare the combined Sony dashboard and latest PR #2 work for verification. PR #
   controller could never come up. Reopening cannot fix denied permissions
   either.
 
-## In progress
+### In progress
 - Switch Pro Bluetooth controller support (folded from `feat/rs3-ble-bridge` 196ebad) was live-verified with the physical RS3 on 2026-08-04: BT detection, camera selection, all-direction pan/tilt, stop-on-release. Its DJI_RS3_MAX_JOYSTICK change was superseded by the per-instance clamp in the joystick-gain decision (default 80; deployed env files set 200).
 - Sony live a7S III widget, preview, properties, explicit discovery/connect cache, and lightweight nested connection checks succeeded. The four-up 4/2/1 layout awaits AJ visual recheck.
 - Manual Sony checks remain: two physical cameras, FX3 touch focus, and HDMI coexistence.
 
-## Risks / known issues
+### Risks / known issues
 - **All three gimbals now run at gain 200 (was 80) — live motion is UNVERIFIED.**
   The fix is deployed and each instance logs `max joystick gain 200 (from
   DJI_RS3_MAX_JOYSTICK…)` at startup, so the env value is provably reaching the
@@ -90,7 +225,7 @@ Prepare the combined Sony dashboard and latest PR #2 work for verification. PR #
 - Switch Pro Bluetooth support is verified only for the tested `057e:2009`
   controller and captured 49-byte `0x30` reports.
 
-## Test status
+### Test status
 - Joystick-gain fix: `python3 -m unittest discover -s pi-bridge/tests` **40/40**
   (13 new in `MaxJoystickTests` covering default, env read, per-instance read,
   clamping at both bounds, unparseable/blank fallback, the startup log line, and
@@ -134,7 +269,7 @@ Prepare the combined Sony dashboard and latest PR #2 work for verification. PR #
   Motion commands are rate-limited anyway (`shouldSendMotion`), as hygiene rather
   than as the fix.
 
-## Next step
+### Next step
 Live-verify the new gain 200 with the operator watching camera video, starting from
 small stick deflections (see the risk above) — the gimbals were powered off during
 the deploy window so nobody has felt 200 yet. Confirm the Xbox pad drives motion
@@ -148,7 +283,7 @@ interruption/recovery, reconnect/reboot, and 30-minute soak checks before live u
 ---
 **Run history:** one file per run under `docs/ai/runs/` (surfaced as `ai-runs/`). This snapshot is overwritten in place.
 
-## Consolidation 2026-09-29
+### Consolidation 2026-09-29
 - Branch `mega/2026-09-29-consolidation` (from `origin/main` dd3db16) folds all unmerged work. PR: https://github.com/ajhochy/fps-camcontrol/pull/20 (draft). Tracking issues: https://github.com/ajhochy/fps-camcontrol/issues/21 (verify and land), https://github.com/ajhochy/fps-camcontrol/issues/22 (Sony auto-connect and dashboard).
 - Folded refs (tip SHA): `fix/controller-visca-ptz-and-multi-cam` local 2fbd51f / remote 332ef15 (PR #2); `feat/sony-dashboard` remote b3715b0 / local 62f75f4 (PR #8); `feat/settings-dark-mode` remote e8b68bb / local 8cae6a1; `feat/rs3-ble-bridge` 196ebad (local only; base 2833026 merged `-s ours` since 5a99565 on PR #2 supersedes it; joystick-gain and config-save changes superseded by the PR #2 versions, Switch Pro support kept).
 - Dropped refs (fully merged into `origin/main`; preserved in `~/Documents/.consolidation-backups/fps-camcontrol-2026-09-29.bundle`): `origin/claude/peaceful-wilson-7df1fc` a721d71, `origin/claude/practical-jepsen-8235f2` c13dff2, `origin/claude/stupefied-gauss-f1b1dc` 703c350, `origin/claude/tender-swirles-a91629` aedca7c, `origin/claude/vibrant-yalow-c5d9cf` a6620d2.

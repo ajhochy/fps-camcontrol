@@ -1,0 +1,50 @@
+--- a/api/server/src/CameraWebController.cpp
++++ b/api/server/src/CameraWebController.cpp
+@@ -4434,6 +4434,17 @@
+ bool LiveViewOSDWorker::getLiveViewFrame(std::vector<uint8_t>& jpegData) {
+     std::lock_guard<std::mutex> lock(m_frameMutex);
+     if (m_latestFrame.empty()) {
++        return false;
++    }
++    // fps-camcontrol: never hand out a frozen picture. The SDK keeps a camera "connected" while it tries to
++    // reconnect, and the last frame would otherwise be served forever after the camera stops sending.
++    static const long staleMs = [] {
++        const char* env = std::getenv("LIVEVIEW_STALE_MS");
++        long value = env ? std::atol(env) : 0;
++        return value > 0 ? value : 3000L;
++    }();
++    auto age = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - m_latestFrameAt).count();
++    if (age > staleMs) {
+         return false;
+     }
+     jpegData = m_latestFrame;
+@@ -4556,6 +4567,7 @@
+     {
+         std::lock_guard<std::mutex> lock(m_frameMutex);
+         m_latestFrame = liveViewData;
++        m_latestFrameAt = std::chrono::steady_clock::now();
+     }
+ 
+     // 6. Create composite frame if OSD is enabled
+--- a/api/server/src/CameraWebController.h
++++ b/api/server/src/CameraWebController.h
+@@ -486,6 +486,8 @@
+     // Live view streaming
+     std::atomic<bool> m_liveViewStreaming;
+     std::vector<uint8_t> m_latestFrame;
++    // fps-camcontrol: when the latest frame arrived, so a camera that stopped sending is not shown as live.
++    std::chrono::steady_clock::time_point m_latestFrameAt;
+     std::mutex m_frameMutex;
+ 
+     // OSD functionality
+--- a/api/server/src/CameraWebServer.cpp
++++ b/api/server/src/CameraWebServer.cpp
+@@ -1937,7 +1937,7 @@
+             response.body = std::string(reinterpret_cast<const char*>(jpegData.data()), jpegData.size());
+         } else {
+             response.statusCode = 404;
+-            response.body = R"({"success": false, "message": "No live view frame available"})";
++            response.body = R"({"success": false, "message": "No live view frame available: the camera is not sending pictures"})";
+         }
+     } else if (action == "osd-enable" && request.method == "POST") {
+         auto result = m_cameraController->enableOSD(cameraId);

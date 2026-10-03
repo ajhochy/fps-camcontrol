@@ -5,6 +5,90 @@ import { logger } from '../index';
 const BACKOFF_INITIAL = 1000;
 const BACKOFF_MAX = 30000;
 
+/**
+ * One UDP socket shared by every VISCA camera, bound to the standard VISCA port (52381) when it is free.
+ *
+ * Some cameras (the V-BOT among them) send every reply to port 52381 on the asking machine, whatever port the
+ * question came from. With a socket per camera on a random port those replies never arrived, so the app could
+ * not tell a working camera from a dead one, and position inquiries (preset save) never got an answer. Cameras
+ * that reply to the asking port work either way. Replies are routed to the camera they came from (ip:port).
+ *
+ * The bind is exclusive, so a second copy of the app (the sandbox, a test) can never steal the live app's
+ * replies: it falls back to a random port and says so. VISCA_LOCAL_PORT overrides the port (0 = random).
+ */
+type ViscaRoute = (msg: Buffer) => void;
+class ViscaTransport {
+  private socket: dgram.Socket | null = null;
+  private ready = false;
+  private routes = new Map<string, ViscaRoute>();
+  private waiting: (() => void)[] = [];
+  /** The local port replies arrive on; null until bound. */
+  localPort: number | null = null;
+  /** True when bound to the standard port, so cameras that reply to 52381 are heard. */
+  onStandardPort = false;
+
+  register(key: string, route: ViscaRoute, onReady: () => void): void {
+    this.routes.set(key, route);
+    if (this.ready) { onReady(); return; }
+    this.waiting.push(onReady);
+    if (!this.socket) this.open();
+  }
+
+  unregister(key: string): void {
+    this.routes.delete(key);
+    if (this.routes.size === 0 && this.socket) {
+      try { this.socket.close(); } catch { /* ignore */ }
+      this.socket = null; this.ready = false; this.localPort = null; this.onStandardPort = false;
+    }
+  }
+
+  get isReady(): boolean { return this.ready; }
+
+  send(bytes: Buffer, port: number, ip: string, done: (err: Error | null) => void): void {
+    if (!this.socket || !this.ready) { done(new Error('VISCA transport not ready')); return; }
+    this.socket.send(bytes, 0, bytes.length, port, ip, (err) => done(err ?? null));
+  }
+
+  private open(): void {
+    const wanted = process.env.VISCA_LOCAL_PORT !== undefined ? Number(process.env.VISCA_LOCAL_PORT) : 52381;
+    const bindOn = (port: number, fallback: boolean): void => {
+      const sock = dgram.createSocket({ type: 'udp4', reuseAddr: false });
+      this.socket = sock;
+      sock.once('error', (err: NodeJS.ErrnoException) => {
+        if (this.ready) return;
+        try { sock.close(); } catch { /* ignore */ }
+        if (!fallback && port !== 0) {
+          logger.warn({ port, err: err.code ?? String(err) }, 'VISCA port in use — using a random port; cameras that reply only to port 52381 (e.g. V-BOT) will not be heard');
+          bindOn(0, true);
+        } else {
+          logger.error({ err }, 'VISCA socket could not be opened');
+          this.socket = null;
+        }
+      });
+      sock.on('message', (msg, rinfo) => {
+        const route = this.routes.get(`${rinfo.address}:${rinfo.port}`)
+          ?? [...this.routes.entries()].filter(([key]) => key.startsWith(`${rinfo.address}:`)).map(([, r]) => r).find((_, __, all) => all.length === 1);
+        if (route) route(msg);
+      });
+      sock.bind(port, () => {
+        this.ready = true;
+        this.localPort = sock.address().port;
+        this.onStandardPort = this.localPort === 52381;
+        sock.on('error', (err) => logger.warn({ err }, 'VISCA socket error'));
+        logger.info({ localPort: this.localPort }, 'VISCA listening for camera replies');
+        const waiting = this.waiting; this.waiting = [];
+        for (const cb of waiting) cb();
+      });
+    };
+    bindOn(Number.isFinite(wanted) ? wanted : 52381, false);
+  }
+}
+const transport = new ViscaTransport();
+/** Where VISCA replies are heard (for status): the local port and whether it is the standard one. */
+export function viscaTransportInfo(): { localPort: number | null; onStandardPort: boolean } {
+  return { localPort: transport.localPort, onStandardPort: transport.onStandardPort };
+}
+
 function parseNibbles4(b1: number, b2: number, b3: number, b4: number): number {
   return ((b1 & 0x0F) << 12) | ((b2 & 0x0F) << 8) | ((b3 & 0x0F) << 4) | (b4 & 0x0F);
 }
@@ -14,7 +98,6 @@ function toSigned16(val: number): number {
 }
 
 export class ViscaClient extends EventEmitter {
-  private socket: dgram.Socket | null = null;
   private ip: string;
   private port: number;
   private cameraId: string;
@@ -28,8 +111,10 @@ export class ViscaClient extends EventEmitter {
   private seqNum = 0;
   private pendingPanTilt: ((result: { pan: number; tilt: number }) => void) | null = null;
   private pendingZoom: ((result: { zoom: number }) => void) | null = null;
-  private pendingProbe: ((reachable: boolean) => void) | null = null;
+  private registered = false;
   connected = false;
+  /** When this camera last sent any VISCA reply (ack, completion, error or inquiry answer); null if never. */
+  lastReplyAt: number | null = null;
 
   constructor(cameraId: string, ip: string, port: number, cameraType = 'generic', cameraAddress = 1) {
     super();
@@ -47,29 +132,13 @@ export class ViscaClient extends EventEmitter {
   }
 
   connect(): void {
-    this.buildSocket();
-  }
-
-  private buildSocket(): void {
-    if (this.socket) {
-      try { this.socket.close(); } catch { /* ignore */ }
-    }
-    const sock = dgram.createSocket('udp4');
-    this.socket = sock;
-
-    sock.on('error', (err) => {
-      logger.warn({ err, cameraId: this.cameraId }, 'VISCA socket error, reconnecting');
-      this.connected = false;
-      this.emit('disconnected');
-      this.scheduleReconnect();
-    });
-
-    sock.on('message', (msg) => {
+    if (this.registered) return;
+    this.registered = true;
+    transport.register(`${this.ip}:${this.port}`, (msg) => {
       this.handleMessage(msg);
       this.emit('message', msg);
-    });
-
-    sock.bind(0, () => {
+    }, () => {
+      if (!this.registered) return;
       this.seqNum = 0;
       this.connected = true;
       this.backoff = BACKOFF_INITIAL;
@@ -83,7 +152,10 @@ export class ViscaClient extends EventEmitter {
     const payload = msg.slice(8);
     // VISCA reply header: high nibble 0x9 indicates a reply from a camera.
     // Low nibble varies with the camera's address, so don't pin to 0x90.
-    if ((payload[0] & 0xF0) !== 0x90 || payload[1] !== 0x50) return;
+    if ((payload[0] & 0xF0) !== 0x90) return;
+    // Any reply (ack 0x4y, completion 0x5y, error 0x6y) proves the camera is alive and answering.
+    this.lastReplyAt = Date.now();
+    if (payload[1] !== 0x50) return;
 
     // Check specific inquiry replies before the catch-all probe, so a PTZ inquiry
     // response can't be misinterpreted as a probe ack.
@@ -98,10 +170,6 @@ export class ViscaClient extends EventEmitter {
       const cb = this.pendingZoom;
       this.pendingZoom = null;
       cb({ zoom });
-    } else if (this.pendingProbe) {
-      const cb = this.pendingProbe;
-      this.pendingProbe = null;
-      cb(true);
     }
   }
 
@@ -144,50 +212,45 @@ export class ViscaClient extends EventEmitter {
     });
   }
 
+  /**
+   * Is the camera answering? Any reply counts. Asks the power status first and, for cameras that do not answer
+   * that one (the V-BOT), the pan/tilt position. Inquiries only read; nothing moves.
+   */
   async probe(timeoutMs = 2000): Promise<boolean> {
     if (!this.connected) return false;
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        this.pendingProbe = null;
-        resolve(false);
-      }, timeoutMs);
-      this.pendingProbe = (reachable) => {
-        clearTimeout(timer);
-        resolve(reachable);
+    const askedAt = Date.now();
+    const answered = (ms: number) => new Promise<boolean>((resolve) => {
+      const until = Date.now() + ms;
+      const tick = () => {
+        if (this.lastReplyAt !== null && this.lastReplyAt >= askedAt) { resolve(true); return; }
+        if (Date.now() >= until) { resolve(false); return; }
+        setTimeout(tick, 50);
       };
-      // Tag the probe so it doesn't inherit whatever sticky controller context
-      // happened to be set the last time the user moved a stick.
-      this.activityLog?.setContext('Watchdog', '—', 'Health Probe');
-      this.sendPayload([0x81, 0x09, 0x04, 0x00, 0xFF]);
+      tick();
     });
+    // Tag the probe so it doesn't inherit whatever sticky controller context
+    // happened to be set the last time the user moved a stick.
+    this.activityLog?.setContext('Watchdog', '—', 'Health Probe');
+    this.sendPayload([0x81, 0x09, 0x04, 0x00, 0xFF]);
+    if (await answered(timeoutMs / 2)) return true;
+    this.activityLog?.setContext('Watchdog', '—', 'Health Probe');
+    this.sendPayload([0x81, 0x09, 0x06, 0x12, 0xFF]);
+    return answered(timeoutMs / 2);
   }
 
   send(bytes: Buffer): void {
-    if (!this.connected || !this.socket) {
+    if (!this.connected) {
       logger.warn({ cameraId: this.cameraId }, 'VISCA not connected, dropping command');
       return;
     }
-    this.socket.send(bytes, 0, bytes.length, this.port, this.ip, (err) => {
+    transport.send(bytes, this.port, this.ip, (err) => {
       if (err) logger.warn({ err, cameraId: this.cameraId }, 'VISCA send error');
     });
   }
 
   close(): void {
     if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
-    if (this.socket) {
-      try { this.socket.close(); } catch { /* ignore */ }
-      this.socket = null;
-    }
+    if (this.registered) { this.registered = false; transport.unregister(`${this.ip}:${this.port}`); }
     this.connected = false;
-  }
-
-  private scheduleReconnect(): void {
-    if (this.reconnectTimer) return;
-    this.reconnectTimer = setTimeout(() => {
-      this.reconnectTimer = null;
-      this.backoff = Math.min(this.backoff * 2, BACKOFF_MAX);
-      logger.info({ cameraId: this.cameraId, backoff: this.backoff }, 'attempting VISCA reconnect');
-      this.buildSocket();
-    }, this.backoff);
   }
 }
