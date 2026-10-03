@@ -21,9 +21,12 @@ import { VirtualDjiBridge } from '../virtualDjiBridge';
 const root = path.resolve(__dirname, '../../..');
 const runDir = path.join(root, 'sandbox', '.run');
 const APP_PORT = Number(process.env.SANDBOX_PORT ?? 8090);
-const SONY_PORT = 8191;
-const VISCA_PORTS = [52391, 52392, 52393];
-const DJI_PORTS = [17878, 17879, 17880];
+// Overridable so a second sandbox can run beside one already up (the config copy is rewritten to match).
+const SONY_PORT = Number(process.env.SANDBOX_SONY_PORT ?? 8191);
+const VISCA_BASE = Number(process.env.SANDBOX_VISCA_BASE ?? 52391);
+const DJI_BASE = Number(process.env.SANDBOX_DJI_BASE ?? 17878);
+const VISCA_PORTS = [0, 1, 2].map((i) => VISCA_BASE + i);
+const DJI_PORTS = [0, 1, 2].map((i) => DJI_BASE + i);
 
 const CAMERAS = [
   { id: 'AA:00:00:00:00:01', model: 'ILCE-7SM3', powered: true },
@@ -39,6 +42,11 @@ function prepareRunDir(): void {
   for (const name of ['devices.yaml', 'mappings.yaml', 'speeds.json', 'presets.json']) {
     fs.copyFileSync(path.join(root, 'sandbox', 'config', name), path.join(runDir, name));
   }
+  const devicesFile = path.join(runDir, 'devices.yaml');
+  const ports: Record<string, number> = { '8191': SONY_PORT };
+  [52391, 52392, 52393].forEach((port, i) => { ports[port] = VISCA_PORTS[i]; });
+  [17878, 17879, 17880].forEach((port, i) => { ports[port] = DJI_PORTS[i]; });
+  fs.writeFileSync(devicesFile, fs.readFileSync(devicesFile, 'utf8').replace(/\b(8191|5239[1-3]|1787[89]|17880)\b/g, (port) => String(ports[port])));
 }
 
 function sandboxEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
@@ -63,17 +71,20 @@ function sandboxEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function startFakes(scanDelayMs: number): Promise<{ sony: FakeSonySidecar; bridges: VirtualDjiBridge[]; stop: () => Promise<void> }> {
+async function startFakes(scanDelayMs: number): Promise<{ sony: FakeSonySidecar; bridges: VirtualDjiBridge[]; visca: FakeViscaCamera[]; stop: () => Promise<void> }> {
   const visca = VISCA_PORTS.map((port, i) => new FakeViscaCamera(port, `visca-${i + 1}`));
   await Promise.all(visca.map((camera) => camera.start()));
   // Like the real Pi: one host, one bridge instance per gimbal, each naming itself on GET /info.
   const bridges = DJI_PORTS.map((port, i) => new VirtualDjiBridge({ port, statusIntervalMs: 500, safetyTimeoutMs: 250, hostname: 'sandbox-pi', instance: ['rs3', 'rs3pro-a', 'rs3pro-b'][i] }));
+  // The gimbals report a battery so the demo shows real levels; the battery checks drive their own values.
+  bridges.forEach((bridge) => { bridge.battery = 64; });
   await Promise.all(bridges.map((bridge) => bridge.start()));
   const sony = new FakeSonySidecar(CAMERAS, { scanDelayMs });
   await sony.start(SONY_PORT);
   return {
     sony,
     bridges,
+    visca,
     stop: async () => {
       await sony.stop();
       await Promise.all(bridges.map((bridge) => bridge.stop()));
@@ -114,7 +125,9 @@ async function waitFor<T>(label: string, read: () => Promise<T | undefined | fal
 async function selfTest(): Promise<number> {
   prepareRunDir();
   const fakes = await startFakes(0);
-  let app = startApp();
+  // The self-test's app has the fake program feed (no capture card here, and never a real ffmpeg capture in a test).
+  const selfTestEnv = { CAMCONTROL_FAKE_PROGRAM: '1' };
+  let app = startApp(selfTestEnv);
   const base = `http://127.0.0.1:${APP_PORT}`;
   const control = `http://127.0.0.1:${SONY_PORT}/__sandbox`;
   // Stop the app and start it again (the fakes keep running), like restarting it on the show computer.
@@ -122,7 +135,7 @@ async function selfTest(): Promise<number> {
     app.kill('SIGINT');
     await Promise.race([new Promise((resolve) => app.once('exit', resolve)), sleep(6000)]);
     if (app.exitCode === null) app.kill('SIGKILL');
-    app = startApp();
+    app = startApp(selfTestEnv);
     await waitFor('the app to answer again', async () => (await api('/api/status')).status === 200, 40000);
   };
   const results: { name: string; ok: boolean; detail?: string }[] = [];
@@ -211,7 +224,7 @@ async function selfTest(): Promise<number> {
     check('each gimbal found says which Pi instance and Bluetooth address it is', scanned.filter((g: any) => g.hostname === 'sandbox-pi').map((g: any) => g.instance).join() === 'rs3,rs3pro-a,rs3pro-b' && scanned.every((g: any) => g.hostname !== 'sandbox-pi' || /^AA:BB:CC/.test(g.gimbalAddress)));
     const onPort = (port: number) => scanned.find((g: any) => g.host === '127.0.0.1' && g.port === port);
     check('GET /api/gimbals finds every fake bridge with its model and gimbal link', DJI_PORTS.every((port) => onPort(port)?.reachable === true && onPort(port)?.model === reported && onPort(port)?.gimbalConnected === true));
-    check('the gimbal the app drives is reported from its live connection, not probed', onPort(17878)?.drivenBy === 'cam4' && onPort(17878)?.usedBy?.[0]?.deviceKey === 'rs3' && onPort(17879)?.drivenBy === null);
+    check('the gimbal the app drives is reported from its live connection, not probed', onPort(DJI_PORTS[0])?.drivenBy === 'cam4' && onPort(DJI_PORTS[0])?.usedBy?.[0]?.deviceKey === 'rs3' && onPort(DJI_PORTS[1])?.drivenBy === null);
     check('the scan is safe for the driven gimbal: it stays connected', (await api('/api/rigs')).body.rigs?.find((r: any) => r.deviceKey === 'rs3')?.live?.connected === true);
 
     // Which Bluetooth gimbal a rig's Pi bridge drives (bridge 0.6.0): shown, listed and switched through the app.
@@ -258,8 +271,8 @@ async function selfTest(): Promise<number> {
     const toGimbal = await patch('/api/rigs/vbot', { controller: 'gimbal' });
     const asGimbal = toGimbal.body.rigs?.find((r: any) => r.deviceKey === 'vbot');
     check('a V-BOT can become a gimbal: pointed at the gimbals\' Pi on a port no rig drives, live at once', toGimbal.status === 200 && asGimbal?.protocol === 'dji-bridge' && asGimbal?.gimbal?.host === '127.0.0.1' && asGimbal?.gimbal?.port === 7878 && (await api('/api/config')).body.cameras?.[0]?.protocol === 'dji-bridge');
-    check('choosing a gimbal another rig drives is refused', (await patch('/api/rigs/vbot', { gimbal: { host: '127.0.0.1', port: 17878 } })).status === 400);
-    const chosen = await patch('/api/rigs/vbot', { gimbal: { host: '127.0.0.1', port: 17879, gimbalModel: reported } });
+    check('choosing a gimbal another rig drives is refused', (await patch('/api/rigs/vbot', { gimbal: { host: '127.0.0.1', port: DJI_PORTS[0] } })).status === 400);
+    const chosen = await patch('/api/rigs/vbot', { gimbal: { host: '127.0.0.1', port: DJI_PORTS[1], gimbalModel: reported } });
     check('choosing a free gimbal from the scan connects the rig to it', chosen.status === 200
       && !!(await waitFor('the rig to reach its gimbal', async () => (await api('/api/rigs')).body.rigs?.[0]?.live?.connected === true)));
     const backToVbot = await patch('/api/rigs/vbot', { controller: 'vbot', visca: { port: rigs.rigs[0].visca.port } });
@@ -442,7 +455,7 @@ async function selfTest(): Promise<number> {
     check('the file is still fully documented after all the edits', commentCount() === commentsBefore);
 
     // --- add and remove rigs; presets follow their camera
-    const added = await post('/api/rigs', { label: 'Sandbox gimbal', controller: 'gimbal', gimbal: { host: '127.0.0.1', port: 17880 }, inputId: 12 });
+    const added = await post('/api/rigs', { label: 'Sandbox gimbal', controller: 'gimbal', gimbal: { host: '127.0.0.1', port: DJI_PORTS[2] }, inputId: 12 });
     check('POST /api/rigs adds a rig at the end (201) and answers with the new rig view', added.status === 201 && added.body.position === 5 && added.body.key === 'sandbox-gimbal' && added.body.rigs?.length === 5);
     check('the new rig is applied to the running app', (await api('/api/config')).body.cameras?.length === 5);
     check('the new rig is on disk and the file is still documented', fs.readFileSync(yamlFile, 'utf8').includes('sandbox-gimbal') && commentCount() === commentsBefore);
@@ -600,7 +613,8 @@ async function selfTest(): Promise<number> {
       check('the desk page has the iPad remote switch in the top bar (no separate card) and the /remote link', await (async () => { const t = await (await fetch(`${base}/`)).text(); return ['function remoteToggleItem', 'setRemoteEnabled', 'href="/remote"'].every((marker) => t.includes(marker)) && !t.includes('id="remote-card"'); })());
       check('the remote enabled switch rejects a non-boolean (400)', (await post('/api/remote/enabled', { enabled: 'yes' })).status === 400);
       check('the remote page serves the multiview markup (PVW, PGM, small panes, camera sheet)', await (async () => { const t = await (await fetch(`${base}/remote`)).text(); return ['id="pane-pvw"', 'id="pane-pgm"', 'id="smallPanes"', 'id="sheet"', 'id="multiview"'].every((marker) => t.includes(marker)); })());
-      check('the remote page has TRANSITION, the speed buttons and the joystick, and the script drives the joystick', await (async () => { const t = await (await fetch(`${base}/remote`)).text(); const js = await (await fetch(`${base}/ui/remote/remote.js`)).text(); return ['id="transitionBtn"', 'id="speedBtns"', 'data-speed="slow"', 'data-speed="fast"', 'id="stick"', 'id="padSheet"'].every((marker) => t.includes(marker)) && js.includes("t: 'preview'") && js.includes("t: 'transition'") && js.includes('stickFrame'); })());
+      check('the remote page has TRANSITION, the speed buttons and the joystick, and the script drives the joystick', await (async () => { const t = await (await fetch(`${base}/remote`)).text(); const js = await (await fetch(`${base}/ui/remote/remote.js`)).text(); return ['id="transitionBtn"', 'id="speedBtns"', 'data-speed="slow"', 'data-speed="fast"', 'id="stick"', 'id="padSheet"', 'id="rigConfigLink"', 'href="/#rigs"'].every((marker) => t.includes(marker)) && js.includes("t: 'preview'") && js.includes("t: 'transition'") && js.includes('stickFrame'); })());
+      check('the desk page opens a tab from the URL hash (/#rigs → Device Config)', await (async () => { const t = await (await fetch(`${base}/`)).text(); return t.includes("'tab-btn-' + name") && t.includes('location.hash') && t.includes('hashchange'); })());
       // Touch focus and camera settings from the remote (X-Remote: 1) are refused while remote control is off; the desk page is not affected.
       const asRemote = (method: string, p: string, body: unknown) => api(p, { method, headers: { 'content-type': 'application/json', 'x-remote': '1' }, body: JSON.stringify(body) });
       check('touch focus from the remote is refused while remote control is off (403)', (await asRemote('POST', `/api/sony/cameras/${A}/touch`, { normalized: { x: 0.5, y: 0.5 } })).status === 403);
@@ -703,6 +717,35 @@ async function selfTest(): Promise<number> {
         check('releasing the arrow (neutral frame) stops the gimbal within 300 ms', await stoppedSince(arrowMark, 300));
         await hold(300);
         check('the page keeps the seat on neutral heartbeat frames after the release', (await ownerNow()) === 'remote');
+
+        // Zoom on a rig with a connected Sony camera drives the camera's own zoom; a BirdDog (no Sony) zooms its head.
+        const vbotId = cams.find((c) => c.deviceKey === 'vbot')?.id as string;
+        const birddogId = cams.find((c) => c.deviceKey === 'birddog1')?.id as string;
+        const sonyA = async (): Promise<any> => (((await (await fetch(`${control}/state`)).json()) as any).cameras as any[]).find((c) => c.id === A);
+        r1.send({ t: 'select', camera: vbotId, preview: false });
+        await hold(150);
+        const vbotHead = fakes.visca[0];
+        const headZoom0 = vbotHead.zoomCommands;
+        const sonyCalls0 = (await sonyA()).zoomCalls;
+        const zooming = r1.stream(500, [0, 0, 0, 0], [0, 0.8]);
+        await sleep(350);
+        const zoomed = await sonyA();
+        check('the right trigger on the V-BOT rig zooms its Sony camera in (positive speed)', zoomed.zoomSpeed > 0 && zoomed.zoomCalls > sonyCalls0, `speed=${zoomed.zoomSpeed} calls=${zoomed.zoomCalls}`);
+        await zooming;
+        check('and the V-BOT head gets no zoom command (81 01 04 07)', vbotHead.zoomCommands === headZoom0, `zoomCommands +${vbotHead.zoomCommands - headZoom0}`);
+        r1.frame([0, 0, 0, 0]);
+        check('a neutral frame sends zoom 0 to the Sony camera', await waitFor('the Sony zoom to stop', async () => (await sonyA()).zoomSpeed === 0, 1000, 20).then(() => true, () => false));
+        await hold(100);
+        r1.send({ t: 'select', camera: birddogId, preview: false });
+        await hold(150);
+        const birddogHead = fakes.visca[1];
+        const bdZoom0 = birddogHead.zoomCommands;
+        const sonyCalls1 = (await sonyA()).zoomCalls;
+        await r1.stream(300, [0, 0, 0, 0], [0, 0.8]);
+        await hold(100);
+        check('on a BirdDog (no Sony camera) the trigger zooms the VISCA head instead', birddogHead.zoomCommands > bdZoom0 && (await sonyA()).zoomCalls === sonyCalls1, `zoomCommands +${birddogHead.zoomCommands - bdZoom0}`);
+        r1.send({ t: 'select', camera: rs3Id, preview: false });
+        await hold(150);
       }
       const streaming = r1.stream(900, [0, 0, 0.8, 0]);
       await sleep(500);
@@ -828,6 +871,29 @@ async function selfTest(): Promise<number> {
       r5.close();
       await sleep(100);
     }
+
+    // ---- live program feed (docs/program-feed.md): off by default, iPad writes gated, a frame once on.
+    {
+      const remotePut = (body: unknown) => api('/api/program', { method: 'PUT', headers: { 'content-type': 'application/json', 'x-remote': '1' }, body: JSON.stringify(body) });
+      const ps = await api('/api/program/status');
+      check('program feed: status answers enabled:false by default', ps.status === 200 && ps.body.enabled === false);
+      check('program feed: a frame is refused (409) while it is off', (await api('/api/program/frame')).status === 409);
+      await post('/api/remote/enabled', { enabled: false });
+      const refused = await remotePut({ enabled: true, input: '0' });
+      check('program feed: an iPad cannot switch it on while remote control is off (403)', refused.status === 403 && (await api('/api/program/status')).body.enabled === false);
+      await post('/api/remote/enabled', { enabled: true });
+      const accepted = await remotePut({ enabled: true, input: '0' });
+      check('program feed: an iPad can switch it on once remote control is on', accepted.status === 200 && accepted.body.enabled === true && accepted.body.running === true);
+      check('program feed: the choice is saved to devices.yaml', /program:[\s\S]*enabled: true/.test(fs.readFileSync(path.join(runDir, 'devices.yaml'), 'utf8')));
+      check('program feed: the junk body is refused (400)', (await put('/api/program', { enabled: 'yes' })).status === 400);
+      const devs = await api('/api/program/devices');
+      check('program feed: the fake capture device is listed', devs.body.devices?.[0]?.name === 'Fake program capture');
+      const frame = await api('/api/program/frame');
+      check('program feed: a frame is served (fake: SVG with the PROGRAM slate, no lower third while it is off)', frame.status === 200 && frame.type.includes('image/svg+xml') && String(frame.body).includes('PROGRAM') && !String(frame.body).includes('lower-third'));
+      const off = await put('/api/program', { enabled: false });
+      check('program feed: the desk switches it off again and frames stop (409)', off.status === 200 && off.body.enabled === false && (await api('/api/program/frame')).status === 409);
+      await post('/api/remote/enabled', { enabled: false });
+    }
   } catch (error) {
     check('the self-test ran to completion', false, String(error instanceof Error ? error.message : error));
   }
@@ -860,7 +926,7 @@ async function run(): Promise<void> {
   prepareRunDir();
   const scanDelay = Number(process.env.SANDBOX_SCAN_DELAY_MS ?? 0);
   const fakes = await startFakes(scanDelay);
-  const app = startApp({ CAMCONTROL_FAKE_ATEM: '1' });
+  const app = startApp({ CAMCONTROL_FAKE_ATEM: '1', CAMCONTROL_FAKE_PROGRAM: '1' });
   const base = `http://127.0.0.1:${APP_PORT}`;
   await waitFor('the sandbox app', async () => (await fetch(`${base}/api/status`)).ok, 40000).catch(() => undefined);
   await makeDemoReady(base);

@@ -27,7 +27,7 @@
     sheet: $('sheet'), sheetBack: $('sheetBack'), sheetTitle: $('sheetTitle'), sheetBattery: $('sheetBattery'), sheetRows: $('sheetRows'), sheetStatus: $('sheetStatus'), sheetClose: $('sheetClose'),
     releaseBtn: $('releaseBtn'), stopBtn: $('stopBtn'), hint: $('hint'), wakeHint: $('wakeHint'),
     pinRow: $('pinRow'), pinInput: $('pinInput'), pinBtn: $('pinBtn'),
-    transitionBtn: $('transitionBtn'), speedBtns: $('speedBtns'), stick: $('stick'), stickKnob: $('stickKnob'), stickLabel: $('stickLabel'), dpad: $('dpad'), driveMode: $('driveMode'), zoomIn: $('zoomIn'), zoomOut: $('zoomOut'), ltBtn: $('ltBtn'), ltState: $('ltState'),
+    transitionBtn: $('transitionBtn'), speedBtns: $('speedBtns'), stick: $('stick'), stickKnob: $('stickKnob'), stickLabel: $('stickLabel'), dpad: $('dpad'), driveMode: $('driveMode'), zoomIn: $('zoomIn'), zoomOut: $('zoomOut'), zoomLever: $('zoomLever'), zoomLeverKnob: $('zoomLeverKnob'), zoomMode: $('zoomMode'), ltBtn: $('ltBtn'), ltState: $('ltState'),
     mapBar: $('mapBar'), mapClear: $('mapClear'), mapDone: $('mapDone'), mapBtn: $('mapBtn'), mapList: $('mapList'),
   };
 
@@ -57,6 +57,7 @@
   var pgmUnlockedUntil = 0;    // ms timestamp until which moving the program camera is allowed
   var stick = null;            // the joystick being held: { pointerId, rigId, x, y } (x,y: knob offset / ring radius)
   var zoom = null;             // the zoom button being held: { pointerId, rigId, dir: 'zoomIn'|'zoomOut' }
+  var lever = null;            // the zoom lever being held: { pointerId, rigId, y } (y: offset / half travel, up negative)
 
   // ---- small helpers
   function store(key, value) { try { if (value === undefined) return localStorage.getItem(key); localStorage.setItem(key, value); } catch (_) { /* private mode */ } return null; }
@@ -199,6 +200,7 @@
     if (touchSeat && stick) touchFrame = M.stickFrame(stick.x, stick.y, touchSpeedName, M.onAir(stick.rigId, status));
     else if (touchSeat && press) touchFrame = M.arrowFrame(press.dirs, touchSpeedName, M.onAir(press.rigId, status));
     if (touchSeat && zoom) { var zf = M.arrowFrame([zoom.dir], touchSpeedName, M.onAir(zoom.rigId, status)); touchFrame = touchFrame || M.neutralFrame(); touchFrame.tr = zf.tr; }
+    if (touchSeat && lever) { var lf = M.leverFrame(lever.y, touchSpeedName, M.onAir(lever.rigId, status)); touchFrame = touchFrame || M.neutralFrame(); touchFrame.tr = lf.tr; }
     var chosen = M.chooseFrame(padFrame, touchFrame); // the pad wins while it is being touched
     sending = true;
     sendFrame(chosen.frame);
@@ -312,6 +314,10 @@
   setInterval(pollStatus, 1000);
   setInterval(loadRigs, 15000);
   setInterval(pollSony, 10000); pollSony();
+  // The live program feed (docs/program-feed.md): when it is on, the PGM pane shows the switcher's real output.
+  var programStatus = null;
+  function pollProgram() { if (document.hidden) return; getJson('/api/program/status').then(function (s) { programStatus = s; renderMultiview(); }).catch(function () { /* keep the last reading */ }); }
+  setInterval(pollProgram, 5000); pollProgram();
 
   // ---- multiview: PVW and PGM large, one small pane per rig. One frame loop per Sony camera feeds every pane
   // that shows it (the large PVW/PGM and the small pane of the same camera share a single fetch).
@@ -321,6 +327,8 @@
   var smallKey = '';           // which small panes exist (rebuilt only when the rig list changes)
   var frames = {};             // Sony camera id -> { url, at, error, started, delay, running, wanted }
   var FRESH_MS = 4000;         // a picture older than this is not shown as live
+  var programFrame = { url: null, at: 0, error: '', delay: 100, running: false, wanted: false }; // the program feed's loop
+  function programFresh() { return !!(programFrame.url && Date.now() - programFrame.at < FRESH_MS); }
 
   function div(cls, text) { var d = document.createElement('div'); if (cls) d.className = cls; if (text) d.textContent = text; return d; }
 
@@ -380,7 +388,7 @@
   }
   function batteryEl(percent) {
     var b = div('batt'), fill = div('batt-fill');
-    fill.style.width = (percent === null ? 0 : Math.max(0, Math.min(100, percent))) + '%';
+    fill.style.width = Math.max(0, Math.min(100, percent)) + '%';
     b.appendChild(fill); return b;
   }
   // One indicator: head/camera glyph, then signal bars, a battery with its percentage, or crossed bars.
@@ -389,17 +397,17 @@
     el.appendChild(icon(it.kind === 'cam' || it.kind === 'camOff' ? 'i-cam' : 'i-head'));
     if (it.kind === 'head') el.appendChild(barsEl(it.bars, it.bars === 0));
     else if (it.kind === 'camOff') el.appendChild(barsEl(0, true));
+    // Unknown battery (percent null): glyph alone in the muted off colour, same for gimbal and camera.
     else if (it.percent !== null) { el.appendChild(batteryEl(it.percent)); el.appendChild(div('pct', it.percent + '%')); }
-    else if (it.kind === 'headBattery') { el.appendChild(batteryEl(null)); el.appendChild(div('pct', '—')); }
     return el;
   }
 
   function updatePaneText(n, pane) {
     var items = pane.rigId ? M.paneIndicators(pane.rigId, rigs, status, sonyStatus) : [];
-    var sig = [pane.rigId, pane.label, pane.tags.join('+'), pane.sonyId, pane.healthLevel, pane.healthText, JSON.stringify(items)].join('|');
+    var sig = [pane.programFeed, pane.rigId, pane.label, pane.tags.join('+'), pane.sonyId, pane.healthLevel, pane.healthText, JSON.stringify(items)].join('|');
     if (sig === n.sig) return;
     n.sig = sig;
-    n.title.textContent = pane.rigId ? pane.label : (n.key === 'pgm' ? 'No program camera' : 'No preview camera');
+    n.title.textContent = pane.programFeed ? 'Program' + (pane.rigId ? ' · ' + pane.label : '') : pane.rigId ? pane.label : (n.key === 'pgm' ? 'No program camera' : 'No preview camera');
     n.ind.textContent = '';
     items.forEach(function (it) { n.ind.appendChild(indicatorEl(it)); });
     n.menu.disabled = !pane.sonyId;
@@ -413,13 +421,22 @@
 
   // The picture (or the reason there is none) for one pane, from the shared frame of its Sony camera.
   function updatePaneMedia(n, pane) {
+    if (pane.programFeed && programFresh()) {
+      if (n.url !== programFrame.url) { n.url = programFrame.url; n.img.src = programFrame.url; }
+      n.img.alt = 'Program output';
+      if (n.img.hidden) n.img.hidden = false;
+      n.note.textContent = ''; n.note.className = 'pane-note';
+      return;
+    }
     var f = pane.sonyId ? frames[pane.sonyId] : null;
     var fresh = !!(pane.wantsPicture && f && f.url && Date.now() - f.at < FRESH_MS);
     if (fresh) {
       if (n.url !== f.url) { n.url = f.url; n.img.src = f.url; }
       n.img.alt = 'Live view of ' + pane.label;
       if (n.img.hidden) n.img.hidden = false;
-      n.note.textContent = '';
+      // An overlay at the foot of the picture: nothing changes size when the feed drops.
+      n.note.textContent = pane.programOffline ? 'Program feed offline — showing camera' : '';
+      n.note.className = 'pane-note' + (pane.programOffline ? ' feed-off' : '');
       return;
     }
     n.img.hidden = true;
@@ -435,7 +452,10 @@
   function renderMultiview() {
     if (!nodes.pvw) { buildPane(el.paneEls.pvw, 'pvw', true); buildPane(el.paneEls.pgm, 'pgm', true); nodes.pvw.note.textContent = nodes.pgm.note.textContent = 'Waiting for the camera list…'; }
     if (!status || !rigs || !cameras.length) return;
-    plan = M.multiviewPlan(cameras, status, rigs);
+    var programOn = !!(programStatus && programStatus.enabled);
+    programFrame.wanted = programOn;
+    if (programOn && !programFrame.running) runProgramLoop();
+    plan = M.multiviewPlan(cameras, status, rigs, programOn ? programFresh() : null);
     var key = plan.small.map(function (p) { return p.key; }).join(',');
     if (key !== smallKey) {
       smallKey = key;
@@ -498,12 +518,35 @@
     })();
   }
 
+  // The program feed's frames, at its capture rate; doubling back-off on errors (the Sony loop's shape).
+  function runProgramLoop() {
+    var f = programFrame;
+    f.running = true;
+    (function step() {
+      if (!f.wanted) { f.running = false; f.url = null; renderMultiview(); return; }
+      if (document.hidden) { setTimeout(step, 500); return; }
+      var base = Math.round(1000 / ((programStatus && programStatus.fps) || 10));
+      fetch('/api/program/frame?t=' + Date.now(), { cache: 'no-store' })
+        .then(function (r) { if (r.ok) return r.blob(); throw new Error('HTTP ' + r.status); })
+        .then(function (blob) {
+          var old = f.url, was = programFresh();
+          f.url = URL.createObjectURL(blob); f.at = Date.now(); f.error = '';
+          f.delay = M.nextFrameDelay(f.delay, true, base);
+          if (old) setTimeout(function () { URL.revokeObjectURL(old); }, 1500);
+          if (!was) renderMultiview(); else if (plan && nodes.pgm) updatePaneMedia(nodes.pgm, plan.pgm);
+        })
+        .catch(function (e) { f.error = e && e.message; f.delay = M.nextFrameDelay(f.delay, false, base); })
+        .then(function () { setTimeout(step, f.delay); });
+    })();
+  }
+
   // ---- touch control: the joystick in the control bar (below). `press` is kept for the shared end paths.
 
   // Stop at once: a neutral frame goes out here, then the heartbeat carries on neutral.
   function endPress() {
     endStick();
     endZoom();
+    endLever();
     if (!press) return;
     press = null;
     Array.prototype.forEach.call(el.dpad.querySelectorAll('.arrow'), function (b) { b.classList.remove('held'); });
@@ -535,9 +578,11 @@
     var sv = M.arrowsView('pvw', plan, status, enabled, owner, pgmUnlockedUntil, now);
     if (stick && (!sv.enabled || sv.rigId !== stick.rigId)) endStick();
     if (zoom && (!sv.enabled || sv.rigId !== zoom.rigId)) endZoom();
+    if (lever && (!sv.enabled || sv.rigId !== lever.rigId)) endLever();
     el.stick.classList.toggle('dim', !sv.show || sv.dim);
     el.dpad.classList.toggle('dim', !sv.show || sv.dim);
     el.zoomIn.classList.toggle('dim', !sv.show || sv.dim); el.zoomOut.classList.toggle('dim', !sv.show || sv.dim);
+    el.zoomLever.classList.toggle('dim', !sv.show || sv.dim);
     el.stickLabel.textContent = sv.show && plan && plan.pvw.rigId ? plan.pvw.label : 'No preview camera';
     updateLowerThird();
     var tb = M.transitionBlock(enabled, owner, status);
@@ -572,7 +617,7 @@
     stick = null;
     placeKnob(0, 0);
     el.stick.classList.remove('held');
-    if (!zoom && connected && welcomed && haveOwnership()) sendFrame(M.neutralFrame());
+    if (!zoom && !lever && connected && welcomed && haveOwnership()) sendFrame(M.neutralFrame());
   }
   // Permission to drive the preview camera by touch right now: { ok, rigId } or a refusal shown in the message slot.
   function previewDrive() {
@@ -606,13 +651,52 @@
     ['pointerup', 'pointercancel', 'pointerleave', 'lostpointercapture'].forEach(function (ev) { b.addEventListener(ev, function (e) { if (zoom && zoom.pointerId === e.pointerId) endZoom(); }); });
     ['contextmenu', 'selectstart', 'dragstart', 'gesturestart', 'click'].forEach(function (ev) { b.addEventListener(ev, function (e) { e.preventDefault(); }); });
   });
+  // Zoom lever (instead of + / −, chosen in the ☰ menu): drag up to zoom in, down to zoom out, proportional; it
+  // springs back to centre on release and a neutral zoom goes out at once. Works together with the joystick.
+  function placeLever(y) { var half = (el.zoomLever.clientHeight - el.zoomLeverKnob.offsetHeight) / 2; el.zoomLeverKnob.style.transform = 'translateY(' + (y * half) + 'px)'; }
+  function moveLever(e) {
+    if (!lever || e.pointerId !== lever.pointerId) return;
+    var rect = el.zoomLever.getBoundingClientRect(), half = (rect.height - el.zoomLeverKnob.offsetHeight) / 2 || 1;
+    lever.y = Math.max(-1, Math.min(1, (e.clientY - (rect.top + rect.height / 2)) / half));
+    placeLever(lever.y);
+  }
+  function endLever() {
+    if (!lever) return;
+    lever = null;
+    placeLever(0);
+    el.zoomLever.classList.remove('held');
+    if (connected && welcomed && haveOwnership()) tick();
+  }
+  el.zoomLever.addEventListener('pointerdown', function (e) {
+    if (e.button !== undefined && e.button > 0) return;
+    e.preventDefault();
+    if (!document.hidden) focused = true;
+    if (lever || mapMode) return;
+    var v = previewDrive(); if (!v) return;
+    if (!stick && !press) send({ t: 'select', camera: v.rigId, preview: false });
+    lever = { pointerId: e.pointerId, rigId: v.rigId, y: 0 };
+    el.zoomLever.classList.add('held');
+    try { el.zoomLever.setPointerCapture(e.pointerId); } catch (_) { /* keep following the finger */ }
+    moveLever(e);
+    tick();
+  });
+  el.zoomLever.addEventListener('pointermove', moveLever);
+  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(function (ev) { el.zoomLever.addEventListener(ev, function (e) { if (lever && e.pointerId === lever.pointerId) endLever(); }); });
+  ['contextmenu', 'selectstart', 'dragstart', 'gesturestart'].forEach(function (ev) { el.zoomLever.addEventListener(ev, function (e) { e.preventDefault(); }); });
+  var zoomMode = store('fps-remote-zoom') === 'lever' ? 'lever' : 'keys';
+  function applyZoomMode() {
+    el.zoomIn.hidden = el.zoomOut.hidden = zoomMode !== 'keys'; el.zoomLever.hidden = zoomMode !== 'lever';
+    Array.prototype.forEach.call(el.zoomMode.querySelectorAll('.seg-btn'), function (b) { var on = b.dataset.zoom === zoomMode; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); });
+  }
+  el.zoomMode.addEventListener('click', function (e) { var b = e.target.closest ? e.target.closest('.seg-btn') : null; if (!b) return; endPress(); zoomMode = b.dataset.zoom; store('fps-remote-zoom', zoomMode); applyZoomMode(); });
+  applyZoomMode();
   el.stick.addEventListener('pointerdown', function (e) {
     if (e.button !== undefined && e.button > 0) return;
     e.preventDefault();
     if (!document.hidden) focused = true;
     if (press || stick || mapMode) return; // one joystick finger at a time
     var v = previewDrive(); if (!v) return;
-    if (!zoom) send({ t: 'select', camera: v.rigId, preview: false });
+    if (!zoom && !lever) send({ t: 'select', camera: v.rigId, preview: false });
     stick = { pointerId: e.pointerId, rigId: v.rigId, x: 0, y: 0 };
     el.stick.classList.add('held');
     try { el.stick.setPointerCapture(e.pointerId); } catch (_) { /* keep following the finger via the window */ }
@@ -635,7 +719,7 @@
       if (!document.hidden) focused = true;
       if (press || stick || mapMode) return;
       var v = previewDrive(); if (!v) return;
-      if (!zoom) send({ t: 'select', camera: v.rigId, preview: false });
+      if (!zoom && !lever) send({ t: 'select', camera: v.rigId, preview: false });
       press = { pointerId: e.pointerId, key: 'pvw', rigId: v.rigId, dirs: [b.dataset.dir], onAir: v.onAir, startedAt: Date.now() };
       b.classList.add('held');
       try { b.releasePointerCapture(e.pointerId); } catch (_) { /* not captured */ }
@@ -767,7 +851,7 @@
 
   function onBigTap(n, ev) {
     var pane = paneFor(n.key);
-    if (!pane || !pane.sonyId) return;
+    if (!pane || !pane.sonyId || pane.programFeed) return; // the program picture is not the camera's: no touch focus
     var pt = M.containedPoint(n.img.getBoundingClientRect(), n.img.naturalWidth, n.img.naturalHeight, ev.clientX, ev.clientY);
     if (!pt) return;
     if (trackModes[pane.sonyId] && trackSource(pane.sonyId)) { trackSelect(n, pane, pt); return; }
@@ -964,7 +1048,54 @@
     sheetState = null;
     el.sheet.hidden = true; el.padSheet.hidden = true; el.menuSheet.hidden = true; el.sheetBack.hidden = true;
   }
-  el.menuBtn.addEventListener('click', function () { closeSheet(); el.menuSheet.hidden = false; el.sheetBack.hidden = false; });
+  el.menuBtn.addEventListener('click', function () { closeSheet(); el.menuSheet.hidden = false; el.sheetBack.hidden = false; loadProgramRow(); });
+
+  // Program feed row (This iPad sheet): Camera = the PGM pane shows the program camera; Live = the capture card.
+  var programEls = { mode: $('programMode'), row: $('programDeviceRow'), select: $('programDevice'), note: $('programNote') };
+  var programWantLive = false;
+  function programSay(text, bad) { programEls.note.textContent = text; programEls.note.className = 'muted small' + (bad ? ' bad' : ''); }
+  function showProgramMode(live) {
+    programWantLive = live;
+    Array.prototype.forEach.call(programEls.mode.querySelectorAll('.seg-btn'), function (b) { var on = (b.dataset.program === 'live') === live; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); });
+    programEls.row.hidden = !live;
+  }
+  function loadProgramRow() {
+    Promise.all([getJson('/api/program/status'), getJson('/api/program/devices')]).then(function (r) {
+      var st = r[0], devices = r[1].devices || [];
+      programStatus = st;
+      showProgramMode(!!st.enabled);
+      programEls.select.textContent = '';
+      var none = document.createElement('option'); none.value = ''; none.textContent = devices.length ? 'Choose a capture device…' : 'No capture devices found';
+      programEls.select.appendChild(none);
+      devices.forEach(function (d) { var o = document.createElement('option'); o.value = d.name; o.dataset.kind = d.kind || ''; o.textContent = d.name + (d.kind === 'decklink' ? ' (Blackmagic)' : ''); programEls.select.appendChild(o); });
+      if (st.device && !devices.some(function (d) { return d.name === st.device; })) { var o = document.createElement('option'); o.value = st.device; o.textContent = st.device + ' (not found)'; programEls.select.appendChild(o); }
+      programEls.select.value = st.device || '';
+      programSay(st.enabled ? (st.error ? 'Program feed: ' + st.error : st.running ? 'Live program feed from ' + st.device + '.' : 'Program feed starting…') : 'The PGM pane shows the program camera.', !!(st.enabled && st.error));
+    }).catch(function () { programSay('Could not read the program feed settings.', true); });
+  }
+  function saveProgram(body) {
+    var block = M.sonyWriteBlock(enabled);
+    if (block) { programSay(block, true); loadProgramRow(); return; }
+    programSay('Saving…');
+    fetch('/api/program', { method: 'PUT', headers: REMOTE_JSON, body: JSON.stringify(body) })
+      .then(function (r) { if (!r.ok) return apiError(r); return r.json(); })
+      .then(function (st) { programStatus = st; renderMultiview(); loadProgramRow(); })
+      .catch(function (e) { programSay('Program feed: ' + (e && e.message ? e.message : 'could not save'), true); loadProgramRow(); });
+  }
+  function selectedProgram() { var o = programEls.select.selectedOptions[0]; return { input: programEls.select.value, kind: o && o.dataset.kind ? o.dataset.kind : null }; }
+  programEls.mode.addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('.seg-btn') : null; if (!b) return;
+    var live = b.dataset.program === 'live';
+    if (!live) { showProgramMode(false); saveProgram({ enabled: false }); return; }
+    showProgramMode(true);
+    var pick = selectedProgram();
+    if (pick.input) saveProgram({ enabled: true, input: pick.input, kind: pick.kind });
+    else programSay('Choose the capture device the switcher\'s program output is plugged into.');
+  });
+  programEls.select.addEventListener('change', function () {
+    var pick = selectedProgram();
+    if (programWantLive && pick.input) saveProgram({ enabled: true, input: pick.input, kind: pick.kind });
+  });
   el.menuSheetClose.addEventListener('click', closeSheet);
   // The controller screen: pairing steps and what the page currently sees. Same backdrop and close paths as the camera menu.
   el.padBtn.addEventListener('click', function () { closeSheet(); el.padSheet.hidden = false; el.sheetBack.hidden = false; });

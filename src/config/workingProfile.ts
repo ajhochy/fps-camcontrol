@@ -13,7 +13,7 @@ import { writeFileAtomic } from './atomicWrite';
  * Pure apart from the small file helpers; it does not import the config loader (the loader imports this).
  */
 
-export interface WorkingSlot { device: string; inputId?: number; camera?: string }
+export interface WorkingSlot { device: string; inputId?: number; camera?: string; zoom?: 'head' }
 
 export interface WorkingProfile {
   version: 1;
@@ -50,6 +50,7 @@ const plainSlots = (slots: WorkingSlot[]): WorkingSlot[] => slots.map((slot) => 
   const out: WorkingSlot = { device: slot.device };
   if (slot.inputId !== undefined && slot.inputId !== null) out.inputId = slot.inputId;
   if (slot.camera !== undefined && slot.camera !== null) out.camera = slot.camera;
+  if (slot.zoom === 'head') out.zoom = 'head';
   return out;
 });
 

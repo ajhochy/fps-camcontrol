@@ -10,6 +10,8 @@ export class FakeViscaCamera {
   private socket = dgram.createSocket('udp4');
   commands = 0;
   inquiries = 0;
+  /** Zoom drive commands received (81 01 04 07 ..), stops included. */
+  zoomCommands = 0;
 
   constructor(readonly port: number, readonly name: string) {}
 
@@ -42,6 +44,7 @@ export class FakeViscaCamera {
       else this.reply(rinfo, seq, [0x90, 0x50, 0x02, 0xFF]); // health probe and anything else
     } else if (p[1] === 0x01) { // command: acknowledge, then complete
       this.commands++;
+      if (p[2] === 0x04 && p[3] === 0x07) this.zoomCommands++;
       this.reply(rinfo, seq, [0x90, 0x41, 0xFF]);
       this.reply(rinfo, seq, [0x90, 0x51, 0xFF]);
     }

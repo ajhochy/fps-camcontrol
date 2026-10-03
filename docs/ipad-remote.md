@@ -80,6 +80,11 @@ Tap **Take control**, then:
 - **Joystick or arrows:** ☰ menu › Pan / tilt control swaps the joystick for four hold-to-move arrows (remembered on
   this iPad).
 - **Zoom + / − (far left):** hold to zoom the preview camera; works together with the joystick.
+- **Zoom lever:** ☰ menu › Zoom control swaps + / − for a lever in the same column (remembered on this iPad): drag up
+  to zoom in, down to zoom out; further from centre is faster (Slow / Normal / Fast at full throw). Letting go springs
+  it back to centre and stops the zoom at once. Works together with the joystick.
+- Zoom on a rig with a Sony camera drives the camera's own zoom through the Sony service; pan/tilt stays on the head;
+  set `zoom: head` on the slot to keep zooming the PTZ head.
 - **Speed:** Slow / Normal / Fast (touch only; the desk speed preset is separate).
 - **Camera menu (⋯):** aperture, shutter and ISO are sliders over the steps the camera reports (AUTO / AWB is a button
   beside the slider); white balance, focus mode and focus area are rows of buttons. A changed value is greyed until
@@ -95,6 +100,11 @@ Tap **Take control**, then:
   in / out (held), the three speeds, the four rig panes, Track. A mapped button is taken out of the frames sent to the
   desk, so it stops doing its desk job while the page is open. Sticks and triggers are not remapped. Saved per iPad.
 - **☰ menu (top right):** this iPad's name (what the desk shows as the owner of the seat).
+- **Open rig configs (☰ menu):** opens the desk app's Device Config tab (`/#rigs`) in a new tab to edit rigs /
+  presets from the iPad. The desk page honours `#status`, `#log`, `#rigs`, `#profiles`, `#controllers`.
+- **☰ menu › Program feed:** **Camera** (default) or **Live** — the PGM pane then shows the switcher's real program
+  output from the capture card on the CamControl Mac (labelled `Program · <camera>`); if the feed drops, the pane falls
+  back to the camera's picture with "Program feed offline — showing camera". Setup: `docs/program-feed.md`.
 - Messages (refusals, STOP, lost control) appear in the top bar's free space and never move the layout.
 - A controller on the same page wins while its sticks or buttons are being touched. The seat is kept alive by neutral
   frames, and every safety stop below applies unchanged.

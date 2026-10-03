@@ -89,6 +89,11 @@ check('one frame loop per Sony camera, shared by the big and small pane', fp.ids
 check('no loop for panes without a wanted picture', !fp.ids.includes('AA:04'));
 const same = model.framePlan(model.multiviewPlan(mvCams, { ...mvStatus, previewCamera: 'cam1' }, mvRigs));
 check('PVW and PGM on the same camera still fetch it once', same.ids.filter((i: string) => i === 'AA:01').length === 1 && same.users['AA:01'].length === 3);
+const live = model.multiviewPlan(mvCams, mvStatus, mvRigs, true);
+check('program feed live: only PGM is flagged; PVW and small panes are unchanged', live.pgm.programFeed === true && !live.pgm.programOffline && !live.pvw.programFeed && live.small.every((p: any) => !p.programFeed) && live.pgm.rigId === 'cam1');
+check('program feed live: PGM fetches no Sony picture, the small pane of that camera still does', model.framePlan(live).users['AA:01'].join() === 'cam1');
+const offline = model.multiviewPlan(mvCams, mvStatus, mvRigs, false);
+check('program feed offline: PGM keeps its Sony picture and is marked offline; off means neither flag', offline.pgm.programOffline === true && !offline.pgm.programFeed && model.framePlan(offline).users['AA:01'].join() === 'pgm,cam1' && !plan.pgm.programFeed && !plan.pgm.programOffline);
 check('layout: iPad landscape and phone on its side are wide, phone upright is tall', model.layoutFor(1180, 820) === 'wide' && model.layoutFor(812, 375) === 'wide' && model.layoutFor(375, 812) === 'tall' && model.layoutFor(820, 1180) === 'tall');
 check('frame delay: doubles on errors up to 4 s, resets after a good frame', model.nextFrameDelay(200, false) === 400 && model.nextFrameDelay(3000, false) === 4000 && model.nextFrameDelay(4000, true) === 200);
 
@@ -155,6 +160,11 @@ check('button names: RB is 5, D-pad left is 14, unknown bits still get a name', 
   check('a diagonal never exceeds the ring', Math.hypot(model.stickFrame(1, 1, 'fast', false).a[2], model.stickFrame(1, 1, 'fast', false).a[3]) <= 1.000001);
   check('a resting joystick sends nothing', !model.frameTouched(model.stickFrame(0.1, -0.1, 'fast', false)) && !model.frameTouched(model.stickFrame(NaN, 'x', 'fast', false)));
   check('the joystick on an on-air camera is gentler', model.stickFrame(1, 0, 'fast', true).a[2] === model.PGM_SPEED_FACTOR);
+  const lv = wire(model.leverFrame(-1, 'fast', false));
+  check('the zoom lever pushed fully up zooms in at the chosen speed', lv.triggers.rightTrigger === 1 && lv.triggers.leftTrigger === 0 && lv.axes.rightStickX === 0 && lv.axes.rightStickY === 0);
+  check('the zoom lever half down zooms out at half speed', model.leverFrame(0.5, 'fast', false).tr[0] === 0.5 && model.leverFrame(0.5, 'fast', false).tr[1] === 0);
+  check('a resting zoom lever sends nothing', !model.frameTouched(model.leverFrame(0.1, 'fast', false)) && !model.frameTouched(model.leverFrame(NaN, 'fast', false)));
+  check('the zoom lever on an on-air camera is gentler', model.leverFrame(-1, 'fast', true).tr[1] === model.PGM_SPEED_FACTOR);
   check('opposite arrows cancel', !model.frameTouched(model.arrowFrame(['left', 'right'], 'fast', false)) && !model.frameTouched(model.arrowFrame(['zoomIn', 'zoomOut'], 'fast', false)));
   const zi = wire(model.arrowFrame(['zoomIn'], 'normal', false)), zo = wire(model.arrowFrame(['zoomOut'], 'normal', false));
   check('zoom in is the right trigger, zoom out the left', zi.triggers.rightTrigger === 0.6 && zi.triggers.leftTrigger === 0 && zo.triggers.leftTrigger === 0.6 && zo.triggers.rightTrigger === 0);

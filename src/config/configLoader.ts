@@ -8,6 +8,7 @@ import * as YAML from 'yaml';
 import { z } from 'zod';
 import { writeFileAtomic } from './atomicWrite';
 import { getUserPath } from './paths';
+import { PROGRAM_DEFAULTS, ProgramConfig } from '../program/programFeed';
 import { TrackingSchema, TrackingConfig, collectTrackingIssues, resolveTrackingConfig } from '../tracking/configSchema';
 import { loadWorkingProfile, setAside as setAsideWorking, workingProfilePath, WorkingProfile } from './workingProfile';
 
@@ -60,6 +61,8 @@ const CameraSchema = z.object({
   bridge: BridgeSchema.optional(),
   // Key of the Sony camera device (protocol: sony) mounted on this rig, if any.
   camera: z.string().optional(),
+  // Zoom goes to the bound Sony camera when it is connected; `head` keeps zooming the PTZ head instead.
+  zoom: z.enum(['head']).optional(),
 }).superRefine((cam, ctx) => {
   if (cam.protocol === 'visca' && !cam.viscaIp) {
     ctx.addIssue({ code: 'custom', message: `camera ${cam.id}: viscaIp required when protocol=visca`, path: ['viscaIp'] });
@@ -128,6 +131,8 @@ const SlotSchema = z.object({
   inputId: OptionalInputId,
   // Key of the Sony camera device mounted on this rig (optional; BirdDog rigs have a built-in camera and take none).
   camera: z.string().optional(),
+  // `head`: zoom the PTZ head even when a Sony camera is bound (default: the Sony camera's own zoom).
+  zoom: z.enum(['head']).optional(),
 });
 
 const ProfileSchema = z.object({
@@ -188,6 +193,16 @@ export function collectRigIssues(
   return issues;
 }
 
+const ProgramSchema = z.object({
+  enabled: z.boolean().default(PROGRAM_DEFAULTS.enabled),
+  input: z.string().min(1).max(200).nullable().default(PROGRAM_DEFAULTS.input),
+  kind: z.enum(['avfoundation', 'decklink']).nullable().default(PROGRAM_DEFAULTS.kind),
+  formatCode: z.string().regex(/^[A-Za-z0-9]{2,4}$/).nullable().default(PROGRAM_DEFAULTS.formatCode),
+  fps: z.number().int().min(1).max(30).default(PROGRAM_DEFAULTS.fps),
+  width: z.number().int().min(160).max(1920).default(PROGRAM_DEFAULTS.width),
+  ffmpegPath: z.string().min(1).default(PROGRAM_DEFAULTS.ffmpegPath),
+}).strict();
+
 const DevicesSchema = z.object({
   atem: AtemSchema,
   // Legacy/direct form: an explicit camera list. Still supported so existing
@@ -204,6 +219,11 @@ const DevicesSchema = z.object({
   // Driving the cameras from an iPad with a game controller (/remote). Off unless switched on here or on the desk page.
   remoteControl: z.object({ enabled: z.boolean().default(false), pin: z.preprocess((v) => (typeof v === 'number' ? String(v) : v), z.string().regex(/^\d{4,8}$/, 'pin must be 4-8 digits (quote it in the YAML to keep leading zeros)')).optional() }).optional(),
   tracking: TrackingSchema.optional(),
+  // The switcher's PROGRAM output on a capture device of this Mac, shown in the iPad's PGM pane (docs/program-feed.md).
+  // enabled: off by default. input: the device NAME (exact, then case-insensitive substring; re-resolved at each start).
+  // kind: avfoundation (UVC cards) | decklink (Blackmagic); absent = decided from the device. formatCode: DeckLink mode
+  // (e.g. Hp30). fps / width: of the picture sent to the iPad. ffmpegPath: the ffmpeg binary.
+  program: ProgramSchema.optional(),
 }).superRefine((cfg, ctx) => {
   for (const issue of collectTrackingIssues(cfg.tracking, cfg.devices)) ctx.addIssue({ code:'custom', ...issue });
   if (cfg.profiles && cfg.devices) {
@@ -301,6 +321,8 @@ export interface AppConfig {
   /** iPad remote control (the /remote page): whether it starts switched on, and an optional PIN. */
   remoteControl?: { enabled: boolean; pin?: string };
   tracking?: TrackingConfig;
+  /** The live program feed for the iPad's PGM pane (loadConfig always fills it; off by default). */
+  program?: ProgramConfig;
   /** Unsaved rig edits of the active profile, applied on top of it (see workingProfile.ts). */
   working?: WorkingProfile;
   /** Something to tell the operator about the working copy (a draft that could not be restored, an outside edit). */
@@ -360,6 +382,7 @@ export function resolveProfile(
       speedScale: dev.speedScale,
       bridge: dev.bridge,
       camera: slot.camera,
+      zoom: slot.zoom,
     });
   });
 }
@@ -429,6 +452,7 @@ export function loadConfig(): AppConfig {
     serverHost: process.env.STATUS_HOST ?? devices.server?.host ?? '127.0.0.1',
     remoteControl: devices.remoteControl,
     tracking: resolveTrackingConfig(devices.tracking),
+    program: ProgramSchema.parse(devices.program ?? {}),
     working,
     workingNotice,
   };

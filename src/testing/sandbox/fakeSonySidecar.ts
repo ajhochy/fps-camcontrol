@@ -35,6 +35,8 @@ function makeProps(readOnlyAperture: boolean): Prop[] {
   const focusMode: Option[] = [['AF_C', 3], ['MF', 1]].map(([formatted, value]) => ({ value: value as number, hex: hex(value as number), formatted: formatted as string }));
   const focusArea: Option[] = [['Wide', 1], ['Zone', 2], ['Center', 3], ['Flexible Spot S', 4], ['Flexible Spot M', 5], ['Flexible Spot L', 6], ['Expand Flexible Spot', 7]]
     .map(([formatted, value]) => ({ value: value as number, hex: hex(value as number), formatted: formatted as string }));
+  const zoomSetting: Option[] = [['Optical Zoom Only', 1], ['Smart Zoom Only', 2], ['Clear Image Zoom', 3], ['Digital Zoom', 4]]
+    .map(([formatted, value]) => ({ value: value as number, hex: hex(value as number), formatted: formatted as string }));
   return [
     { name: 'aperture', options: readOnlyAperture ? [] : aperture, current: readOnlyAperture ? 160 : 800, writable: !readOnlyAperture },
     { name: 'shutter-speed', options: shutter, current: 0x10000 + 125, writable: true },
@@ -42,6 +44,7 @@ function makeProps(readOnlyAperture: boolean): Prop[] {
     { name: 'white-balance', options: wb, current: 0, writable: true },
     { name: 'focus-mode', options: focusMode, current: 3, writable: true },
     { name: 'focus-area', options: focusArea, current: 1, writable: true },
+    { name: 'zoom-setting', options: zoomSetting, current: 1, writable: true },
   ];
 }
 
@@ -56,6 +59,8 @@ export interface FakeSonyCameraSpec {
   readOnlyAperture?: boolean;
   /** battery-remain percent (0-100); 0xFFFF for "not taken". Defaults to 82. */
   battery?: number;
+  /** Answer actions/zoom with "not supported" (no power zoom, Clear Image Zoom off). The ILCE-7M4 always does. */
+  noZoom?: boolean;
 }
 
 interface FakeCamera extends Required<FakeSonyCameraSpec> {
@@ -63,6 +68,9 @@ interface FakeCamera extends Required<FakeSonyCameraSpec> {
   pairingOpen: boolean;
   props: Prop[];
   frames: number;
+  /** Last zoom speed received (-10..10, 0 = stopped) and how many zoom requests were accepted. */
+  zoomSpeed: number;
+  zoomCalls: number;
 }
 
 export class FakeSonySidecar {
@@ -84,8 +92,8 @@ export class FakeSonySidecar {
     this.connectDelayMs = options.connectDelayMs ?? 0;
     for (const spec of specs) {
       this.cameras.set(spec.id.toUpperCase(), {
-        powered: true, needsPairing: false, readOnlyAperture: false, battery: 82, ...spec, id: spec.id.toUpperCase(),
-        connected: false, pairingOpen: false, props: makeProps(!!spec.readOnlyAperture), frames: 0,
+        powered: true, needsPairing: false, readOnlyAperture: false, battery: 82, noZoom: false, ...spec, id: spec.id.toUpperCase(),
+        connected: false, pairingOpen: false, props: makeProps(!!spec.readOnlyAperture), frames: 0, zoomSpeed: 0, zoomCalls: 0,
       });
     }
     this.server = http.createServer((req, res) => { void this.handle(req, res); });
@@ -120,7 +128,7 @@ export class FakeSonySidecar {
     camera.battery = percent;
   }
   snapshot(): unknown {
-    return [...this.cameras.values()].map(({ id, model, powered, connected, needsPairing, pairingOpen, battery }) => ({ id, model, powered, connected, needsPairing, pairingOpen, battery }));
+    return [...this.cameras.values()].map(({ id, model, powered, connected, needsPairing, pairingOpen, battery, zoomSpeed, zoomCalls }) => ({ id, model, powered, connected, needsPairing, pairingOpen, battery, zoomSpeed, zoomCalls }));
   }
 
   private json(res: http.ServerResponse, status: number, body: unknown): void {
@@ -290,6 +298,14 @@ ${bars(['#0000bf', '#131313', '#bf00bf', '#131313', '#00bfbf', '#131313', '#bfbf
         const svg = this.frame(camera);
         res.writeHead(200, { 'content-type': 'image/svg+xml', 'content-length': Buffer.byteLength(svg), 'cache-control': 'no-store' });
         return void res.end(svg);
+      }
+      if (sub === 'actions/zoom' && method === 'POST') {
+        const { speed } = await this.readBody(req);
+        if (!Number.isInteger(speed) || speed < -10 || speed > 10) return this.json(res, 400, { success: false, message: 'speed must be an integer from -10 to 10', camera: this.info(camera) });
+        if (camera.noZoom || camera.model === 'ILCE-7M4') return this.json(res, 400, { success: false, message: 'Zoom operation not supported for this camera/lens', camera: this.info(camera) });
+        camera.zoomSpeed = speed;
+        camera.zoomCalls++;
+        return this.json(res, 200, { success: true, message: 'Zoom accepted', camera: this.info(camera) });
       }
       if ((sub === 'actions/touch' || sub === 'actions/touch-cancel') && method === 'POST') return this.json(res, 200, { success: true, message: 'Touch accepted', camera: this.info(camera) });
     }

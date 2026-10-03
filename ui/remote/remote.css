@@ -108,11 +108,11 @@ p { margin: 0; }
 .icon-btn { position: relative; width: var(--bar-h); height: var(--bar-h); padding: 0; display: inline-flex; align-items: center; justify-content: center; }
 .pad-dot { position: absolute; right: 5px; top: 5px; width: 8px; height: 8px; }
 .banner:not([hidden]) ~ #padBtn { margin-left: 0; }
-.pin-row { display: flex; align-items: center; justify-content: center; gap: 14px; padding: 12px var(--gap); background: var(--accent-dim); border-bottom: 1px solid var(--line); }
-.pin-row label { font-size: 17px; font-weight: 700; color: var(--accent); }
+.pin-row { display: flex; align-items: center; justify-content: center; gap: 14px; padding: 12px var(--gap); background: var(--panel); border-bottom: 1px solid var(--line); }
+.pin-row label { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
 .pin-row input {
-  width: 220px; min-height: 56px; padding: 0 16px; border-radius: var(--radius); border: 1px solid var(--line);
-  background: var(--black); color: var(--text); font-size: 28px; letter-spacing: 0.3em; -webkit-user-select: text; user-select: text;
+  width: 220px; min-height: 56px; padding: 0 16px; border-radius: var(--key-r); border: 1px solid var(--cap-edge);
+  background: var(--black); box-shadow: var(--bevel-in); color: var(--text); font-size: 28px; letter-spacing: 0.3em; -webkit-user-select: text; user-select: text;
 }
 
 /* ---- stage */
@@ -121,8 +121,8 @@ p { margin: 0; }
 /* Height for two 16:9 big panes over a 16:9 rig row at this width: (W-10)/2*9/16 + (W-30)/4*9/16 + gap. The column
    above the control bar may shrink it, in which case the panes letterbox a little rather than squeeze the bar. */
 #main { flex: 0 1 auto; display: flex; min-height: 0; padding: var(--gap) var(--gap) 0; height: calc((100vw - 2 * var(--gap) - 10px) * 0.28125 + (100vw - 2 * var(--gap) - 30px) * 0.140625 + 10px + var(--gap)); }
-#infoBar { display: flex; gap: 20px; min-height: 30px; padding: 6px var(--gap); font-size: 14px; }
-#controlInfo:not(:empty) { color: var(--accent); font-weight: 600; }
+#infoBar { display: flex; gap: 20px; min-height: 30px; padding: 6px var(--gap); font-size: 12px; }
+#controlInfo:not(:empty) { color: var(--text); font-weight: 600; }
 
 /* ---- multiview: PVW | PGM on top, rig panes four to a row below. Reads like a hardware multiviewer: a thin dark
    frame per pane, tally as a strip on the top edge, the name in a solid black label bar along the bottom. */
@@ -148,6 +148,8 @@ p { margin: 0; }
 .pane-note.check { color: var(--accent); }
 .pane-note.down { color: var(--bad); }
 .pane-small .pane-note { padding: 36px 8px 28px; }
+/* "Program feed offline — showing camera": over the foot of the camera's picture, never moving the layout. */
+.pane-note.feed-off { align-items: flex-end; padding-bottom: 12px; font-size: 12px; color: var(--accent); text-shadow: 0 1px 2px #000; }
 
 /* The head covers the pane (click-through) so the indicators can sit in the bottom bar while staying in its DOM;
    only Track + the menu remain at the top right. */
@@ -288,41 +290,52 @@ p { margin: 0; }
 .btn-transition.dim { background: var(--cap); color: var(--legend-dim); }
 .btn-stop { min-height: 0; background: var(--bad); color: var(--ink); font-size: 24px; letter-spacing: 0.04em; }
 
-/* ---- camera menu: a drawer from the right in landscape */
+/* ---- drawers (camera menu, controller, this iPad): another face of the same panel, from the right in landscape.
+   Rows read like a hardware menu strip: uppercase legend left, control right, a hairline between rows.
+   Option buttons are small keys (lit white = selected); read-only values sit in a recessed well. No amber here
+   except a check-level warning. */
 .sheet-back { position: fixed; inset: 0; z-index: 10; background: oklch(5% 0.01 240 / 0.6); }
 .sheet {
   position: fixed; z-index: 11; top: 0; right: 0; bottom: 0; width: min(460px, 100%); overflow-y: auto;
   padding: calc(16px + env(safe-area-inset-top)) calc(20px + env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom)) 20px;
-  background: var(--panel); border-left: 1px solid var(--line);
+  background: var(--panel); border-left: 1px solid var(--line); box-shadow: none;
 }
-.sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
-.sheet-head h2 { margin: 0 0 2px; font-size: 22px; }
-.sheet-rows { display: flex; flex-direction: column; gap: 12px; }
-.sheet-row { display: flex; align-items: center; gap: 12px; }
-.sheet-row label { flex: 0 0 120px; font-size: 15px; color: var(--muted); }
-.sheet-row select { flex: 1; min-width: 0; min-height: 52px; padding: 0 12px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--black); color: var(--text); font-size: 18px; }
+.sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.sheet-head h2 { margin: 0 0 4px; font-size: 18px; font-weight: 700; }
+.sheet-head h2 + * { font-size: 12px; font-weight: 600; }
+.sheet-rows { display: flex; flex-direction: column; }
+.sheet-row { display: flex; align-items: flex-start; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.sheet-row label { flex: 0 0 120px; padding-top: 16px; font-size: 12px; font-weight: 700; line-height: 1.3; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.sheet-row select { flex: 1; min-width: 0; min-height: 48px; padding: 0 12px; border-radius: var(--key-r); border: 1px solid var(--cap-edge); background: var(--black); color: var(--text); font-size: 15px; }
 .sheet-row select:disabled { opacity: 0.55; }
-.sheet-row .ro { flex: 1; min-height: 52px; display: flex; align-items: center; padding: 0 12px; border: 1px dashed var(--line); border-radius: var(--radius); font-size: 17px; color: var(--muted); }
+.sheet-row .ro { flex: 1; min-height: 48px; display: flex; align-items: center; padding: 0 12px; border: 1px solid var(--cap-edge); border-radius: var(--key-r); background: var(--black); box-shadow: var(--bevel-in); font-size: 15px; color: var(--muted); }
 .prop { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .prop-slider { display: flex; align-items: center; gap: 10px; }
-.prop-slider input { flex: 1; height: 44px; margin: 0; accent-color: var(--accent); touch-action: none; }
-.prop-value { flex: 0 0 72px; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; font-size: 17px; }
+.prop-value { flex: 0 0 72px; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; font-size: 15px; }
 .opt-row { display: flex; flex-wrap: wrap; gap: 6px; }
-.opt-btn { min-height: 44px; padding: 0 14px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--black); color: var(--text); font-size: 15px; font-weight: 600; }
-.opt-btn.on { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); box-shadow: inset 0 -3px 0 var(--accent); }
-.opt-btn.auto { letter-spacing: 0.06em; }
+/* The same key as .btn, smaller. */
+.opt-btn { min-height: 40px; padding: 0 14px; border: 1px solid var(--cap-edge); border-radius: var(--key-r); background: var(--cap); color: var(--text); box-shadow: var(--bevel); font-size: 14px; font-weight: 700; transition: filter 0.08s; }
+.opt-btn:active { box-shadow: var(--bevel-in); filter: brightness(0.78); }
+.opt-btn.on { background: var(--lit); color: var(--ink); }
+.opt-btn.auto { letter-spacing: 0.04em; }
 .prop.busy { opacity: 0.55; pointer-events: none; }
-.sheet-row { align-items: flex-start; }
-.sheet-row label { padding-top: 12px; }
-.speed-holder { flex: 1; display: flex; align-items: center; gap: 12px; min-height: 52px; }
-.speed-slider { flex: 1; height: 44px; margin: 0; accent-color: var(--accent); touch-action: none; }
-.speed-value { flex: 0 0 52px; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
-.steps { margin: 0 0 14px; padding-left: 22px; font-size: 16px; line-height: 1.45; }
+/* Faders: a 4 px recessed slot and a round off-white cap. Custom pseudo-elements because accent-color alone keeps
+   WebKit's own track on iPad. */
+.prop-slider input, .speed-slider { flex: 1; height: 44px; margin: 0; background: transparent; accent-color: var(--lit); touch-action: none; -webkit-appearance: none; appearance: none; }
+.prop-slider input::-webkit-slider-runnable-track, .speed-slider::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--panel-2); box-shadow: inset 0 0 0 1px var(--cap-edge); }
+.prop-slider input::-moz-range-track, .speed-slider::-moz-range-track { height: 4px; border-radius: 2px; background: var(--panel-2); box-shadow: inset 0 0 0 1px var(--cap-edge); }
+.prop-slider input::-webkit-slider-thumb, .speed-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 28px; height: 28px; margin-top: -12px; border-radius: 50%; border: 1px solid var(--cap-edge); background: var(--lit); }
+.prop-slider input::-moz-range-thumb, .speed-slider::-moz-range-thumb { box-sizing: border-box; width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--cap-edge); background: var(--lit); }
+.speed-holder { flex: 1; display: flex; align-items: center; gap: 12px; min-height: 48px; }
+.speed-value { flex: 0 0 52px; text-align: right; font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.steps { margin: 0 0 12px; padding-left: 22px; font-size: 15px; line-height: 1.45; }
 .steps li + li { margin-top: 10px; }
-.pad-status { font-size: 14px; font-weight: 600; }
-.sheet-row .name-btn { flex: 1; text-align: left; padding: 0 14px; min-height: 48px; }
-#menuSheet .small { margin-top: 10px; }
-.small { font-size: 13px; line-height: 1.4; }
+.pad-status { font-size: 12px; font-weight: 600; }
+.sheet-row .name-btn { flex: 1; min-height: 48px; padding: 0 14px; text-align: left; border: 1px solid var(--cap-edge); border-radius: var(--key-r); background: var(--cap); color: var(--text); box-shadow: var(--bevel); font-size: 15px; font-weight: 700; }
+.sheet-row .name-btn:active { box-shadow: var(--bevel-in); filter: brightness(0.78); }
+.sheet-row .key-link { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; flex: 1; min-height: 48px; }
+#menuSheet .small { margin-top: 12px; }
+.small { font-size: 13px; line-height: 1.4; color: var(--muted); }
 /* Map mode: every mappable control shows a grey frame (white when armed) and its binding tag. */
 /* Map mode lives in the top bar: the instruction in the message slot, Clear / Done beside the Bluetooth button. */
 .map-bar { display: inline-flex; gap: 6px; }
@@ -333,10 +346,10 @@ body.mapping [data-map].armed { outline: 2px solid var(--text); animation: lt-pu
 .map-tag { position: absolute; left: 50%; bottom: -10px; transform: translateX(-50%); z-index: 5; padding: 1px 6px; border-radius: 2px; background: var(--lit); color: var(--ink); font-size: 11px; font-weight: 700; letter-spacing: 0.04em; white-space: nowrap; pointer-events: none; }
 body:not(.mapping) .map-tag { opacity: 0.85; }
 .pane-small .map-tag { bottom: auto; top: 6px; left: auto; right: 56px; transform: none; }
-.map-list { margin-top: 10px; line-height: 1.5; }
+.map-list { margin-top: 10px; font-size: 13px; line-height: 1.5; color: var(--text); }
 #mapBar .btn-sm { min-height: 0; height: var(--bar-h); padding: 0 14px; font-size: 13px; }
-.sheet-status { min-height: 22px; margin-top: 14px; font-size: 15px; color: var(--muted); }
-.sheet-status.bad { color: var(--bad); }
+.sheet-status { min-height: 22px; margin-top: 12px; font-size: 13px; color: var(--muted); }
+.sheet-status.bad, #programNote.bad { color: var(--bad); }
 .lvl-ready { color: var(--ok); }
 .lvl-check { color: var(--accent); }
 .lvl-down { color: var(--bad); }
@@ -380,3 +393,24 @@ body:not(.mapping) .map-tag { opacity: 0.85; }
 }
 @media (max-width: 520px) { #rtt { display: none; } .status-chip { grid-template-columns: auto; } .rail-zoom { width: 44px; } .zoom-btn { font-size: 20px; }  .rail-left { min-width: 104px; } .rail-mid .seg { max-width: 84px; } .rail-mid .seg-btn { min-width: 0; font-size: 13px; } .stick { height: 120px; min-height: 120px; } .btn-transition { font-size: 15px; } .btn-stop { font-size: 15px; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
+
+/* ---- zoom lever (appended; the drawers agent owns the middle of the file) */
+/* A single-axis lever in the zoom column: a recessed slot with a centre tick and a bevelled cap that springs back.
+   Up = zoom in, down = zoom out. Held: the cap lights white like the selected speed key. */
+.lever {
+  position: relative; grid-row: 1 / -1; min-height: 0; border: 1px solid var(--cap-edge); border-radius: var(--key-r);
+  background: var(--well); box-shadow: var(--bevel-in);
+  touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+}
+.lever-track {
+  position: absolute; left: 50%; top: 10px; bottom: 10px; width: 6px; margin-left: -3px; border-radius: 1px; pointer-events: none;
+  background: var(--black); box-shadow: inset 0 1px 2px oklch(0% 0 0 / 0.8), inset 0 -1px 0 oklch(100% 0 0 / 0.06);
+}
+.lever-track::after { content: ''; position: absolute; left: -6px; right: -6px; top: 50%; height: 1px; background: var(--line); }
+.lever-knob {
+  position: absolute; left: 0; right: 0; top: 50%; width: min(56px, calc(100% - 8px)); height: 30px; margin: -15px auto 0; pointer-events: none;
+  border: 1px solid var(--cap-edge); border-radius: var(--key-r); background: var(--cap); box-shadow: var(--bevel), 0 3px 6px oklch(0% 0 0 / 0.55);
+}
+.lever-knob::after { content: ''; position: absolute; left: 25%; right: 25%; top: 50%; height: 2px; margin-top: -1px; background: oklch(0% 0 0 / 0.45); box-shadow: 0 1px 0 oklch(100% 0 0 / 0.12); }
+.lever.held .lever-knob { background: var(--lit); }
+.lever.dim .lever-knob { opacity: 0.45; }

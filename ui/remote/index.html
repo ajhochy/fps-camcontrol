@@ -67,6 +67,7 @@
       <div class="rail-zoom" aria-label="Zoom (preview camera)">
         <button id="zoomIn" class="btn zoom-btn" type="button" aria-label="Zoom in" data-map="zoomIn"><span aria-hidden="true">+</span></button>
         <button id="zoomOut" class="btn zoom-btn" type="button" aria-label="Zoom out" data-map="zoomOut"><span aria-hidden="true">−</span></button>
+        <div id="zoomLever" class="lever" aria-label="Zoom lever: up zooms in, down zooms out" hidden><div class="lever-track"></div><div id="zoomLeverKnob" class="lever-knob"></div></div>
       </div>
       <div class="rail-left">
         <button id="transitionBtn" class="btn btn-transition" type="button" aria-label="Transition: take preview to program" data-map="transition">TRANSITION<small>PVW → PGM</small></button>
@@ -126,8 +127,14 @@
       <button id="menuSheetClose" class="btn btn-sm" type="button">Done</button>
     </div>
     <div class="sheet-row"><label>Pan / tilt control</label><div id="driveMode" class="seg" role="group" aria-label="Pan/tilt control"><button type="button" class="seg-btn" data-drive="stick">Joystick</button><button type="button" class="seg-btn" data-drive="arrows">Arrows</button></div></div>
+    <div class="sheet-row"><label>Zoom control</label><div id="zoomMode" class="seg" role="group" aria-label="Zoom control"><button type="button" class="seg-btn" data-zoom="keys">+ / − keys</button><button type="button" class="seg-btn" data-zoom="lever">Lever</button></div></div>
+    <div class="sheet-row"><label>Program feed</label><div id="programMode" class="seg" role="group" aria-label="Program pane picture"><button type="button" class="seg-btn" data-program="camera">Camera</button><button type="button" class="seg-btn" data-program="live">Live</button></div></div>
+    <div id="programDeviceRow" class="sheet-row" hidden><label for="programDevice">Capture device</label><select id="programDevice"></select></div>
+    <p id="programNote" class="muted small">Camera: the PGM pane shows the program camera. Live: the switcher's program output from the capture card on the CamControl Mac.</p>
     <div class="sheet-row"><label for="nameBtn">Name shown on the desk</label><button id="nameBtn" class="name-btn" type="button">iPad</button></div>
     <p class="muted small">The desk shows this name as the owner of the seat while this iPad has control.</p>
+    <div class="sheet-row"><label>Desk</label><a id="rigConfigLink" class="btn btn-sm key-link" href="/#rigs" target="_blank" rel="noopener">Open rig configs</a></div>
+    <p class="muted small">Opens the desk app's Device Config in a new tab. Changes there apply to every operator.</p>
   </section>
 </div>
 

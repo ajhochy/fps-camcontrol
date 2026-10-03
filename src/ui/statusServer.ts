@@ -37,6 +37,7 @@ import { trackingFor, trackingRuntimeFor, TrackingHooks } from '../app/trackingH
 import { installTrackingRoutes, trackingSnapshot } from './trackingRoutes';
 import { resolveTrackingSources } from '../tracking/sourceResolver';
 import { installTrackingCalibrationRoutes } from './trackingCalibrationRoutes';
+import { installProgramRoutes, programFeedFor } from './programRoutes';
 
 export function createStatusServer(
   state: AppState,
@@ -78,11 +79,12 @@ export function createStatusServer(
     config.tracking = loadConfig().tracking;
   });
   installTrackingCalibrationRoutes(app, config, devices, getTracking);
+  installProgramRoutes(app, config, programFeedFor(config, state), (program) => commitConfigEdit(undefined, (raw) => ({ ...raw, program })), () => !!remoteHub?.enabled);
   // The rigs screen is plain JS/CSS files (not part of the page template) so they can be syntax-checked and
   // tested on their own. dist/ui and src/ui are both two levels below the repo root.
   app.use('/ui', express.static(path.join(__dirname, '../../ui'), { index: false, setHeaders: (res) => { res.setHeader('Cache-Control', 'no-cache'); } }));
 
-  const sonyProperties = new Set(['aperture', 'shutter-speed', 'iso', 'white-balance', 'focus-mode', 'focus-area']);
+  const sonyProperties = new Set(['aperture', 'shutter-speed', 'iso', 'white-balance', 'focus-mode', 'focus-area', 'zoom-setting']);
   const sony = (res: express.Response): SonyManager | null => {
     if (sonyManager) return sonyManager;
     res.status(503).json({ error: 'Sony service is not configured' }); return null;
@@ -1100,7 +1102,7 @@ export function createStatusServer(
     remoteHub?.revokeForStop();
     activityLog.setContext('Desk page', 'STOP', 'Emergency Stop');
     activityLog.addSystemEntry('Emergency Stop', 'All cameras stopped (STOP button)');
-    emergencyStopAll(state, config, atem, devices).catch((err) => logger.error({ err }, 'emergency stop error'));
+    emergencyStopAll(state, config, atem, devices, sonyManager ?? null).catch((err) => logger.error({ err }, 'emergency stop error'));
     res.json({ ok: true });
   });
 
@@ -2171,6 +2173,15 @@ function switchTab(name, btn) {
   btn.classList.add('active');
   btn.setAttribute('aria-selected', 'true');
 }
+
+// Deep link: /#rigs (etc.) opens that tab — the iPad remote's "Open rig configs" key uses it.
+function tabFromHash() {
+  var name = location.hash.slice(1);
+  var btn = document.getElementById('tab-btn-' + name);
+  if (btn && btn.classList.contains('tab-btn')) switchTab(name, btn);
+}
+tabFromHash();
+window.addEventListener('hashchange', tabFromHash);
 
 document.querySelector('.tab-bar').addEventListener('keydown', function(event) {
   if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight' && event.key !== 'Home' && event.key !== 'End') return;

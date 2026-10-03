@@ -145,8 +145,9 @@
 
   // ---- multiview: which camera is in which pane, the tags and health on each, one frame loop per Sony camera
 
-  var PROPERTY_NAMES = ['aperture', 'shutter-speed', 'iso', 'white-balance', 'focus-mode', 'focus-area'];
-  var PROPERTY_LABELS = { 'aperture': 'Aperture', 'shutter-speed': 'Shutter', 'iso': 'ISO', 'white-balance': 'White balance', 'focus-mode': 'Focus mode', 'focus-area': 'Focus area' };
+  // zoom-setting: Optical only / Smart / Clear Image / Digital — which zoom the camera's own zoom drive may use.
+  var PROPERTY_NAMES = ['aperture', 'shutter-speed', 'iso', 'white-balance', 'focus-mode', 'focus-area', 'zoom-setting'];
+  var PROPERTY_LABELS = { 'aperture': 'Aperture', 'shutter-speed': 'Shutter', 'iso': 'ISO', 'white-balance': 'White balance', 'focus-mode': 'Focus mode', 'focus-area': 'Focus area', 'zoom-setting': 'Zoom' };
 
   /** 'wide' (iPad landscape, phone on its side): PVW and PGM side by side; 'tall' (phone upright): stacked. */
   function layoutFor(width, height) { return width >= 700 && width > height * 1.1 ? 'wide' : 'tall'; }
@@ -225,12 +226,20 @@
   }
 
   /** { pvw, pgm, small:[one per rig in rig order] }. PVW = ATEM preview camera, PGM = program camera. */
-  function multiviewPlan(cameras, status, rigsPayload) {
+  /**
+   * `programLive` (the live program feed, docs/program-feed.md): true = its frames are arriving, so the PGM pane shows
+   * them (programFeed) and fetches no Sony picture; false = it is on but offline, so PGM keeps the camera's picture with
+   * a note (programOffline); null/undefined = off. Only PGM changes; PVW and the small panes keep their Sony views.
+   */
+  function multiviewPlan(cameras, status, rigsPayload, programLive) {
     var st = status || {};
     var small = (cameras || []).slice(0, 4).map(function (c) { return paneView(c.id, c.id, cameras, st, rigsPayload); });
+    var pgm = paneView('pgm', st.programCamera || null, cameras, st, rigsPayload);
+    pgm.programFeed = programLive === true;
+    pgm.programOffline = programLive === false;
     return {
       pvw: paneView('pvw', st.previewCamera || null, cameras, st, rigsPayload),
-      pgm: paneView('pgm', st.programCamera || null, cameras, st, rigsPayload),
+      pgm: pgm,
       small: small,
     };
   }
@@ -240,7 +249,7 @@
     var panes = [plan.pvw, plan.pgm].concat(plan.small || []);
     var ids = [], users = {};
     panes.forEach(function (p) {
-      if (!p || !p.wantsPicture || !p.sonyId) return;
+      if (!p || !p.wantsPicture || !p.sonyId || p.programFeed) return;
       if (!users[p.sonyId]) { users[p.sonyId] = []; ids.push(p.sonyId); }
       users[p.sonyId].push(p.key);
     });
@@ -388,6 +397,19 @@
     return f;
   }
 
+  /**
+   * Frame for the zoom lever: y is the lever's offset as a fraction of half its travel (up negative, like a stick).
+   * Up zooms in (right trigger), down zooms out (left trigger), proportional; a resting lever is neutral.
+   */
+  function leverFrame(y, speedName, onAirNow) {
+    var f = neutralFrame();
+    var ny = clamp(Number(y) || 0, -1, 1);
+    if (Math.abs(ny) < 0.15) return f;
+    var v = touchSpeed(speedName, onAirNow);
+    if (ny < 0) f.tr[1] = -ny * v; else f.tr[0] = ny * v;
+    return f;
+  }
+
   /** Is any control in the frame deflected or pressed? (The pad wins over touch while it is touched.) */
   function frameTouched(frame) {
     if (!frame) return false;
@@ -469,7 +491,7 @@
     batteryInfo: batteryInfo, sonyCameraEntry: sonyCameraEntry, paneIndicators: paneIndicators, batteryLevel: batteryLevel,
     SPEED_LEVELS: SPEED_LEVELS, SPEED_ORDER: SPEED_ORDER, DEFAULT_SPEED: DEFAULT_SPEED, PGM_SPEED_FACTOR: PGM_SPEED_FACTOR,
     PGM_UNLOCK_MS: PGM_UNLOCK_MS, MAX_HOLD_MS: MAX_HOLD_MS, ARROWS: ARROWS,
-    speedLevel: speedLevel, touchSpeed: touchSpeed, arrowFrame: arrowFrame, stickFrame: stickFrame, frameTouched: frameTouched, chooseFrame: chooseFrame,
+    speedLevel: speedLevel, touchSpeed: touchSpeed, arrowFrame: arrowFrame, stickFrame: stickFrame, leverFrame: leverFrame, frameTouched: frameTouched, chooseFrame: chooseFrame,
     paneControlCamera: paneControlCamera, onAir: onAir, pgmUnlockUntil: pgmUnlockUntil, pgmLocked: pgmLocked,
     pgmUnlockSeconds: pgmUnlockSeconds, pressExpired: pressExpired, arrowsView: arrowsView, pgmToggleText: pgmToggleText,
     transitionBlock: transitionBlock,

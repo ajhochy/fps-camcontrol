@@ -19,7 +19,7 @@ run('pnpm', ['build']);
 run(process.execPath, ['scripts/check-page-js.cjs']);
 if (level !== 'smoke') {
   for (const name of ['rigSchemaTest', 'rigsTest', 'rigEditTest', 'rigsUiModelTest',
-    'workingProfileTest', 'sonyConfigStoreTest', 'sonyManagerTest']) {
+    'workingProfileTest', 'sonyConfigStoreTest', 'sonyManagerTest', 'zoomTargetTest', 'programFeedTest']) {
     run(process.execPath, [`dist/testing/${name}.js`]);
   }
   const files = directory => fs.existsSync(directory) ? fs.readdirSync(directory, { withFileTypes: true })

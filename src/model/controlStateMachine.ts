@@ -13,6 +13,8 @@ import { emergencyStopAll } from '../safety/emergencyStop';
 import { ActivityLog } from '../app/activityLog';
 import { logger } from '../index';
 import { trackingFor } from '../app/trackingHooks';
+import { SonyZoom, ZoomTarget, sonyZoomSpeed, zoomTarget } from './zoomTarget';
+import { SonyRetryableError } from '../sony/sonyManager';
 
 const TRIGGER_DEADZONE = 0.05;
 const FACE_CAMERA_BUTTONS = ['X', 'A', 'B', 'Y'] as const;
@@ -28,6 +30,10 @@ const GIMBAL_MIN_SEND_MS = 50;    // ceiling of ~20 commands/sec per gimbal
 // arriving for that long the gimbal is auto-stopped, so too slow a heartbeat
 // would make a held stick stutter to a halt.
 const GIMBAL_HEARTBEAT_MS = 150;
+// Sony zoom goes over HTTP to the sidecar: at most 5 sends/s, on change only (the camera holds a speed until told 0).
+const SONY_ZOOM_MIN_SEND_MS = 200;
+// After the Sony camera refuses zoom (no power zoom, Clear Image Zoom off), zoom the head for this long, then retry.
+const SONY_ZOOM_FALLBACK_MS = 30000;
 
 /**
  * Whether a motion frame should go out on this tick.
@@ -87,7 +93,11 @@ export class ControlStateMachine {
   private wasMovingPT = false;
   private wasMovingZoom = false;
   private lastPanTilt = new Map<CameraId, LastSent>();
-  private lastZoom = new Map<CameraId, { speed: number; ts: number }>();
+  private lastZoom = new Map<CameraId, { speed: number; ts: number; to: ZoomTarget['kind'] }>();
+  // The Sony camera currently told to zoom (non-zero), so every stop path can tell it 0.
+  private sonyZooming: { cameraId: CameraId; sonyId: string } | null = null;
+  // Sony camera id -> until when its zoom falls back to the head (it refused or failed).
+  private sonyZoomUnsupported = new Map<string, number>();
   private activityLog: ActivityLog | null;
   // Who is driving, for the activity log ('iPad: Front'); null = the desk controller's profile name.
   private sourceLabel: string | null = null;
@@ -100,7 +110,8 @@ export class ControlStateMachine {
     private config: AppConfig,
     private atem: AtemClient,
     private devices: Map<CameraId, MotionDevice>,
-    activityLog: ActivityLog | null = null
+    activityLog: ActivityLog | null = null,
+    private sony: SonyZoom | null = null
   ) {
     this.activityLog = activityLog;
     this.cameraSelector = new CameraSelector(state, config.cameras, atem, devices);
@@ -188,6 +199,7 @@ export class ControlStateMachine {
         device.setZoom(0);
       }
     }
+    this.stopSonyZoom();
     this.wasMovingPT = false;
     this.wasMovingZoom = false;
     this.lastPanTilt.clear();
@@ -209,6 +221,7 @@ export class ControlStateMachine {
         if (tracking) tracking.ledger.stop(currentDevice); else currentDevice.stop();
         currentDevice.setZoom(0);
       }
+      this.stopSonyZoom();
       this.wasMovingPT = false;
       this.wasMovingZoom = false;
       this.lastPanTilt.clear();
@@ -230,6 +243,8 @@ export class ControlStateMachine {
     }
 
     const device = this.devices.get(this.state.controlledCamera);
+    // The controlled camera changed (stick, face button, iPad tap) while a Sony camera was zooming: stop it.
+    if (this.sonyZooming && this.sonyZooming.cameraId !== this.state.controlledCamera) this.stopSonyZoom();
     const rightX = applyDeadzone(input.axes.rightStickX ?? 0);
     const rightY = applyDeadzone(input.axes.rightStickY ?? 0);
     const rightTrigger = input.triggers.rightTrigger ?? 0;
@@ -271,16 +286,30 @@ export class ControlStateMachine {
         this.activityLog?.setContext(controller, zoomAxis > 0 ? 'Right Trigger' : 'Left Trigger', zoomAxis > 0 ? 'Zoom In' : 'Zoom Out');
       } else if (!movingZoom && this.wasMovingZoom) {
         this.activityLog?.setContext(controller, 'Triggers', 'Zoom Stop');
-        device.setZoom(0);
+        if (this.lastZoom.get(cameraId)?.to === 'sony') this.stopSonyZoom(); else device.setZoom(0);
         this.lastZoom.delete(cameraId);
       }
       if (movingZoom) {
         const speed = this.getEffectiveSpeed(zoomAxis);
-        const last = this.lastZoom.get(cameraId);
-        const changed = !last || Math.abs(speed - last.speed) > 0.05 || Math.sign(speed) !== Math.sign(last.speed);
-        if (shouldSendMotion(device.protocol, changed, last?.ts, now)) {
-          device.setZoom(speed);
-          this.lastZoom.set(cameraId, { speed, ts: now });
+        const target = this.zoomTargetFor(cameraId);
+        let last = this.lastZoom.get(cameraId);
+        if (last && last.to !== target.kind) {
+          // The target changed mid-zoom (the Sony camera dropped or refused): stop whichever was zooming.
+          if (last.to === 'sony') this.stopSonyZoom(); else device.setZoom(0);
+          last = undefined;
+        }
+        if (target.kind === 'sony') {
+          const n = sonyZoomSpeed(speed);
+          if (!last || (n !== last.speed && now - last.ts >= SONY_ZOOM_MIN_SEND_MS)) {
+            this.sendSonyZoom(cameraId, target.sonyId, n);
+            this.lastZoom.set(cameraId, { speed: n, ts: now, to: 'sony' });
+          }
+        } else {
+          const changed = !last || Math.abs(speed - last.speed) > 0.05 || Math.sign(speed) !== Math.sign(last.speed);
+          if (shouldSendMotion(device.protocol, changed, last?.ts, now)) {
+            device.setZoom(speed);
+            this.lastZoom.set(cameraId, { speed, ts: now, to: 'head' });
+          }
         }
       }
     }
@@ -357,9 +386,32 @@ export class ControlStateMachine {
     if (risingEdge('back', input.buttons.back ?? false, this.edgeState)) {
       this.activityLog?.setContext(controller, INPUT_LABELS.back, 'Emergency Stop');
       this.activityLog?.addSystemEntry('Emergency Stop', 'All cameras stopped, PTZ halted');
-      emergencyStopAll(this.state, this.config, this.atem, this.devices)
+      emergencyStopAll(this.state, this.config, this.atem, this.devices, this.sony)
         .catch(err => logger.error({ err }, 'emergency stop error'));
     }
+  }
+
+  private zoomTargetFor(cameraId: CameraId): ZoomTarget {
+    const target = zoomTarget(cameraId, this.config, this.sony);
+    if (target.kind === 'sony' && (this.sonyZoomUnsupported.get(target.sonyId) ?? 0) > Date.now()) return { kind: 'head' };
+    return target;
+  }
+
+  /** Fire and forget: a failure never reaches the input loop; a refusal sends zoom to the head for a while. */
+  private sendSonyZoom(cameraId: CameraId, sonyId: string, speed: number): void {
+    if (!this.sony) return;
+    this.sonyZooming = speed === 0 ? null : { cameraId, sonyId };
+    this.sony.zoom(sonyId, speed).catch((err) => {
+      if (err instanceof SonyRetryableError) return; // busy lane: the next change or the stop gets through
+      if (this.sonyZooming?.sonyId === sonyId) this.sonyZooming = null;
+      if ((this.sonyZoomUnsupported.get(sonyId) ?? 0) > Date.now()) return; // already logged
+      this.sonyZoomUnsupported.set(sonyId, Date.now() + SONY_ZOOM_FALLBACK_MS);
+      logger.warn({ err, sonyId }, 'Sony zoom failed: zooming the PTZ head instead for 30 s');
+    });
+  }
+
+  private stopSonyZoom(): void {
+    if (this.sonyZooming) this.sendSonyZoom(this.sonyZooming.cameraId, this.sonyZooming.sonyId, 0);
   }
 
   private getEffectiveSpeed(raw: number): number {

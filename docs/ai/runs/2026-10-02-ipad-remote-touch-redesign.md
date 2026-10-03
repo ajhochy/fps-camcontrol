@@ -94,3 +94,20 @@ Audit scored 12/20; the main finding was drift from `.impeccable.md` (pills, gla
   plus a slash. Bars are now built inline. DJI rigs always get the gimbal-battery slot. Top-left cells are icons + lights.
 - Workflow from here (user's request): each feedback item goes to a subagent in its own worktree; merge, user approves,
   squash to one commit, remove the worktree.
+- Sony zoom: on a rig with a bound, connected Sony camera, zoom (triggers / iPad zoom buttons) goes to the camera
+  (`SonyManager.zoom` → `POST actions/zoom {speed: -10..10}`) instead of the head; pan/tilt stays on the head. Routing is
+  `zoomTarget()` in `src/model/zoomTarget.ts`; `zoom: head` on a slot opts out. 0 is sent on release, camera switch,
+  seat handover, stale input and emergency stop; a refusal falls back to the head for 30 s (logged once). Fake sidecar
+  answers `actions/zoom` and lists `zoom-setting`; sandbox ports are overridable (`SANDBOX_SONY_PORT`,
+  `SANDBOX_VISCA_BASE`, `SANDBOX_DJI_BASE`). Tests: `zoomTargetTest`, 4 sandbox checks (243/243).
+- `zoom-setting` is allowed through `/api/sony/cameras/:id/properties/` and shown in the iPad camera menu as a "Zoom"
+  button row (Optical only / Smart / Clear Image / Digital). Desk page list (`SONY_PROPERTIES`) left as is.
+- ☰ menu › Desk › "Open rig configs" links to `/#rigs`; the desk page now selects a tab from `location.hash` (load +
+  `hashchange`). Sandbox: remote markup check extended, +1 check for the desk hash handling.
+- Live program feed (opt-in, PGM pane only): `src/program/programFeed.ts` supervises one ffmpeg (AVFoundation for UVC
+  cards, DeckLink for the rack's UltraStudio Recorder 3G; device matched by name at each start; lazy start, 15 s idle
+  stop, 1→30 s back-off, killed on exit; DeckLink-less ffmpeg = fixed status error, no restart loop). Routes in
+  `src/ui/programRoutes.ts` (`/api/program/{status,devices,formats,frame}`, `PUT /api/program`, iPad writes gated by
+  remote control). Config `program:` block. iPad ☰ menu row Camera | Live + device select; `multiviewPlan(..., programLive)`
+  flags `pgm.programFeed` / `programOffline`. Sandbox `CAMCONTROL_FAKE_PROGRAM=1` draws an SVG with the lower third.
+  Tests: `programFeedTest`, 3 model checks, 9 sandbox checks (252/252). Docs: `docs/program-feed.md`.

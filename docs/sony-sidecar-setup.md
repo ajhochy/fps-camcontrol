@@ -88,6 +88,18 @@ profiles:
 
 These entries can be edited in the YAML file or through the API (the rigs screen in `docs/ai/plans/2026-09-30-device-config-rigs-ui.md` will use the same calls): `POST /api/sony-devices` (create: `{label, sonyCameraId?}`), `PATCH /api/sony-devices/:key` (`{label?, sonyCameraId?}`; `null` unbinds), `DELETE /api/sony-devices/:key` (refused with 409 while a rig in any profile uses it), and `PATCH /api/rigs/:key` with `{camera: "<sony device key>" | null}` to put a camera on a rig. Every edit is validated against the rules above before anything is written, keeps the file's comments, and is applied to the running app immediately.
 
+## Zoom
+
+On a rig with a bound, connected Sony camera, the controller's triggers and the iPad's zoom buttons drive the
+camera's own zoom: CamControl sends `POST /api/cameras/:id/actions/zoom` with `{"speed": n}` (-10 wide … 10 tele,
+0 stops), at most 5 times a second, and 0 on release, camera switch, seat handover and STOP. Pan/tilt stays on the
+head. Set `zoom: head` on the rig's slot to zoom the PTZ head instead.
+
+The body must be able to zoom: a power-zoom lens, or **Clear Image Zoom** / **Digital Zoom** enabled on the camera
+(the `zoom-setting` property: Optical Zoom Only / Smart Zoom Only / Clear Image Zoom / Digital Zoom). Otherwise the
+sidecar answers "Zoom operation not supported for this camera/lens"; CamControl logs it once and zooms the head for
+the next 30 s, then tries the camera again.
+
 ## Camera-specific notes
 
 - **a7S III (ILCE-7SM3):** reconnects on its own after a power cycle once it has been approved.

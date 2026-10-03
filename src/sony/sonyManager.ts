@@ -919,6 +919,27 @@ export class SonyManager {
     }, READ_TIMEOUT_MS));
   }
 
+  /**
+   * Drive the camera's own zoom (power zoom, or Clear Image / Digital Zoom on the body): -10 (wide) .. 10 (tele), 0 stops.
+   * The sidecar answers success:false when the body/lens cannot zoom; that is thrown so the caller can fall back.
+   */
+  async zoom(id: string, speed: number): Promise<unknown> {
+    if (typeof speed !== 'number' || !Number.isFinite(speed)) throw new Error('Sony zoom speed must be a finite number');
+    const value = Math.max(-10, Math.min(10, Math.round(speed)));
+    // A stop must not be lost as "busy": let the zoom still in flight finish, then send it.
+    if (value === 0) await this.lanes.get(id);
+    const body: any = await this.operation(id, () => this.request(`${this.cameraPath(id)}/actions/zoom`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ speed: value }),
+    }, LINK_CHECK_TIMEOUT_MS));
+    if (body?.success === false) throw new Error(String(body.message ?? 'Sony zoom refused'));
+    return body;
+  }
+
+  /** Whether the camera is connected right now (the zoom router asks before sending zoom to it). */
+  connected(id: string): boolean {
+    return this.cameras.get(id)?.state === 'connected';
+  }
+
   /** Encoded for upstream safety, but the sidecar's literal colons survive. */
   cameraPath(id: string): string {
     this.assertId(id);

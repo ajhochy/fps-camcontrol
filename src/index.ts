@@ -92,7 +92,7 @@ export async function startApplication(
   const profiles = loadProfiles(profilesDir);
 
   const presetManager = new PresetManager(state, config, devices);
-  const machine = new ControlStateMachine(state, config, atem, devices, activityLog);
+  const machine = new ControlStateMachine(state, config, atem, devices, activityLog, sonyManager);
 
   // The desk controller and (once the remote hub is wired) an iPad both feed the machine through the arbiter:
   // one owner at a time, the desk always wins, and every handover stops the camera first.
@@ -185,7 +185,7 @@ export async function startApplication(
   // iPad remote control (off unless config remoteControl.enabled or the desk page switches it on).
   const remoteHub = new RemoteControlHub({
     state, config, arbiter, activityLog, pin: config.remoteControl?.pin ?? null,
-    emergencyStop: () => emergencyStopAll(state, config, atem, devices),
+    emergencyStop: () => emergencyStopAll(state, config, atem, devices, sonyManager),
     selectCamera: (id, who, movePreview) => machine.selectCameraById(id, who, movePreview),
     setPreview: (id, who) => machine.previewCameraById(id, who),
     transition: (who) => machine.takePreviewLive(who),

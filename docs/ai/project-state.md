@@ -24,16 +24,19 @@ direction/gain/killed-app-stops-head checks are MANUAL_PENDING. Calibration stay
 `integration/combine-open-prs` (draft, not to be merged without review and the manual hardware checks of each
 source PR). Merge order: #36, #59, #57, #58 (`git merge --no-ff`).
 
-## iPad remote page redesign (2026-10-02, branch `feat/ipad-remote-touch-redesign` off the integration branch)
-Landscape-iPad page in the `.impeccable.md` hardware-panel look (amber accent, OKLCH tokens, 3 px radii, no glass).
-Top bar: connection cell, owner cell (fixed widths), Take control / Release, inline message slot (never reflows),
-Bluetooth button with status light → controller drawer, iPad name. Multiview: 16:9 PVW | PGM over four 16:9 rig
-panes (`#main` height from viewport width). Bottom bar: TRANSITION over STOP left, Slow/Normal/Fast middle,
-proportional joystick (preview camera only) right — same order in portrait/phone. No on-pane arrows, no PGM moves
-from touch. Camera menu (⋯) has a **Track speed** slider → `PUT /api/tracking/sources/:id/speed`, saved as
-`tracking.speeds.<device>` and applied live. Sandbox (`pnpm sandbox`) is demo-ready: fake ATEM in memory
-(`CAMCONTROL_FAKE_ATEM=1`), Sony cameras connected, remote on, 16:9 demo scene. Not yet seen on a real iPad.
-Details per pass: `docs/ai/runs/2026-10-02-ipad-remote-touch-redesign.md`.
+## iPad remote page redesign (2026-10-02/03, branch `feat/ipad-remote-touch-redesign` off `integration/combine-open-prs` @ ac17a1e)
+Hardware-panel look (bevelled backlit keys, LED status cluster, tally-strip multiview with centred labels and head /
+battery icons, knob joystick, panel-face drawers). Controls: joystick or arrows (☰), zoom keys or spring-back lever (☰),
+TRANSITION / LOWER THIRD (green on air) / STOP, speed keys, Ableton-style controller button mapping (Bluetooth drawer),
+camera menu with sliders / key rows + Track speed + Zoom setting, ☰ › Open rig configs (desk `/#rigs`). Backend: zoom on a
+rig with a connected Sony drives the Sony camera's own zoom (`src/model/zoomTarget.ts`, `zoom: head` opt-out), remote
+`lowerThirds` message, `tracking.speeds`, and the opt-in live PROGRAM feed (`src/program/programFeed.ts`, ffmpeg
+AVFoundation or DeckLink → MJPEG; `program:` block; `/api/program/*`; fake in the sandbox). Sandbox is demo-ready
+(fake ATEM, SMPTE frame, fake program) and its fake ports are env-overridable. Gate: `pnpm sandbox:check` 253/253.
+**Deploy target:** Mac Studio `~/Developer/fps-camcontrol-live` (launchd `com.fpscamcontrol.app`, node
+`~/.hermes/node/bin/node`, config in `config/` with uncommitted rig edits + ignored `sony-cameras.json` — never overwrite).
+Open on the show machine: ffmpeg with DeckLink support for the UltraStudio Recorder 3G (see `docs/program-feed.md`), real
+Sony zoom / zoom-setting on a body, custom sliders on iPad Safari. Per-pass detail: `docs/ai/runs/2026-10-02-ipad-remote-touch-redesign.md`.
 
 ## Electron line — state as recorded on PR #58 (codex/electron-tracking, stacked on #57)
 
