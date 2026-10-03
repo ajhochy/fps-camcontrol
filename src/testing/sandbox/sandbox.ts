@@ -82,11 +82,22 @@ async function startFakes(scanDelayMs: number): Promise<{ sony: FakeSonySidecar;
   };
 }
 
-function startApp(): ChildProcess {
+function startApp(extra: NodeJS.ProcessEnv = {}): ChildProcess {
   const logFile = fs.openSync(path.join(runDir, 'app.log'), 'a');
   return spawn(process.execPath, [path.join(root, 'dist', 'index.js')], {
-    cwd: root, env: sandboxEnv(), stdio: ['ignore', logFile, logFile],
+    cwd: root, env: sandboxEnv(extra), stdio: ['ignore', logFile, logFile],
   });
+}
+
+// `pnpm sandbox` (interactive): a show that is already set up. The fake ATEM is in memory, the two powered Sony
+// cameras are approved and connected (the FX3A's pairing opened first), remote control is on so an iPad page can
+// take control at once. The self-test does none of this: it checks every one of those steps itself.
+async function makeDemoReady(base: string): Promise<void> {
+  const post = (url: string, body?: unknown) => fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) }).catch(() => undefined);
+  await post(`http://127.0.0.1:${SONY_PORT}/__sandbox/cameras/AA:00:00:00:00:02/pairing`, { open: true });
+  await waitFor('the Sony cameras to be discovered', async () => (((await (await fetch(`${base}/api/sony/cameras`)).json()) as { cameras?: unknown[] }).cameras?.length ?? 0) >= 2, 30000).catch(() => undefined);
+  for (const camera of CAMERAS.filter((c) => c.powered)) await post(`${base}/api/sony/cameras/${encodeURIComponent(camera.id)}/connect`);
+  await post(`${base}/api/remote/enabled`, { enabled: true });
 }
 
 async function waitFor<T>(label: string, read: () => Promise<T | undefined | false | null>, timeoutMs = 30000, intervalMs = 400): Promise<T> {
@@ -849,11 +860,13 @@ async function run(): Promise<void> {
   prepareRunDir();
   const scanDelay = Number(process.env.SANDBOX_SCAN_DELAY_MS ?? 0);
   const fakes = await startFakes(scanDelay);
-  const app = startApp();
+  const app = startApp({ CAMCONTROL_FAKE_ATEM: '1' });
   const base = `http://127.0.0.1:${APP_PORT}`;
   await waitFor('the sandbox app', async () => (await fetch(`${base}/api/status`)).ok, 40000).catch(() => undefined);
+  await makeDemoReady(base);
   console.log(`
 Sandbox running (the live app and your config are untouched)
+  Fake ATEM in memory, Sony cameras connected, remote control on: http://127.0.0.1:${APP_PORT}/remote is ready to drive.
 
   App            ${base}
   Fake Sony      http://127.0.0.1:${SONY_PORT}   (control API under /__sandbox)

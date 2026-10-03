@@ -5,6 +5,7 @@ deliberately broken **without touching the live app, `config/`, the real ATEM, c
 
 ```bash
 pnpm sandbox              # run it; open http://127.0.0.1:8090; Ctrl+C stops everything
+                          # demo-ready: fake ATEM in memory (CAMCONTROL_FAKE_ATEM=1), Sony cameras connected, remote control on
 pnpm sandbox:check        # start it, exercise Sony connect / pairing / power-off / reconnect, stop; exit 0 or 1
 pnpm test:smoke:isolated  # the full smoke suite against sandbox config, while the live app keeps running
 ```

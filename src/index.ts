@@ -10,6 +10,7 @@ import { loadConfig } from './config/configLoader';
 import { getResourcePath } from './config/paths';
 import { createInitialState, AppState, CameraId, trackDeviceLinkState } from './app/state';
 import { AtemClient } from './atem/atemClient';
+import { FakeAtemClient } from './atem/fakeAtemClient';
 import { MotionDevice } from './devices/motionDevice';
 import { createMotionDevice } from './devices/deviceFactory';
 import { loadProfiles } from './input/profileDetector';
@@ -65,7 +66,7 @@ export async function startApplication(
   sonyManager.start();
 
   // Step 1: Connect to ATEM
-  const atem = new AtemClient(config.atem.ip);
+  const atem = process.env.CAMCONTROL_FAKE_ATEM === '1' ? new FakeAtemClient(config.atem.ip) : new AtemClient(config.atem.ip);
   atem.setActivityLog(activityLog);
   const connectAtem = (controlsPaused ? Promise.resolve() : atem.connect()).catch(err => {
     logger.warn({ err }, 'ATEM initial connection failed, will retry in background');
