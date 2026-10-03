@@ -31,3 +31,15 @@ index: "[[fps-camcontrol]]"
 - A right-hand control rail was tried first; the user rejected it (squashed the multiview). Replaced with a bottom bar.
 - Self-test and the running sandbox cannot coexist (fixed VISCA port 52391) — stop the preview before `sandbox:check`.
 - Not yet seen on a real iPad; Safari safe-area and `backdrop-filter` behaviour are the main things to eyeball.
+
+## Second pass — `/impeccable:audit` fixes (same day)
+Audit scored 12/20; the main finding was drift from `.impeccable.md` (pills, glass, soft radii, blue accent).
+- `remote.css`: OKLCH tokens, amber `--accent` (status-LED) for seat/selection/held arrows/TRANSITION, state surfaces via
+  `color-mix`, 3 px radii, pills → bordered panel cells with uppercase labels, solid `--plate` instead of `backdrop-filter`,
+  no `#000`/`#fff`, no glow shadows, `:focus-visible`, `prefers-reduced-motion`, TRANSITION dim as a solid muted state,
+  PGM header wraps ≤1100 px. Disabled Track / menu buttons stay legible (muted text) instead of 30 % opacity — the user
+  had read the faded Track button as missing.
+- `index.html`: `#banner` gets `role="status" aria-live="polite"`.
+- `remote.js`: small panes are `role="button"`, focusable, Enter/Space select, `aria-label` "Select <rig> (tags)".
+- Skipped: a condensed web font (network dependency in an offline booth; system font kept).
+- `pnpm sandbox:check` 239/239 after the final edit.

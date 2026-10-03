@@ -329,7 +329,12 @@
     if (big) buildTrackBar(n, pic, head);
     menu.addEventListener('click', function (e) { e.stopPropagation(); var pane = paneFor(key); if (pane) openSheet(pane); });
     if (big) img.addEventListener('pointerup', function (e) { onBigTap(n, e); });
-    else root.addEventListener('click', function () { var pane = paneFor(key); if (pane && pane.rigId) onSmallTap(pane); });
+    else {
+      // A small pane is a button: tap, or focus it and press Enter / Space (iPad with a keyboard, VoiceOver).
+      root.tabIndex = 0; root.setAttribute('role', 'button');
+      root.addEventListener('click', function () { var pane = paneFor(key); if (pane && pane.rigId) onSmallTap(pane); });
+      root.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); root.click(); } });
+    }
     nodes[key] = n;
     return n;
   }
@@ -357,6 +362,7 @@
     n.foot.textContent = pane.healthText;
     n.foot.className = 'pane-foot ' + (pane.healthLevel || '');
     n.root.classList.toggle('controlled', pane.tags.indexOf('CTL') >= 0);
+    if (!n.big) n.root.setAttribute('aria-label', (pane.rigId ? 'Select ' + pane.label : 'Empty rig') + (pane.tags.length ? ' (' + pane.tags.join(', ') + ')' : ''));
   }
 
   // The picture (or the reason there is none) for one pane, from the shared frame of its Sony camera.
