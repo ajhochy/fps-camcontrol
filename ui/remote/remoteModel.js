@@ -172,6 +172,48 @@
     };
   }
 
+  function batteryLevel(pct) { return pct === null ? 'off' : pct < 10 ? 'bad' : pct < 20 ? 'warn' : 'ok'; }
+
+  /**
+   * The icons in a pane's header, in order: the head (gimbal / PTZ) link with signal bars, the head battery when the
+   * gimbal reports one, the Sony camera's battery (or a red camera with crossed bars when it is not connected).
+   * Link colours follow the desk's rules (statusServer linkStatus): bridge offline / not answering = bad, gimbal off,
+   * not moving or weak signal = warn, poor signal = bad, linked = ok. Batteries: under 20 % warn, under 10 % bad.
+   * [{ kind: 'head'|'headBattery'|'cam'|'camOff', level, bars?, percent?, text }]
+   */
+  function paneIndicators(rigId, rigsPayload, status, sonyStatus) {
+    var st = status || {}, out = [];
+    var rig = null, rigs = (rigsPayload && rigsPayload.rigs) || [];
+    for (var i = 0; i < rigs.length; i++) if (rigs[i].id === rigId) rig = rigs[i];
+    if (!rig) return out;
+    var get = function (map) { return map && Object.prototype.hasOwnProperty.call(map, rigId) ? map[rigId] : undefined; };
+    if (rig.protocol === 'visca') {
+      var connected = get(st.cameraConnected) === true, answering = get(st.cameraAnswering) === true;
+      out.push(connected && answering ? { kind: 'head', level: 'ok', bars: 3, text: 'Head answering' }
+        : connected ? { kind: 'head', level: 'bad', bars: 1, text: 'Head not answering' }
+        : { kind: 'head', level: 'bad', bars: 0, text: 'No VISCA link' });
+    } else if (rig.protocol === 'dji-bridge') {
+      var sig = get(st.cameraGimbalSignal), weak = !!(sig && sig.rating !== 'good');
+      if (get(st.cameraBridgeReachable) !== true) out.push({ kind: 'head', level: 'bad', bars: 0, text: 'Bridge offline' });
+      else if (get(st.cameraGimbalAttached) !== true) out.push(weak && sig.drops10m ? { kind: 'head', level: 'bad', bars: 0, text: 'Signal lost' } : { kind: 'head', level: 'warn', bars: 0, text: 'Gimbal off' });
+      else if (get(st.cameraGimbalResponding) === false) out.push({ kind: 'head', level: 'warn', bars: weak ? 2 : 3, text: 'Gimbal not moving' });
+      else if (weak) out.push(sig.rating === 'poor' ? { kind: 'head', level: 'bad', bars: 1, text: 'Poor signal' } : { kind: 'head', level: 'warn', bars: 2, text: 'Weak signal' });
+      else out.push({ kind: 'head', level: 'ok', bars: 3, text: 'Gimbal linked' });
+      var gb = get(st.cameraGimbalBattery);
+      if (gb && typeof gb.percent === 'number') out.push({ kind: 'headBattery', level: batteryLevel(gb.percent), percent: gb.percent, text: 'Gimbal battery ' + gb.percent + '%' });
+    }
+    var sonyId = previewCameraId(rigsPayload, rigId);
+    if (sonyId) {
+      var cam = sonyCameraEntry(sonyStatus, sonyId);
+      if (!cam || cam.state !== 'connected') out.push({ kind: 'camOff', level: 'bad', text: 'Camera not connected' });
+      else {
+        var pct = cam.battery && typeof cam.battery.percent === 'number' ? cam.battery.percent : null;
+        out.push({ kind: 'cam', level: batteryLevel(pct), percent: pct, text: pct === null ? 'Camera battery unknown' : 'Camera battery ' + pct + '%' });
+      }
+    }
+    return out;
+  }
+
   /** { pvw, pgm, small:[one per rig in rig order] }. PVW = ATEM preview camera, PGM = program camera. */
   function multiviewPlan(cameras, status, rigsPayload) {
     var st = status || {};
@@ -413,7 +455,7 @@
     PROPERTY_NAMES: PROPERTY_NAMES, layoutFor: layoutFor, tagsFor: tagsFor, paneView: paneView, multiviewPlan: multiviewPlan,
     framePlan: framePlan, nextFrameDelay: nextFrameDelay, containedPoint: containedPoint, sonyWriteBlock: sonyWriteBlock,
     selectBlock: selectBlock, sonyReported: sonyReported, propertyView: propertyView, sendValue: sendValue,
-    batteryInfo: batteryInfo, sonyCameraEntry: sonyCameraEntry,
+    batteryInfo: batteryInfo, sonyCameraEntry: sonyCameraEntry, paneIndicators: paneIndicators, batteryLevel: batteryLevel,
     SPEED_LEVELS: SPEED_LEVELS, SPEED_ORDER: SPEED_ORDER, DEFAULT_SPEED: DEFAULT_SPEED, PGM_SPEED_FACTOR: PGM_SPEED_FACTOR,
     PGM_UNLOCK_MS: PGM_UNLOCK_MS, MAX_HOLD_MS: MAX_HOLD_MS, ARROWS: ARROWS,
     speedLevel: speedLevel, touchSpeed: touchSpeed, arrowFrame: arrowFrame, stickFrame: stickFrame, frameTouched: frameTouched, chooseFrame: chooseFrame,

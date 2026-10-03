@@ -118,6 +118,18 @@ check('without a hex value the plain value is sent', model.sendValue({ value: 9,
 check('battery and overheat wording', model.batteryInfo({ battery: { percent: 82 } }).text === 'Battery 82%' && model.batteryInfo({ battery: { percent: 15 }, overheat: { state: 'pre' } }).text === 'Battery 15% · Getting hot' && model.batteryInfo({ battery: { percent: 90 }, overheat: { state: 'over' } }).level === 'down' && model.batteryInfo({}).text === 'Battery unknown' && model.batteryInfo({ battery: { percent: 50, stale: true } }).level === 'idle');
 check('Sony status entries match case-insensitively', model.sonyCameraEntry({ cameras: [{ id: 'aa:01', x: 1 }] }, 'AA:01')?.x === 1 && model.sonyCameraEntry(null, 'AA:01') === null);
 
+// ---- pane indicators (head link, head battery, camera battery)
+{
+  const rigs = { rigs: [{ id: 'cam1', protocol: 'visca', camera: 'sl' }, { id: 'cam4', protocol: 'dji-bridge', camera: 'sr' }], sonyDevices: [{ key: 'sl', sonyCameraId: 'A:1' }, { key: 'sr', sonyCameraId: 'A:2' }] };
+  const sony = { cameras: [{ id: 'A:1', state: 'connected', battery: { percent: 15 } }, { id: 'A:2', state: 'discovered_unapproved' }] };
+  const st = { cameraConnected: { cam1: true, cam4: true }, cameraAnswering: { cam1: true }, cameraBridgeReachable: { cam4: true }, cameraGimbalAttached: { cam4: true }, cameraGimbalSignal: { cam4: { rating: 'weak', drops10m: 1, summary: '' } }, cameraGimbalBattery: { cam4: { percent: 8 } } };
+  const v = model.paneIndicators('cam1', rigs, st, sony), g = model.paneIndicators('cam4', rigs, st, sony);
+  check('a VISCA head that answers is a green 3-bar head, its camera at 15% is a yellow battery', v.length === 2 && v[0].kind === 'head' && v[0].level === 'ok' && v[0].bars === 3 && v[1].kind === 'cam' && v[1].level === 'warn' && v[1].percent === 15);
+  check('a weak gimbal link is 2 yellow bars, 8% gimbal battery is red, an unconnected camera is the crossed red camera', g.length === 3 && g[0].level === 'warn' && g[0].bars === 2 && g[1].kind === 'headBattery' && g[1].level === 'bad' && g[2].kind === 'camOff');
+  check('bridge offline wins over everything else for the head', model.paneIndicators('cam4', rigs, { ...st, cameraBridgeReachable: {} }, sony)[0].text === 'Bridge offline');
+  check('an unknown rig has no indicators', model.paneIndicators('nope', rigs, st, sony).length === 0);
+}
+
 // ---- touch control
 {
   const wire = (frame: { a: number[]; tr: number[]; b: number }) => {

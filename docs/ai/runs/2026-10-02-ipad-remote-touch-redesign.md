@@ -66,3 +66,12 @@ Audit scored 12/20; the main finding was drift from `.impeccable.md` (pills, gla
   pairing steps and the live pad status (`#padSheet`). The hint sentence is gone; the top bar is 52 px with fixed-width
   state cells.
 - Portrait / phone keep the same bar order (TRANSITION/STOP left, speed middle, joystick right).
+
+## Fifth pass — multiview readability (same day)
+- PGM / PVW / CTL badges removed (preview is always the controlled camera; the border colour says the role). Small
+  panes: `is-pgm` red / `is-pvw` green border.
+- Header icons per pane from `RemoteModel.paneIndicators` (4 tests): head glyph + 3 signal bars coloured by the desk's
+  link rules (`statusServer linkStatus`), head battery (DJI) and Sony camera battery as a battery glyph + %, <20 % amber,
+  <10 % red; camera not connected = red camera + crossed bars. `/api/sony/status` polled every 10 s for the batteries.
+- Rig name is a centred label on the pane's bottom line (Blackmagic multiview style); the health foot line is gone.
+- Palette desaturated (ok / bad / accent chroma down) — less toy-like.

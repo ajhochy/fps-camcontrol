@@ -43,6 +43,7 @@
   var padInfo = M.padStatus([]);
   var pushed = null;           // last {t:'state'} the server pushed while we own
   var status = null;           // GET /api/status
+  var sonyStatus = null;       // GET /api/sony/status (camera connection + battery), every 10 s
   var cameras = [];
   var speeds = null;
   var rigs = null;
@@ -301,8 +302,10 @@
     getJson('/api/config').then(function (c) { cameras = c.cameras || []; speeds = c.speeds || null; renderMultiview(); render(); }).catch(function () { setTimeout(loadConfig, 3000); });
   }
   function loadRigs() { getJson('/api/rigs').then(function (r) { rigs = r; renderMultiview(); }).catch(function () { /* keep the old one */ }); }
+  function pollSony() { if (document.hidden) return; getJson('/api/sony/status').then(function (s) { sonyStatus = s; renderMultiview(); }).catch(function () { /* the panes keep the last reading */ }); }
   setInterval(pollStatus, 1000);
   setInterval(loadRigs, 15000);
+  setInterval(pollSony, 10000); pollSony();
 
   // ---- multiview: PVW and PGM large, one small pane per rig. One frame loop per Sony camera feeds every pane
   // that shows it (the large PVW/PGM and the small pane of the same camera share a single fetch).
@@ -325,12 +328,13 @@
     pic.appendChild(img); pic.appendChild(cross); pic.appendChild(note);
     var head = div('pane-head');
     var title = div('pane-title');
+    var ind = div('pane-ind');
     var menu = document.createElement('button');
     menu.type = 'button'; menu.className = 'pane-menu'; menu.textContent = '⋯'; menu.setAttribute('aria-label', 'Camera menu');
-    head.appendChild(title); head.appendChild(menu);
+    head.appendChild(ind); head.appendChild(menu);
     var foot = div('pane-foot');
-    root.appendChild(pic); root.appendChild(head); root.appendChild(foot);
-    var n = { key: key, big: big, root: root, img: img, cross: cross, note: note, title: title, menu: menu, foot: foot, sig: '', crossTimer: null, url: '', pad: null, lock: null, track: null };
+    root.appendChild(pic); root.appendChild(head); root.appendChild(foot); root.appendChild(title);
+    var n = { key: key, big: big, root: root, img: img, cross: cross, note: note, title: title, ind: ind, menu: menu, foot: foot, sig: '', crossTimer: null, url: '', pad: null, lock: null, track: null };
     if (big) buildTrackBar(n, pic, head);
     menu.addEventListener('click', function (e) { e.stopPropagation(); var pane = paneFor(key); if (pane) openSheet(pane); });
     if (big) img.addEventListener('pointerup', function (e) { onBigTap(n, e); });
@@ -352,21 +356,41 @@
     return null;
   }
 
-  function badge(text, cls) { var b = document.createElement('span'); b.className = 'badge ' + cls; b.textContent = text; return b; }
-  var BADGE_CLASS = { PGM: 'badge-pgm', PVW: 'badge-pvw', CTL: 'badge-ctl' };
+  var SVG = 'http://www.w3.org/2000/svg';
+  function icon(id, cls) {
+    var s = document.createElementNS(SVG, 'svg'), u = document.createElementNS(SVG, 'use');
+    s.setAttribute('class', 'ico ' + (cls || '')); u.setAttributeNS('http://www.w3.org/1999/xlink', 'href', '#' + id); u.setAttribute('href', '#' + id);
+    s.appendChild(u); return s;
+  }
+  function batteryEl(percent) {
+    var b = div('batt'), fill = div('batt-fill');
+    fill.style.width = (percent === null ? 0 : Math.max(0, Math.min(100, percent))) + '%';
+    b.appendChild(fill); return b;
+  }
+  // One indicator: head/camera glyph, then signal bars, a battery with its percentage, or crossed bars.
+  function indicatorEl(it) {
+    var el = div('ind ind-' + it.level); el.title = it.text; el.setAttribute('aria-label', it.text);
+    el.appendChild(icon(it.kind === 'cam' || it.kind === 'camOff' ? 'i-cam' : 'i-head'));
+    if (it.kind === 'head') el.appendChild(icon('i-bars', 'bars bars-' + it.bars));
+    else if (it.kind === 'camOff') el.appendChild(icon('i-bars', 'bars bars-0 crossed'));
+    else { el.appendChild(batteryEl(it.percent)); el.appendChild(div('pct', it.percent === null ? '—' : it.percent + '%')); }
+    return el;
+  }
 
   function updatePaneText(n, pane) {
-    var sig = [pane.rigId, pane.label, pane.tags.join('+'), pane.sonyId, pane.healthLevel, pane.healthText].join('|');
+    var items = pane.rigId ? M.paneIndicators(pane.rigId, rigs, status, sonyStatus) : [];
+    var sig = [pane.rigId, pane.label, pane.tags.join('+'), pane.sonyId, pane.healthLevel, pane.healthText, JSON.stringify(items)].join('|');
     if (sig === n.sig) return;
     n.sig = sig;
-    n.title.textContent = '';
-    if (n.big) n.title.appendChild(badge(n.key === 'pgm' ? 'PGM' : 'PVW', n.key === 'pgm' ? 'badge-pgm' : 'badge-pvw'));
-    n.title.appendChild(document.createTextNode(pane.rigId ? pane.label : (n.key === 'pgm' ? 'No program camera' : 'No preview camera')));
-    pane.tags.forEach(function (t) { if (!n.big || t === 'CTL') n.title.appendChild(badge(t, BADGE_CLASS[t])); });
+    n.title.textContent = pane.rigId ? pane.label : (n.key === 'pgm' ? 'No program camera' : 'No preview camera');
+    n.ind.textContent = '';
+    items.forEach(function (it) { n.ind.appendChild(indicatorEl(it)); });
     n.menu.disabled = !pane.sonyId;
     n.foot.textContent = pane.healthText;
     n.foot.className = 'pane-foot ' + (pane.healthLevel || '');
-    n.root.classList.toggle('controlled', pane.tags.indexOf('CTL') >= 0);
+    // Small panes: the border says what the pane is (program red, preview green); preview is always the controlled one.
+    n.root.classList.toggle('is-pgm', pane.tags.indexOf('PGM') >= 0);
+    n.root.classList.toggle('is-pvw', pane.tags.indexOf('PVW') >= 0);
     if (!n.big) n.root.setAttribute('aria-label', (pane.rigId ? 'Select ' + pane.label : 'Empty rig') + (pane.tags.length ? ' (' + pane.tags.join(', ') + ')' : ''));
   }
 

@@ -12,10 +12,10 @@
   --line: oklch(33% 0.012 240);
   --text: oklch(94% 0.006 240);
   --muted: oklch(70% 0.014 240);
-  --accent: oklch(80% 0.155 78);        /* amber: status-LED colour, the seat, selection */
-  --ok: oklch(74% 0.17 155);            /* preview green */
+  --accent: oklch(78% 0.13 78);         /* amber: status-LED colour, the seat, selection */
+  --ok: oklch(68% 0.13 155);            /* preview green */
   --warn: var(--accent);
-  --bad: oklch(63% 0.22 27);            /* program red */
+  --bad: oklch(58% 0.17 27);            /* program red */
   --ink: oklch(16% 0.02 240);           /* text on a lit (accent / ok / bad) surface */
   --accent-dim: color-mix(in oklch, var(--accent) 22%, var(--bg));
   --ok-dim: color-mix(in oklch, var(--ok) 20%, var(--bg));
@@ -115,7 +115,9 @@ p { margin: 0; }
 .pane-pgm { border-color: var(--bad); }
 .pane-small { grid-column: span 2; cursor: pointer; }
 .pane-small:active { filter: brightness(1.2); }
-.pane-small.controlled { border-color: var(--accent); }
+.pane-small.is-pvw { border-color: var(--ok); }
+.pane-small.is-pgm { border-color: var(--bad); }
+.pane-small.is-pgm.is-pvw { border-color: var(--bad); }
 
 .pane-pic { position: absolute; inset: 0; }
 .pane-pic img { display: block; width: 100%; height: 100%; object-fit: contain; -webkit-touch-callout: none; }
@@ -126,24 +128,39 @@ p { margin: 0; }
 .pane-note.down { color: var(--bad); }
 
 .pane-head { position: absolute; top: 0; left: 0; right: 0; z-index: 4; display: flex; align-items: flex-start; gap: 6px; padding: 8px; pointer-events: none; }
+.pane-ind { margin-right: auto; }
+.pane-small .pane-title { font-size: 12px; padding: 2px 8px; bottom: 4px; }
 .pane-head > * { pointer-events: auto; }
-.pane-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 32px; font-size: 16px; font-weight: 700; text-shadow: 0 1px 3px var(--black), 0 0 8px var(--black); pointer-events: none; }
+/* The rig name: a centred label on the pane's bottom line, as on a Blackmagic multiview. */
+.pane-title { position: absolute; left: 50%; bottom: 6px; transform: translateX(-50%); z-index: 2; max-width: 70%; padding: 3px 12px; border-radius: 2px; background: oklch(8% 0.01 240 / 0.82); font-size: 14px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+/* Head link + batteries, drawn with the pane's glyph sprite; colours: ok / warn / bad / off (unknown). */
+.pane-ind { display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 0 8px; pointer-events: none; }
+.ind { display: inline-flex; align-items: center; gap: 3px; height: 24px; padding: 0 6px; border-radius: 3px; background: var(--plate); color: var(--muted); font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.ind-ok { color: var(--ok); }
+.ind-warn { color: var(--accent); }
+.ind-bad { color: var(--bad); }
+.ico { width: 16px; height: 16px; fill: currentColor; flex: none; }
+.bars rect { fill: currentColor; opacity: 0.22; }
+.bars-1 .b1, .bars-2 .b1, .bars-2 .b2, .bars-3 .b1, .bars-3 .b2, .bars-3 .b3 { opacity: 1; }
+.bars .slash { display: none; }
+.bars.crossed .slash { display: block; }
+.batt { position: relative; width: 20px; height: 10px; border: 1.5px solid currentColor; border-radius: 2px; flex: none; }
+.batt::after { content: ''; position: absolute; right: -4px; top: 2px; width: 2px; height: 4px; background: currentColor; border-radius: 0 1px 1px 0; }
+.batt-fill { height: 100%; background: currentColor; }
+.pct { min-width: 30px; }
+.pane-small .pane-ind { gap: 6px; padding: 0 4px; }
+.pane-small .ind { height: 22px; padding: 0 4px; font-size: 11px; }
+.pane-small .ico { width: 14px; height: 14px; }
+.pane-small .batt { width: 16px; height: 9px; }
+.pane-small .pct { min-width: 26px; }
 .pane-menu, .track-btn, .track-state { border-radius: 4px; border: 1px solid var(--plate-line); background: var(--plate); }
-.pane-menu { flex: none; margin-left: auto; width: 44px; height: 44px; padding: 0; font-size: 24px; line-height: 1; }
+.pane-menu { flex: none; width: 44px; height: 44px; padding: 0; font-size: 24px; line-height: 1; }
 .pane-menu:disabled, .track-btn:disabled { color: var(--muted); border-color: oklch(45% 0.01 240 / 0.6); cursor: default; }
-.pane-foot { position: absolute; left: 0; right: 0; bottom: 0; min-height: 26px; padding: 6px 10px; font-size: 13px; background: linear-gradient(transparent, oklch(8% 0.01 240 / 0.8)); text-shadow: 0 1px 2px var(--black); pointer-events: none; }
-.pane-foot.ready { color: var(--ok); }
-.pane-foot.check { color: var(--accent); }
-.pane-foot.down { color: var(--bad); }
+/* The health line is retired: the header icons say link + battery, the centre note says why there is no picture. */
+.pane-foot { display: none; }
 .pane-small .pane-head { padding: 6px; }
-.pane-small .pane-title { font-size: 14px; min-height: 28px; }
 .pane-small .pane-note { font-size: 13px; padding: 36px 8px 24px; }
-.pane-small .pane-foot { font-size: 12px; }
 
-.badge { padding: 4px 7px; border-radius: 2px; font-size: 12px; font-weight: 800; letter-spacing: 0.06em; text-shadow: none; color: var(--ink); }
-.badge-pgm { background: var(--bad); }
-.badge-pvw { background: var(--ok); }
-.badge-ctl { background: var(--accent); }
 
 .crosshair { position: absolute; width: 48px; height: 48px; margin: -24px 0 0 -24px; border: 2px solid var(--accent); border-radius: 50%; opacity: 0; pointer-events: none; transition: opacity 0.4s; }
 .crosshair::before, .crosshair::after { content: ''; position: absolute; background: var(--accent); }
@@ -155,7 +172,7 @@ p { margin: 0; }
 .stick, .seg, .seg-btn, .btn-transition, .btn-stop, .track-btn { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 
 /* ---- tracking controls in the big pane header */
-.track-bar { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.track-bar { display: flex; align-items: center; gap: 6px; }
 .track-bar + .pane-menu { margin-left: 0; }
 .track-bar[hidden], .track-bar [hidden] { display: none; }
 .track-btn { height: 44px; min-width: 44px; padding: 0 12px; font-size: 15px; font-weight: 700; }

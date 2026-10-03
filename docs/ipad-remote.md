@@ -51,6 +51,14 @@ PIN is what protects control).
 - One iPad drives at a time; a second page can watch. The Xbox Guide/Home button belongs to iPadOS and is not used.
 - The preview shows the controlled camera's Sony camera when the rig has one; it runs only while the page is open.
 
+## Reading the multiview
+
+The border says what a pane is (red = program, green = preview; preview is always the camera the joystick drives).
+The rig name sits centred on the bottom line. Top left of each pane: the head (gimbal / PTZ) with signal bars,
+coloured as on the desk (green linked, amber weak / gimbal off / not moving, red poor signal / bridge offline); the
+gimbal battery when it reports one; the Sony camera's battery — under 20 % amber, under 10 % red — or a red camera
+with crossed bars when the camera is not connected. The ⋯ button opens that camera's menu.
+
 ## Touch control (no controller needed)
 
 Tap **Take control**, then:
