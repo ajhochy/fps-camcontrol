@@ -53,10 +53,14 @@ PIN is what protects control).
 
 ## Reading the multiview
 
+Top left of the page: a link icon with a light (green = connected to CamControl, red = reconnecting, with the round
+trip in ms) and a tablet icon with a light for the seat (green = this iPad has control, grey = the desk, amber = another
+iPad, red = remote control off). Hold either for the words.
+
 The border says what a pane is (red = program, green = preview; preview is always the camera the joystick drives).
 The rig name sits centred on the bottom line. Top left of each pane: the head (gimbal / PTZ) with signal bars,
 coloured as on the desk (green linked, amber weak / gimbal off / not moving, red poor signal / bridge offline); the
-gimbal battery when it reports one; the Sony camera's battery — under 20 % amber, under 10 % red — or a red camera
+gimbal battery (— until the bridge reports it; V-BOT heads have none); the Sony camera's battery — under 20 % amber, under 10 % red — or a red camera
 with crossed bars when the camera is not connected; a camera glyph alone means connected but no battery level
 reported (dummy battery / mains). The ⋯ button opens that camera's menu.
 

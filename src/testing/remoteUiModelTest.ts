@@ -133,6 +133,7 @@ check('button names: RB is 5, D-pad left is 14, unknown bits still get a name', 
   check('a VISCA head that answers is a green 3-bar head, its camera at 15% is a yellow battery', v.length === 2 && v[0].kind === 'head' && v[0].level === 'ok' && v[0].bars === 3 && v[1].kind === 'cam' && v[1].level === 'warn' && v[1].percent === 15);
   check('a weak gimbal link is 2 yellow bars, 8% gimbal battery is red, an unconnected camera is the crossed red camera', g.length === 3 && g[0].level === 'warn' && g[0].bars === 2 && g[1].kind === 'headBattery' && g[1].level === 'bad' && g[2].kind === 'camOff');
   check('bridge offline wins over everything else for the head', model.paneIndicators('cam4', rigs, { ...st, cameraBridgeReachable: {} }, sony)[0].text === 'Bridge offline');
+  check('a gimbal that has not reported its battery still gets the battery slot (unknown)', (() => { const g2 = model.paneIndicators('cam4', rigs, { ...st, cameraGimbalBattery: {} }, sony); return g2[1].kind === 'headBattery' && g2[1].percent === null && g2[1].level === 'off'; })());
   check('an unknown rig has no indicators', model.paneIndicators('nope', rigs, st, sony).length === 0);
 }
 

@@ -260,10 +260,11 @@
   function render() {
     el.conn.className = 'dot ' + (connected ? 'dot-on' : 'dot-off');
     el.connText.textContent = connected ? 'Connected' : 'Connecting…';
+    el.connText.parentNode.title = connected ? 'Connected to CamControl' + (rttMs !== null ? ', ' + rttMs + ' ms' : '') : 'Not connected to CamControl, retrying';
     el.rtt.textContent = connected && rttMs !== null ? rttMs + ' ms' : '';
     var pill = M.ownerPill(owner, connected, enabled);
     el.ownerPill.className = 'pill ' + pill.cls;
-    el.ownerPill.textContent = pill.text;
+    el.ownerPill.title = pill.text; el.ownerPill.setAttribute('aria-label', pill.text);
     el.padPill.className = 'pill ' + (padInfo.kind === 'ok' ? 'pill-you' : (padInfo.kind === 'unsupported' ? 'pill-off' : 'pill-wait'));
     el.padPill.textContent = padInfo.text;
     el.padStatus.textContent = padInfo.text;
@@ -367,6 +368,16 @@
     s.setAttribute('class', 'ico ' + (cls || '')); u.setAttributeNS('http://www.w3.org/1999/xlink', 'href', '#' + id); u.setAttribute('href', '#' + id);
     s.appendChild(u); return s;
   }
+  // Signal bars as an inline SVG (a <use> sprite can't be styled per bar): `count` lit of 3, `crossed` adds the slash.
+  function barsEl(count, crossed) {
+    var s = document.createElementNS(SVG, 'svg'); s.setAttribute('class', 'ico'); s.setAttribute('viewBox', '0 0 24 24');
+    [[3, 15, 6], [10, 10, 11], [17, 4, 17]].forEach(function (r, i) {
+      var rect = document.createElementNS(SVG, 'rect'); rect.setAttribute('x', r[0]); rect.setAttribute('y', r[1]); rect.setAttribute('width', 4); rect.setAttribute('height', r[2]); rect.setAttribute('rx', 1);
+      rect.setAttribute('fill', 'currentColor'); rect.setAttribute('opacity', i < count ? '1' : '0.22'); s.appendChild(rect);
+    });
+    if (crossed) { var p = document.createElementNS(SVG, 'path'); p.setAttribute('d', 'M3 3l18 18'); p.setAttribute('fill', 'none'); p.setAttribute('stroke', 'currentColor'); p.setAttribute('stroke-width', '2.5'); p.setAttribute('stroke-linecap', 'round'); s.appendChild(p); }
+    return s;
+  }
   function batteryEl(percent) {
     var b = div('batt'), fill = div('batt-fill');
     fill.style.width = (percent === null ? 0 : Math.max(0, Math.min(100, percent))) + '%';
@@ -376,9 +387,10 @@
   function indicatorEl(it) {
     var el = div('ind ind-' + it.level); el.title = it.text; el.setAttribute('aria-label', it.text);
     el.appendChild(icon(it.kind === 'cam' || it.kind === 'camOff' ? 'i-cam' : 'i-head'));
-    if (it.kind === 'head') el.appendChild(icon('i-bars', 'bars bars-' + it.bars));
-    else if (it.kind === 'camOff') el.appendChild(icon('i-bars', 'bars bars-0 crossed'));
+    if (it.kind === 'head') el.appendChild(barsEl(it.bars, it.bars === 0));
+    else if (it.kind === 'camOff') el.appendChild(barsEl(0, true));
     else if (it.percent !== null) { el.appendChild(batteryEl(it.percent)); el.appendChild(div('pct', it.percent + '%')); }
+    else if (it.kind === 'headBattery') { el.appendChild(batteryEl(null)); el.appendChild(div('pct', '—')); }
     return el;
   }
 

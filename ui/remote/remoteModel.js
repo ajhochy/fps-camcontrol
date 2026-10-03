@@ -209,8 +209,8 @@
       else if (get(st.cameraGimbalResponding) === false) out.push({ kind: 'head', level: 'warn', bars: weak ? 2 : 3, text: 'Gimbal not moving' });
       else if (weak) out.push(sig.rating === 'poor' ? { kind: 'head', level: 'bad', bars: 1, text: 'Poor signal' } : { kind: 'head', level: 'warn', bars: 2, text: 'Weak signal' });
       else out.push({ kind: 'head', level: 'ok', bars: 3, text: 'Gimbal linked' });
-      var gb = get(st.cameraGimbalBattery);
-      if (gb && typeof gb.percent === 'number') out.push({ kind: 'headBattery', level: batteryLevel(gb.percent), percent: gb.percent, text: 'Gimbal battery ' + gb.percent + '%' });
+      var gb = get(st.cameraGimbalBattery), gpct = gb && typeof gb.percent === 'number' ? gb.percent : null;
+      out.push({ kind: 'headBattery', level: batteryLevel(gpct), percent: gpct, text: gpct === null ? 'Gimbal battery not reported yet' : 'Gimbal battery ' + gpct + '%' });
     }
     var sonyId = previewCameraId(rigsPayload, rigId);
     if (sonyId) {

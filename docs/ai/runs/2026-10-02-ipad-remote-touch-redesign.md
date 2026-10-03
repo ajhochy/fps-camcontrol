@@ -90,3 +90,7 @@ Audit scored 12/20; the main finding was drift from `.impeccable.md` (pills, gla
   Bluetooth drawer.
 - Joystick ⇄ arrows switch under the stick (`fps-remote-drive`). Every top-bar cell is `--bar-h` (44 px). LOWER THIRD
   is green when on air, grey off.
+- Fix: signal bars / slash were drawn from a `<use>` sprite, which CSS classes cannot style — every head showed full bars
+  plus a slash. Bars are now built inline. DJI rigs always get the gimbal-battery slot. Top-left cells are icons + lights.
+- Workflow from here (user's request): each feedback item goes to a subagent in its own worktree; merge, user approves,
+  squash to one commit, remove the worktree.

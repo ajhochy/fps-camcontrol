@@ -61,14 +61,18 @@ p { margin: 0; }
   border: 1px solid var(--line); background: var(--panel-2); font-size: 12px; font-weight: 700; letter-spacing: 0.06em;
   text-transform: uppercase; white-space: nowrap; color: var(--muted);
 }
-.status-chip { color: var(--text); width: 150px; }
+.status-chip { color: var(--text); width: auto; padding: 0 10px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+/* The seat cell: tablet glyph + light. Colour = who has the seat (green you, grey desk, amber another iPad, red off). */
+.seat-dot { background: currentColor; }
+.pill-wait .seat-dot { background: var(--muted); }
 /* Fixed cells: the text changes with the state, the box never does, so the bar never reflows. */
-#ownerPill { width: 230px; justify-content: center; }
+#ownerPill { width: auto; display: inline-flex; align-items: center; gap: 8px; padding: 0 10px; }
 /* Controller state lives on its own screen (the Controller button); the cell stays in the DOM for the script only. */
 #padPill { display: none; }
 .pill, .status-chip { overflow: hidden; }
 /* Pills are text only: block + line-height so a long state ends in an ellipsis instead of clipping both ends. */
-.pill { display: block; line-height: calc(var(--bar-h) - 2px); text-align: center; text-overflow: ellipsis; }
+
 .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex: none; }
 .dot-on { background: var(--ok); }
 .dot-off { background: var(--bad); }
@@ -337,8 +341,7 @@ body:not(.mapping) .map-tag { opacity: 0.85; }
   .btn-stop { font-size: 22px; }
   .sheet { top: auto; left: 0; width: 100%; max-height: 88%; border-left: 0; border-top: 1px solid var(--line); }
   #topbar { flex-wrap: nowrap; }
-  #ownerPill { width: 190px; }
   .btn-claim { min-width: 120px; padding: 0 12px; }
 }
-@media (max-width: 520px) { #rtt { display: none; } .status-chip { width: auto; } .rail-zoom { width: 44px; } .zoom-btn { font-size: 24px; } #ownerPill { width: 150px; font-size: 11px; } .rail-left { min-width: 104px; } .rail-mid .seg { max-width: 84px; } .rail-mid .seg-btn { min-width: 0; font-size: 14px; } .stick { height: 120px; min-height: 120px; } .btn-transition { font-size: 15px; } .btn-stop { font-size: 17px; } }
+@media (max-width: 520px) { #rtt { display: none; } .status-chip { width: auto; } .rail-zoom { width: 44px; } .zoom-btn { font-size: 24px; }  .rail-left { min-width: 104px; } .rail-mid .seg { max-width: 84px; } .rail-mid .seg-btn { min-width: 0; font-size: 14px; } .stick { height: 120px; min-height: 120px; } .btn-transition { font-size: 15px; } .btn-stop { font-size: 17px; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } }

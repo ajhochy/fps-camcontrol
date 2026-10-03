@@ -18,12 +18,16 @@
 </svg>
 <div id="app">
   <header id="topbar">
-    <div class="status-chip">
+    <div class="status-chip" aria-live="polite">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M10 14a4 4 0 0 1 0-5.6l3-3a4 4 0 0 1 5.6 5.6l-1.3 1.3M14 10a4 4 0 0 1 0 5.6l-3 3a4 4 0 0 1-5.6-5.6l1.3-1.3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       <span id="conn" class="dot dot-off"></span>
-      <span id="connText">Connecting…</span>
+      <span id="connText" class="sr-only">Connecting…</span>
       <span id="rtt" class="muted"></span>
     </div>
-    <span id="ownerPill" class="pill pill-wait">Connecting</span>
+    <span id="ownerPill" class="pill pill-wait" role="img" aria-label="Connecting">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="17.5" r="1.2" fill="currentColor"/></svg>
+      <span class="dot seat-dot"></span>
+    </span>
     <span id="padPill" class="pill pill-wait">No controller</span>
     <button id="claimBtn" class="btn btn-primary btn-claim" type="button" data-map="seat">Take control</button>
     <button id="releaseBtn" class="btn btn-claim" type="button" hidden data-map="seat">Release</button>
