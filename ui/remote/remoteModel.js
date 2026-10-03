@@ -208,7 +208,7 @@
       if (!cam || cam.state !== 'connected') out.push({ kind: 'camOff', level: 'bad', text: 'Camera not connected' });
       else {
         var pct = cam.battery && typeof cam.battery.percent === 'number' ? cam.battery.percent : null;
-        out.push({ kind: 'cam', level: batteryLevel(pct), percent: pct, text: pct === null ? 'Camera battery unknown' : 'Camera battery ' + pct + '%' });
+        out.push({ kind: 'cam', level: batteryLevel(pct), percent: pct, text: pct === null ? 'Camera connected, battery not reported' : 'Camera battery ' + pct + '%' });
       }
     }
     return out;

@@ -76,3 +76,5 @@ Audit scored 12/20; the main finding was drift from `.impeccable.md` (pills, gla
 - Rig name is a centred label on the pane's bottom line (Blackmagic multiview style); the health foot line is gone.
 - Palette desaturated (ok / bad / accent chroma down) — less toy-like.
 - Top right: Bluetooth button = controller drawer only; a ☰ button opens the app menu (`#menuSheet`, desk name).
+- Zoom + / − column at the far left of the bar (hold; `arrowFrame` triggers merged into the joystick frame). Camera
+  with unknown battery shows the glyph alone instead of an empty battery.

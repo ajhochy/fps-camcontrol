@@ -27,7 +27,7 @@
     sheet: $('sheet'), sheetBack: $('sheetBack'), sheetTitle: $('sheetTitle'), sheetBattery: $('sheetBattery'), sheetRows: $('sheetRows'), sheetStatus: $('sheetStatus'), sheetClose: $('sheetClose'),
     releaseBtn: $('releaseBtn'), stopBtn: $('stopBtn'), hint: $('hint'), wakeHint: $('wakeHint'),
     pinRow: $('pinRow'), pinInput: $('pinInput'), pinBtn: $('pinBtn'),
-    transitionBtn: $('transitionBtn'), speedBtns: $('speedBtns'), stick: $('stick'), stickKnob: $('stickKnob'), stickLabel: $('stickLabel'),
+    transitionBtn: $('transitionBtn'), speedBtns: $('speedBtns'), stick: $('stick'), stickKnob: $('stickKnob'), stickLabel: $('stickLabel'), zoomIn: $('zoomIn'), zoomOut: $('zoomOut'),
   };
 
   var ws = null;
@@ -55,6 +55,7 @@
   var press = null;            // the arrow being held: { pointerId, key, rigId, dirs, onAir, startedAt }
   var pgmUnlockedUntil = 0;    // ms timestamp until which moving the program camera is allowed
   var stick = null;            // the joystick being held: { pointerId, rigId, x, y } (x,y: knob offset / ring radius)
+  var zoom = null;             // the zoom button being held: { pointerId, rigId, dir: 'zoomIn'|'zoomOut' }
 
   // ---- small helpers
   function store(key, value) { try { if (value === undefined) return localStorage.getItem(key); localStorage.setItem(key, value); } catch (_) { /* private mode */ } return null; }
@@ -192,8 +193,9 @@
     }
     if (!isVisible()) endPress();
     var padFrame = padActive ? M.frameFromPad(padInfo.pad) : null;
-    var touchFrame = touchSeat && press ? M.arrowFrame(press.dirs, touchSpeedName, M.onAir(press.rigId, status))
-      : touchSeat && stick ? M.stickFrame(stick.x, stick.y, touchSpeedName, M.onAir(stick.rigId, status)) : null;
+    var touchFrame = null;
+    if (touchSeat && stick) touchFrame = M.stickFrame(stick.x, stick.y, touchSpeedName, M.onAir(stick.rigId, status));
+    if (touchSeat && zoom) { var zf = M.arrowFrame([zoom.dir], touchSpeedName, M.onAir(zoom.rigId, status)); touchFrame = touchFrame || M.neutralFrame(); touchFrame.tr = zf.tr; }
     var chosen = M.chooseFrame(padFrame, touchFrame); // the pad wins while it is being touched
     sending = true;
     sendFrame(chosen.frame);
@@ -373,7 +375,7 @@
     el.appendChild(icon(it.kind === 'cam' || it.kind === 'camOff' ? 'i-cam' : 'i-head'));
     if (it.kind === 'head') el.appendChild(icon('i-bars', 'bars bars-' + it.bars));
     else if (it.kind === 'camOff') el.appendChild(icon('i-bars', 'bars bars-0 crossed'));
-    else { el.appendChild(batteryEl(it.percent)); el.appendChild(div('pct', it.percent === null ? '—' : it.percent + '%')); }
+    else if (it.percent !== null) { el.appendChild(batteryEl(it.percent)); el.appendChild(div('pct', it.percent + '%')); }
     return el;
   }
 
@@ -486,6 +488,7 @@
   // Stop at once: a neutral frame goes out here, then the heartbeat carries on neutral.
   function endPress() {
     endStick();
+    endZoom();
     if (!press) return;
     press = null;
     if (connected && welcomed && haveOwnership()) sendFrame(M.neutralFrame());
@@ -514,7 +517,9 @@
     });
     var sv = M.arrowsView('pvw', plan, status, enabled, owner, pgmUnlockedUntil, now);
     if (stick && (!sv.enabled || sv.rigId !== stick.rigId)) endStick();
+    if (zoom && (!sv.enabled || sv.rigId !== zoom.rigId)) endZoom();
     el.stick.classList.toggle('dim', !sv.show || sv.dim);
+    el.zoomIn.classList.toggle('dim', !sv.show || sv.dim); el.zoomOut.classList.toggle('dim', !sv.show || sv.dim);
     el.stickLabel.textContent = sv.show && plan && plan.pvw.rigId ? plan.pvw.label : 'No preview camera';
     var tb = M.transitionBlock(enabled, owner, status);
     el.transitionBtn.classList.toggle('dim', !!tb);
@@ -550,18 +555,47 @@
     stick = null;
     placeKnob(0, 0);
     el.stick.classList.remove('held');
-    if (connected && welcomed && haveOwnership()) sendFrame(M.neutralFrame());
+    if (!zoom && connected && welcomed && haveOwnership()) sendFrame(M.neutralFrame());
   }
+  // Permission to drive the preview camera by touch right now: { ok, rigId } or a refusal shown in the message slot.
+  function previewDrive() {
+    var v = M.arrowsView('pvw', plan, status, enabled, owner, pgmUnlockedUntil, Date.now());
+    if (!v.show) { showBanner('No preview camera to drive.', true, 2500); return null; }
+    if (!v.enabled) { showBanner(v.reason, true, 3000); return null; }
+    if (!connected || !welcomed || !isVisible()) return null;
+    return v;
+  }
+  // Zoom: hold + / −; works together with the joystick (pan/tilt on the stick, zoom on the triggers of the same frame).
+  function endZoom() {
+    if (!zoom) return;
+    zoom = null;
+    el.zoomIn.classList.remove('held'); el.zoomOut.classList.remove('held');
+    if (connected && welcomed && haveOwnership()) tick();
+  }
+  [['zoomIn', el.zoomIn], ['zoomOut', el.zoomOut]].forEach(function (pair) {
+    var dir = pair[0], b = pair[1];
+    b.addEventListener('pointerdown', function (e) {
+      if (e.button !== undefined && e.button > 0) return;
+      e.preventDefault();
+      if (!document.hidden) focused = true;
+      if (zoom) return;
+      var v = previewDrive(); if (!v) return;
+      if (!stick) send({ t: 'select', camera: v.rigId, preview: false });
+      zoom = { pointerId: e.pointerId, rigId: v.rigId, dir: dir };
+      b.classList.add('held');
+      try { b.releasePointerCapture(e.pointerId); } catch (_) { /* not captured */ } // sliding off the button ends the zoom
+      tick();
+    });
+    ['pointerup', 'pointercancel', 'pointerleave', 'lostpointercapture'].forEach(function (ev) { b.addEventListener(ev, function (e) { if (zoom && zoom.pointerId === e.pointerId) endZoom(); }); });
+    ['contextmenu', 'selectstart', 'dragstart', 'gesturestart', 'click'].forEach(function (ev) { b.addEventListener(ev, function (e) { e.preventDefault(); }); });
+  });
   el.stick.addEventListener('pointerdown', function (e) {
     if (e.button !== undefined && e.button > 0) return;
     e.preventDefault();
     if (!document.hidden) focused = true;
-    if (press || stick) return; // one finger at a time
-    var v = M.arrowsView('pvw', plan, status, enabled, owner, pgmUnlockedUntil, Date.now());
-    if (!v.show) { showBanner('No preview camera to drive.', true, 2500); return; }
-    if (!v.enabled) { showBanner(v.reason, true, 3000); return; }
-    if (!connected || !welcomed || !isVisible()) return;
-    send({ t: 'select', camera: v.rigId, preview: false });
+    if (press || stick) return; // one joystick finger at a time
+    var v = previewDrive(); if (!v) return;
+    if (!zoom) send({ t: 'select', camera: v.rigId, preview: false });
     stick = { pointerId: e.pointerId, rigId: v.rigId, x: 0, y: 0 };
     el.stick.classList.add('held');
     try { el.stick.setPointerCapture(e.pointerId); } catch (_) { /* keep following the finger via the window */ }

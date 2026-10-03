@@ -57,7 +57,8 @@ The border says what a pane is (red = program, green = preview; preview is alway
 The rig name sits centred on the bottom line. Top left of each pane: the head (gimbal / PTZ) with signal bars,
 coloured as on the desk (green linked, amber weak / gimbal off / not moving, red poor signal / bridge offline); the
 gimbal battery when it reports one; the Sony camera's battery — under 20 % amber, under 10 % red — or a red camera
-with crossed bars when the camera is not connected. The ⋯ button opens that camera's menu.
+with crossed bars when the camera is not connected; a camera glyph alone means connected but no battery level
+reported (dummy battery / mains). The ⋯ button opens that camera's menu.
 
 ## Touch control (no controller needed)
 
@@ -70,6 +71,7 @@ Tap **Take control**, then:
 - **Joystick (bottom right):** drag to pan and tilt the **preview** camera; the move is proportional to how far
   the knob is from the centre, Slow / Normal / Fast sets the speed at full throw. Letting go recentres it and stops
   the camera at once. It follows the same rules as the PVW arrows (seat, remote control on).
+- **Zoom + / − (far left):** hold to zoom the preview camera; works together with the joystick.
 - **Speed:** Slow / Normal / Fast (touch only; the desk speed preset is separate).
 - **Track speed (camera menu ⋯):** a slider, 5–100 %, for how fast person tracking may move that rig. Applied at
   once and saved to `devices.yaml` (`tracking.speeds.<device>`); it overrides `maxSpeed` / `viscaMaxSpeed` for that rig.

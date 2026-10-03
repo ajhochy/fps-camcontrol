@@ -169,7 +169,7 @@ p { margin: 0; }
 .crosshair.on { opacity: 1; transition: none; }
 
 /* The stick, speed buttons and the big buttons never scroll, select or pop a callout. */
-.stick, .seg, .seg-btn, .btn-transition, .btn-stop, .track-btn { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.stick, .zoom-btn, .seg, .seg-btn, .btn-transition, .btn-stop, .track-btn { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 
 /* ---- tracking controls in the big pane header */
 .track-bar { display: flex; align-items: center; gap: 6px; }
@@ -188,9 +188,13 @@ p { margin: 0; }
 /* ---- control bar along the bottom: TRANSITION over STOP on the left, speed in the middle, the joystick under the
    right thumb. It takes whatever height the 16:9 multiview leaves (at least 160 px). */
 #actions {
-  flex: 1; min-height: 160px; display: grid; grid-template-columns: auto 1fr auto; align-items: stretch; gap: var(--gap); padding: 10px var(--gap);
+  flex: 1; min-height: 160px; display: grid; grid-template-columns: auto auto 1fr auto; align-items: stretch; gap: var(--gap); padding: 10px var(--gap);
   background: var(--panel); border-top: 1px solid var(--line);
 }
+.rail-zoom { display: grid; grid-template-rows: 1fr 1fr; gap: 8px; width: 72px; }
+.zoom-btn { min-height: 0; padding: 0; font-size: 30px; font-weight: 500; line-height: 1; color: var(--text); }
+.zoom-btn.held { background: var(--accent); border-color: var(--accent); color: var(--ink); }
+.zoom-btn.dim { opacity: 0.35; }
 .rail-left { display: grid; grid-template-rows: 1fr 1fr; gap: 8px; min-width: 200px; }
 .rail-mid { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-width: 0; }
 .rail-mid .label { color: var(--muted); }
@@ -284,7 +288,8 @@ p { margin: 0; }
   #viewCol { flex: 1; max-height: none; }
   #main[data-layout="tall"] { height: auto; }
   /* The joystick stays on the right, always: TRANSITION / STOP on the left, speed between, in one row. */
-  #actions { flex: none; display: grid; grid-template-columns: auto 1fr auto; gap: 8px; min-height: 0; }
+  #actions { flex: none; display: grid; grid-template-columns: auto auto 1fr auto; gap: 8px; min-height: 0; }
+  .rail-zoom { width: 56px; }
   .rail-left { min-width: 150px; }
   .rail-mid .seg { display: grid; grid-template-columns: 1fr; width: 100%; max-width: 120px; }
   .rail-mid .seg-btn { min-height: 48px; border-right: 0; border-bottom: 1px solid var(--line); }
@@ -297,5 +302,5 @@ p { margin: 0; }
   #ownerPill { width: 190px; }
   .btn-claim { min-width: 120px; padding: 0 12px; }
 }
-@media (max-width: 520px) { #rtt { display: none; } .status-chip { width: auto; } #ownerPill { width: 150px; font-size: 11px; } .rail-left { min-width: 104px; } .rail-mid .seg { max-width: 84px; } .rail-mid .seg-btn { min-width: 0; font-size: 14px; } .stick { height: 120px; min-height: 120px; } .btn-transition { font-size: 15px; } .btn-stop { font-size: 17px; } }
+@media (max-width: 520px) { #rtt { display: none; } .status-chip { width: auto; } .rail-zoom { width: 44px; } .zoom-btn { font-size: 24px; } #ownerPill { width: 150px; font-size: 11px; } .rail-left { min-width: 104px; } .rail-mid .seg { max-width: 84px; } .rail-mid .seg-btn { min-width: 0; font-size: 14px; } .stick { height: 120px; min-height: 120px; } .btn-transition { font-size: 15px; } .btn-stop { font-size: 17px; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } }
