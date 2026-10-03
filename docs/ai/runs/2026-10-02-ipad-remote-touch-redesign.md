@@ -78,3 +78,15 @@ Audit scored 12/20; the main finding was drift from `.impeccable.md` (pills, gla
 - Top right: Bluetooth button = controller drawer only; a ☰ button opens the app menu (`#menuSheet`, desk name).
 - Zoom + / − column at the far left of the bar (hold; `arrowFrame` triggers merged into the joystick frame). Camera
   with unknown battery shows the glyph alone instead of an empty battery.
+
+## Sixth pass (same day)
+- Server: `{t:'lowerThirds'}` remote message (owner only) → `toggleLowerThirds`; refused `atem-offline`. Page: LOWER
+  THIRD button under TRANSITION, green ON AIR / grey OFF from `status.lowerThirdsActive`.
+- Camera menu: sliders over the camera's own steps for aperture / shutter / ISO with the AUTO option as a button; button
+  rows for the rest; pending value greyed until confirmed (`drawProp` / `saveProp(st, name, idx)`).
+- Ableton-style button mapping, page-side: `[data-map]` controls, map mode in the top bar (instruction in the message
+  slot, Clear / Done beside the Bluetooth button — nothing reflows), `localStorage` `fps-remote-map`,
+  mapped bits stripped from the pad frames (`RemoteModel.risingBits/fallingBits/stripMapped`, 4 tests). Entry via the
+  Bluetooth drawer.
+- Joystick ⇄ arrows switch under the stick (`fps-remote-drive`). Every top-bar cell is `--bar-h` (44 px). LOWER THIRD
+  is green when on air, grey off.

@@ -10,6 +10,7 @@ import { loadConfig } from './config/configLoader';
 import { getResourcePath } from './config/paths';
 import { createInitialState, AppState, CameraId, trackDeviceLinkState } from './app/state';
 import { AtemClient } from './atem/atemClient';
+import { toggleLowerThirds } from './atem/switcherActions';
 import { FakeAtemClient } from './atem/fakeAtemClient';
 import { MotionDevice } from './devices/motionDevice';
 import { createMotionDevice } from './devices/deviceFactory';
@@ -188,6 +189,12 @@ export async function startApplication(
     selectCamera: (id, who, movePreview) => machine.selectCameraById(id, who, movePreview),
     setPreview: (id, who) => machine.previewCameraById(id, who),
     transition: (who) => machine.takePreviewLive(who),
+    lowerThirds: (who) => {
+      if (!atem.connected) return 'atem-offline';
+      activityLog.setContext(who, 'LOWER THIRD', `Lower Thirds ${state.lowerThirdsActive ? 'OFF' : 'ON'}`);
+      toggleLowerThirds(atem, state, config).catch(err => logger.error({ err }, 'lower thirds toggle (remote) error'));
+      return 'ok';
+    },
   });
   // A suspended-input (second, non-owning Electron variant) instance never starts with remote control on.
   remoteHub.setEnabled(!controlsPaused && (config.remoteControl?.enabled ?? false));

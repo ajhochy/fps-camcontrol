@@ -118,6 +118,12 @@ check('without a hex value the plain value is sent', model.sendValue({ value: 9,
 check('battery and overheat wording', model.batteryInfo({ battery: { percent: 82 } }).text === 'Battery 82%' && model.batteryInfo({ battery: { percent: 15 }, overheat: { state: 'pre' } }).text === 'Battery 15% · Getting hot' && model.batteryInfo({ battery: { percent: 90 }, overheat: { state: 'over' } }).level === 'down' && model.batteryInfo({}).text === 'Battery unknown' && model.batteryInfo({ battery: { percent: 50, stale: true } }).level === 'idle');
 check('Sony status entries match case-insensitively', model.sonyCameraEntry({ cameras: [{ id: 'aa:01', x: 1 }] }, 'AA:01')?.x === 1 && model.sonyCameraEntry(null, 'AA:01') === null);
 
+// ---- page-side button mapping
+check('rising bits are the ones that went 0 -> 1', model.risingBits(0b0101, 0b0110).join() === '1');
+check('falling bits are the ones that went 1 -> 0', model.fallingBits(0b0101, 0b0110).join() === '0');
+check('mapped bits are stripped from the frame, others kept', model.stripMapped(0b1111, { 1: 'stop', 3: 'zoomIn' }) === 0b0101);
+check('button names: RB is 5, D-pad left is 14, unknown bits still get a name', model.buttonName(5) === 'RB' && model.buttonName(14) === 'D-pad left' && model.buttonName(7) === 'Button 7');
+
 // ---- pane indicators (head link, head battery, camera battery)
 {
   const rigs = { rigs: [{ id: 'cam1', protocol: 'visca', camera: 'sl' }, { id: 'cam4', protocol: 'dji-bridge', camera: 'sr' }], sonyDevices: [{ key: 'sl', sonyCameraId: 'A:1' }, { key: 'sr', sonyCameraId: 'A:2' }] };

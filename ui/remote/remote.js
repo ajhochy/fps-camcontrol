@@ -27,7 +27,8 @@
     sheet: $('sheet'), sheetBack: $('sheetBack'), sheetTitle: $('sheetTitle'), sheetBattery: $('sheetBattery'), sheetRows: $('sheetRows'), sheetStatus: $('sheetStatus'), sheetClose: $('sheetClose'),
     releaseBtn: $('releaseBtn'), stopBtn: $('stopBtn'), hint: $('hint'), wakeHint: $('wakeHint'),
     pinRow: $('pinRow'), pinInput: $('pinInput'), pinBtn: $('pinBtn'),
-    transitionBtn: $('transitionBtn'), speedBtns: $('speedBtns'), stick: $('stick'), stickKnob: $('stickKnob'), stickLabel: $('stickLabel'), zoomIn: $('zoomIn'), zoomOut: $('zoomOut'),
+    transitionBtn: $('transitionBtn'), speedBtns: $('speedBtns'), stick: $('stick'), stickKnob: $('stickKnob'), stickLabel: $('stickLabel'), dpad: $('dpad'), driveMode: $('driveMode'), zoomIn: $('zoomIn'), zoomOut: $('zoomOut'), ltBtn: $('ltBtn'), ltState: $('ltState'),
+    mapBar: $('mapBar'), mapClear: $('mapClear'), mapDone: $('mapDone'), mapBtn: $('mapBtn'), mapList: $('mapList'),
   };
 
   var ws = null;
@@ -78,6 +79,7 @@
     if (Date.now() < bannerUntil) return;
     var text = null;
     var bad = false;
+    if (mapMode) { el.banner.textContent = armed ? 'Press the controller button for ' + MAP_ACTIONS[armed].label + '…' : 'Map: tap a control, then press its controller button'; el.banner.className = 'banner map'; el.banner.hidden = false; return; }
     if (!connected) { text = 'Not connected to CamControl. Retrying…'; bad = true; }
     else if (padInfo.kind === 'unsupported') { text = padInfo.text + '. Motion is not sent.'; bad = true; }
     else if (!isVisible()) text = 'Paused. Control must be taken again when you come back.';
@@ -192,9 +194,10 @@
       return;
     }
     if (!isVisible()) endPress();
-    var padFrame = padActive ? M.frameFromPad(padInfo.pad) : null;
+    var padFrame = applyPadMapping(padActive ? M.frameFromPad(padInfo.pad) : null);
     var touchFrame = null;
     if (touchSeat && stick) touchFrame = M.stickFrame(stick.x, stick.y, touchSpeedName, M.onAir(stick.rigId, status));
+    else if (touchSeat && press) touchFrame = M.arrowFrame(press.dirs, touchSpeedName, M.onAir(press.rigId, status));
     if (touchSeat && zoom) { var zf = M.arrowFrame([zoom.dir], touchSpeedName, M.onAir(zoom.rigId, status)); touchFrame = touchFrame || M.neutralFrame(); touchFrame.tr = zf.tr; }
     var chosen = M.chooseFrame(padFrame, touchFrame); // the pad wins while it is being touched
     sending = true;
@@ -428,7 +431,7 @@
       el.smallPanes.textContent = '';
       plan.small.forEach(function (p) {
         var root = document.createElement('section');
-        root.className = 'pane pane-small'; root.dataset.pane = p.key;
+        root.className = 'pane pane-small'; root.dataset.pane = p.key; root.dataset.map = 'rig' + (el.smallPanes.children.length + 1);
         el.smallPanes.appendChild(root);
         buildPane(root, p.key, false);
       });
@@ -491,6 +494,8 @@
     endZoom();
     if (!press) return;
     press = null;
+    Array.prototype.forEach.call(el.dpad.querySelectorAll('.arrow'), function (b) { b.classList.remove('held'); });
+    if (connected && welcomed && haveOwnership()) sendFrame(M.neutralFrame());
     if (connected && welcomed && haveOwnership()) sendFrame(M.neutralFrame());
   }
 
@@ -519,8 +524,10 @@
     if (stick && (!sv.enabled || sv.rigId !== stick.rigId)) endStick();
     if (zoom && (!sv.enabled || sv.rigId !== zoom.rigId)) endZoom();
     el.stick.classList.toggle('dim', !sv.show || sv.dim);
+    el.dpad.classList.toggle('dim', !sv.show || sv.dim);
     el.zoomIn.classList.toggle('dim', !sv.show || sv.dim); el.zoomOut.classList.toggle('dim', !sv.show || sv.dim);
     el.stickLabel.textContent = sv.show && plan && plan.pvw.rigId ? plan.pvw.label : 'No preview camera';
+    updateLowerThird();
     var tb = M.transitionBlock(enabled, owner, status);
     el.transitionBtn.classList.toggle('dim', !!tb);
     Array.prototype.forEach.call(el.speedBtns.querySelectorAll('.seg-btn'), function (b) {
@@ -533,9 +540,7 @@
   el.speedBtns.addEventListener('click', function (e) {
     var b = e.target.closest ? e.target.closest('.seg-btn') : null;
     if (!b) return;
-    touchSpeedName = M.speedLevel(b.dataset.speed);
-    store('fps-remote-speed', touchSpeedName);
-    updateTouchUi();
+    setSpeed(b.dataset.speed);
   });
 
   // ---- joystick: drives the PREVIEW camera (the same rules as the PVW arrows). The knob follows the finger inside
@@ -578,7 +583,7 @@
       if (e.button !== undefined && e.button > 0) return;
       e.preventDefault();
       if (!document.hidden) focused = true;
-      if (zoom) return;
+      if (zoom || mapMode) return;
       var v = previewDrive(); if (!v) return;
       if (!stick) send({ t: 'select', camera: v.rigId, preview: false });
       zoom = { pointerId: e.pointerId, rigId: v.rigId, dir: dir };
@@ -593,7 +598,7 @@
     if (e.button !== undefined && e.button > 0) return;
     e.preventDefault();
     if (!document.hidden) focused = true;
-    if (press || stick) return; // one joystick finger at a time
+    if (press || stick || mapMode) return; // one joystick finger at a time
     var v = previewDrive(); if (!v) return;
     if (!zoom) send({ t: 'select', camera: v.rigId, preview: false });
     stick = { pointerId: e.pointerId, rigId: v.rigId, x: 0, y: 0 };
@@ -603,9 +608,124 @@
     tick();
   });
   el.stick.addEventListener('pointermove', moveStick);
+  // Arrows instead of the joystick (the switch under it; remembered). Hold an arrow to move; sliding off ends it.
+  var driveMode = store('fps-remote-drive') === 'arrows' ? 'arrows' : 'stick';
+  function applyDriveMode() {
+    el.stick.hidden = driveMode !== 'stick'; el.dpad.hidden = driveMode !== 'arrows';
+    Array.prototype.forEach.call(el.driveMode.querySelectorAll('.seg-btn'), function (b) { var on = b.dataset.drive === driveMode; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); });
+  }
+  el.driveMode.addEventListener('click', function (e) { var b = e.target.closest ? e.target.closest('.seg-btn') : null; if (!b) return; endPress(); driveMode = b.dataset.drive; store('fps-remote-drive', driveMode); applyDriveMode(); });
+  applyDriveMode();
+  Array.prototype.forEach.call(el.dpad.querySelectorAll('.arrow'), function (b) {
+    b.addEventListener('pointerdown', function (e) {
+      if (e.button !== undefined && e.button > 0) return;
+      e.preventDefault(); e.stopPropagation();
+      if (!document.hidden) focused = true;
+      if (press || stick || mapMode) return;
+      var v = previewDrive(); if (!v) return;
+      if (!zoom) send({ t: 'select', camera: v.rigId, preview: false });
+      press = { pointerId: e.pointerId, key: 'pvw', rigId: v.rigId, dirs: [b.dataset.dir], onAir: v.onAir, startedAt: Date.now() };
+      b.classList.add('held');
+      try { b.releasePointerCapture(e.pointerId); } catch (_) { /* not captured */ }
+      tick();
+    });
+    ['pointerup', 'pointercancel', 'pointerleave', 'lostpointercapture'].forEach(function (ev) { b.addEventListener(ev, function (e) { if (press && press.pointerId === e.pointerId) endPress(); }); });
+    ['contextmenu', 'selectstart', 'dragstart', 'gesturestart', 'click'].forEach(function (ev) { b.addEventListener(ev, function (e) { e.preventDefault(); }); });
+  });
   ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(function (ev) { el.stick.addEventListener(ev, function (e) { if (stick && e.pointerId === stick.pointerId) endStick(); }); });
   ['contextmenu', 'selectstart', 'dragstart', 'gesturestart'].forEach(function (ev) { el.stick.addEventListener(ev, function (e) { e.preventDefault(); }); });
 
+  // ---- controller button mapping, Ableton style. Arm a control on the screen, press a pad button: that button now
+  // drives the control from this page (tap controls get a click, zoom is held) and is taken out of the frames sent to
+  // the desk so its desk job does not fire too. Saved per iPad (localStorage). Sticks and triggers are not remapped.
+  var MAP_ACTIONS = {
+    seat: { label: 'Take control / Release', tap: function () { (el.claimBtn.hidden ? el.releaseBtn : el.claimBtn).click(); } },
+    transition: { label: 'TRANSITION', tap: function () { el.transitionBtn.click(); } },
+    lowerThirds: { label: 'LOWER THIRD', tap: function () { el.ltBtn.click(); } },
+    stop: { label: 'STOP', tap: function () { el.stopBtn.click(); } },
+    zoomIn: { label: 'Zoom in', hold: 'zoomIn' },
+    zoomOut: { label: 'Zoom out', hold: 'zoomOut' },
+    speedSlow: { label: 'Speed: Slow', tap: function () { setSpeed('slow'); } },
+    speedNormal: { label: 'Speed: Normal', tap: function () { setSpeed('normal'); } },
+    speedFast: { label: 'Speed: Fast', tap: function () { setSpeed('fast'); } },
+    track: { label: 'Track (preview)', tap: function () { var n = nodes.pvw; if (n && n.track && !n.track.toggle.disabled && !n.track.bar.hidden) n.track.toggle.click(); } },
+  };
+  for (var ri = 1; ri <= 4; ri++) (function (i) { MAP_ACTIONS['rig' + i] = { label: 'Select rig ' + i, tap: function () { var p = plan && plan.small[i - 1]; if (p && p.rigId) onSmallTap(p); } }; })(ri);
+  var mapping = (function () { try { return JSON.parse(store('fps-remote-map') || '{}') || {}; } catch (_) { return {}; } })();
+  var mapMode = false, armed = null, lastMask = 0, heldByPad = {};
+
+  function mapTargets() { return Array.prototype.slice.call(document.querySelectorAll('[data-map]')); }
+  function bitFor(action) { var bits = Object.keys(mapping).filter(function (k) { return mapping[k] === action; }); return bits.length ? Number(bits[0]) : null; }
+  function drawMapTags() {
+    mapTargets().forEach(function (t) {
+      var old = t.querySelector('.map-tag'); if (old) old.remove();
+      var bit = bitFor(t.dataset.map);
+      if (bit === null) return;
+      var tag = div('map-tag', M.buttonName(bit)); t.appendChild(tag);
+    });
+    el.mapList.textContent = '';
+    var bits = Object.keys(mapping);
+    if (!bits.length) { el.mapList.textContent = 'Nothing mapped yet.'; return; }
+    bits.forEach(function (k) { var a = MAP_ACTIONS[mapping[k]]; if (a) el.mapList.appendChild(div('', M.buttonName(Number(k)) + ' → ' + a.label)); });
+  }
+  function saveMapping() { store('fps-remote-map', JSON.stringify(mapping)); drawMapTags(); }
+  function setArmed(action) {
+    armed = action;
+    mapTargets().forEach(function (t) { t.classList.toggle('armed', !!action && t.dataset.map === action); });
+    bannerUntil = 0; updateBanner();
+  }
+  function enterMapMode() { closeSheet(); mapMode = true; document.body.classList.add('mapping'); el.mapBar.hidden = false; setArmed(null); drawMapTags(); endPress(); }
+  function exitMapMode() { mapMode = false; armed = null; document.body.classList.remove('mapping'); el.mapBar.hidden = true; mapTargets().forEach(function (t) { t.classList.remove('armed'); }); bannerUntil = 0; updateBanner(); }
+  el.mapBtn.addEventListener('click', enterMapMode);
+  el.mapDone.addEventListener('click', exitMapMode);
+  el.mapClear.addEventListener('click', function () { mapping = {}; saveMapping(); setArmed(null); });
+  // In map mode a tap arms the control instead of working it (capture phase, so nothing else sees the event).
+  ['pointerdown', 'click'].forEach(function (ev) {
+    document.addEventListener(ev, function (e) {
+      if (!mapMode) return;
+      if (e.target.closest && e.target.closest('#mapBar')) return;
+      var t = e.target.closest ? e.target.closest('[data-map]') : null;
+      e.preventDefault(); e.stopPropagation();
+      if (t && ev === 'click') setArmed(t.dataset.map);
+    }, true);
+  });
+  // Pad buttons, every tick: in map mode a rising edge binds the armed control; otherwise mapped edges drive controls.
+  function applyPadMapping(frame) {
+    var mask = frame ? frame.b : 0;
+    var rising = M.risingBits(lastMask, mask), falling = M.fallingBits(lastMask, mask);
+    lastMask = mask;
+    if (mapMode) {
+      if (armed && rising.length) {
+        Object.keys(mapping).forEach(function (k) { if (mapping[k] === armed) delete mapping[k]; });
+        mapping[rising[0]] = armed; saveMapping();
+        showBanner(M.buttonName(rising[0]) + ' → ' + MAP_ACTIONS[armed].label, false, 2500);
+        setArmed(null);
+      }
+      return frame ? { a: frame.a, tr: frame.tr, b: 0 } : frame; // nothing reaches the desk while mapping
+    }
+    rising.forEach(function (bit) {
+      var a = MAP_ACTIONS[mapping[bit]]; if (!a) return;
+      if (a.tap) a.tap();
+      else if (a.hold && !zoom) { var v = previewDrive(); if (!v) return; if (!stick) send({ t: 'select', camera: v.rigId, preview: false }); zoom = { pointerId: 'pad' + bit, rigId: v.rigId, dir: a.hold }; heldByPad[bit] = true; el[a.hold].classList.add('held'); }
+    });
+    falling.forEach(function (bit) { if (heldByPad[bit]) { delete heldByPad[bit]; if (zoom && zoom.pointerId === 'pad' + bit) endZoom(); } });
+    return frame ? { a: frame.a, tr: frame.tr, b: M.stripMapped(frame.b, mapping) } : frame;
+  }
+  function setSpeed(name) { touchSpeedName = M.speedLevel(name); store('fps-remote-speed', touchSpeedName); updateTouchUi(); }
+  drawMapTags();
+
+  el.ltBtn.addEventListener('click', function () {
+    var block = M.selectBlock(enabled, owner);
+    if (block) { showBanner(block, true, 3000); return; }
+    send({ t: 'lowerThirds' }); // toggles the DSK; the 1 Hz status says what it is now
+    setTimeout(pollStatus, SELECT_POLL_MS);
+  });
+  function updateLowerThird() {
+    var on = !!(status && status.lowerThirdsActive);
+    el.ltBtn.classList.toggle('on', on); el.ltBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    el.ltState.textContent = on ? 'ON AIR' : 'OFF';
+    el.ltBtn.classList.toggle('dim', !(status && status.atemConnected));
+  }
   el.transitionBtn.addEventListener('click', function () {
     var block = M.transitionBlock(enabled, owner, status);
     if (block) { showBanner(block, true, 3000); return; }
@@ -675,6 +795,7 @@
   function buildTrackBar(n, pic, head) {
     var bar = div('track-bar');
     var toggle = trackButton('Track', 'track-toggle', function () {
+      if (mapMode) return;
       var pane = paneFor(n.key);
       if (!pane || !pane.sonyId) return;
       trackModes[pane.sonyId] = !trackModes[pane.sonyId];
@@ -687,6 +808,7 @@
     var box = div('track-box');
     pic.appendChild(box);
     head.insertBefore(bar, n.lock || n.menu);
+    if (n.key === 'pvw') toggle.dataset.map = 'track';
     n.track = { bar: bar, toggle: toggle, stop: stop, resume: resume, state: state, box: box, said: '' };
   }
 
@@ -779,7 +901,7 @@
   function openSheet(pane) {
     if (!pane.sonyId) return;
     closeSheet();
-    var st = sheetState = { id: pane.sonyId, label: pane.label, pending: {}, confirmed: {}, views: {}, tries: 0, timers: [], holders: {} };
+    var st = sheetState = { id: pane.sonyId, label: pane.label, pending: {}, confirmed: {}, views: {}, props: {}, tries: 0, timers: [], holders: {} };
     el.sheetTitle.textContent = pane.label + ' camera';
     el.sheetBattery.textContent = ''; el.sheetBattery.className = 'muted';
     el.sheetRows.textContent = '';
@@ -872,32 +994,61 @@
     });
   }
 
+  // Which settings are a slider over the camera's own list of steps (f-stops, shutter speeds, ISO values); the rest
+  // are a row of buttons. An "auto" entry (ISO AUTO, AWB) becomes a button next to the slider / in the row.
+  var SLIDER_PROPS = { 'aperture': true, 'shutter-speed': true, 'iso': true };
+  function isAuto(o) { return /\bauto\b|^awb$/i.test(o.text); }
+
   function drawProp(st, name, prop) {
+    st.props[name] = prop;
     var view = M.propertyView(name, prop, st.pending[name] ? st.pending[name].value : undefined);
     st.views[name] = view;
     var holder = st.holders[name];
     holder.textContent = '';
     if (view.kind !== 'select') { holder.appendChild(div('ro', view.text)); return; }
-    var sel = document.createElement('select');
-    sel.style.flex = '1';
-    view.options.forEach(function (o, i) { var opt = document.createElement('option'); opt.value = String(i); opt.textContent = o.text; sel.appendChild(opt); });
-    for (var i = 0; i < view.options.length; i++) if (view.options[i].value === view.selected) sel.value = String(i);
-    sel.disabled = !!M.sonyWriteBlock(enabled);
-    sel.addEventListener('change', function () { saveProp(st, name, sel); });
-    holder.appendChild(sel);
+    var box = div('prop' + (st.pending[name] || M.sonyWriteBlock(enabled) ? ' busy' : ''));
+    var cur = -1;
+    for (var i = 0; i < view.options.length; i++) if (view.options[i].value === view.selected) cur = i;
+    var pick = function (idx) { return function () { saveProp(st, name, idx); }; };
+    if (SLIDER_PROPS[name]) {
+      var steps = [], autoIdx = -1;
+      view.options.forEach(function (o, i) { if (isAuto(o)) autoIdx = i; else steps.push(i); });
+      var row = div('prop-slider'), slider = document.createElement('input'), value = div('prop-value');
+      slider.type = 'range'; slider.min = '0'; slider.max = String(Math.max(0, steps.length - 1)); slider.step = '1';
+      slider.setAttribute('aria-label', view.label);
+      var pos = steps.indexOf(cur);
+      slider.value = String(pos >= 0 ? pos : 0);
+      value.textContent = cur >= 0 ? view.options[cur].text : '—';
+      slider.addEventListener('input', function () { value.textContent = view.options[steps[Number(slider.value)]].text; });
+      slider.addEventListener('change', function () { saveProp(st, name, steps[Number(slider.value)]); });
+      row.appendChild(slider); row.appendChild(value);
+      if (autoIdx >= 0) {
+        var auto = document.createElement('button'); auto.type = 'button'; auto.className = 'opt-btn auto' + (cur === autoIdx ? ' on' : ''); auto.textContent = view.options[autoIdx].text;
+        auto.addEventListener('click', pick(autoIdx)); row.appendChild(auto);
+      }
+      box.appendChild(row);
+    } else {
+      var opts = div('opt-row');
+      view.options.forEach(function (o, i) {
+        var b = document.createElement('button'); b.type = 'button'; b.className = 'opt-btn' + (i === cur ? ' on' : '') + (isAuto(o) ? ' auto' : ''); b.textContent = o.text;
+        b.addEventListener('click', pick(i)); opts.appendChild(b);
+      });
+      box.appendChild(opts);
+    }
+    holder.appendChild(box);
   }
 
   // The camera applies a change a moment after accepting it and reports it later still, so the menu keeps the
   // chosen value as pending and re-reads that one setting a few times until the camera says the same (as the desk does).
-  function saveProp(st, name, sel) {
-    var view = st.views[name], option = view && view.options[Number(sel.value)];
-    if (!option) return;
-    function revert() { var c = st.confirmed[name]; for (var i = 0; i < view.options.length; i++) if (view.options[i].value === c) sel.value = String(i); }
+  function saveProp(st, name, idx) {
+    var view = st.views[name], option = view && view.options[idx];
+    if (!option || option.value === view.selected) return;
+    function redraw() { if (sheetState === st) drawProp(st, name, st.props[name]); }
     var block = M.sonyWriteBlock(enabled);
-    if (block) { sheetSay(block, true); revert(); return; }
+    if (block) { sheetSay(block, true); redraw(); return; }
     var token = { value: option.value };
     st.pending[name] = token;
-    sel.disabled = true;
+    redraw(); // shows the chosen value, greyed, until the camera confirms
     var url = '/api/sony/cameras/' + encodeURIComponent(st.id) + '/properties/' + name;
     var attempt = 0;
     function put() {
@@ -908,7 +1059,6 @@
     }
     sheetSay('Applying ' + view.label + ' ' + option.text + '…');
     put().then(function () {
-      sel.disabled = !!M.sonyWriteBlock(enabled);
       var waits = [300, 500, 700, 1000, 1500], reported = null, i = 0;
       function poll() {
         if (i >= waits.length) return Promise.resolve();
@@ -923,15 +1073,16 @@
         delete st.pending[name];
         if (reported === option.value) { st.confirmed[name] = reported; sheetSay(view.label + ' saved: ' + option.text + '.'); }
         else if (reported !== null) {
-          st.confirmed[name] = reported; revert();
+          st.confirmed[name] = reported;
           var shown = view.options.filter(function (o) { return o.value === reported; })[0];
           sheetSay('The camera kept ' + view.label + ' at ' + (shown ? shown.text : reported) + ' (it may not allow ' + option.text + ' right now).', true);
         } else { st.confirmed[name] = option.value; sheetSay(view.label + ' sent: ' + option.text + ' (the camera did not confirm yet).'); }
+        if (st.props[name]) st.props[name].current_value = st.confirmed[name];
+        redraw();
       });
     }).catch(function (e) {
       if (st.pending[name] === token) delete st.pending[name];
-      sel.disabled = !!M.sonyWriteBlock(enabled);
-      revert();
+      redraw();
       sheetSay(view.label + ' save failed (' + (e && e.message ? e.message : 'unknown error') + '); restored confirmed value.', true);
     });
   }

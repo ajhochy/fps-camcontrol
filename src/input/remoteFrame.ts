@@ -18,6 +18,7 @@ export type ClientMessage =
   | { t: 'stop' }
   | { t: 'select'; camera: string; movePreview: boolean }
   | { t: 'preview'; camera: string }
+  | { t: 'lowerThirds' }
   | { t: 'transition' }
   | { t: 'ping'; ts: number }
   | { t: 'in'; s: number; a: number[]; tr: number[]; b: number };
@@ -60,7 +61,7 @@ export function parseClientMessage(raw: string | Buffer, lastSeq: number): Parse
       }
       return { ok: true, msg: { t: 'hello', v: 1, name: cleanLabel(m.name, 40), pin, pad } };
     }
-    case 'claim': case 'release': case 'idle': case 'stop': case 'transition':
+    case 'claim': case 'release': case 'idle': case 'stop': case 'transition': case 'lowerThirds':
       return { ok: true, msg: { t: m.t } };
     case 'select':
       // Which camera the owning iPad wants to control: a plain id (cam1..), nothing else.

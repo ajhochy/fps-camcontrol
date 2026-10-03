@@ -71,14 +71,25 @@ Tap **Take control**, then:
 - **Joystick (bottom right):** drag to pan and tilt the **preview** camera; the move is proportional to how far
   the knob is from the centre, Slow / Normal / Fast sets the speed at full throw. Letting go recentres it and stops
   the camera at once. It follows the same rules as the PVW arrows (seat, remote control on).
+- **LOWER THIRD (under TRANSITION):** toggles the switcher's downstream key. Green **ON AIR** while the key is up,
+  grey OFF otherwise — the page cannot see program output, so the button is the indicator.
+- **Joystick or arrows:** ☰ menu › Pan / tilt control swaps the joystick for four hold-to-move arrows (remembered on
+  this iPad).
 - **Zoom + / − (far left):** hold to zoom the preview camera; works together with the joystick.
 - **Speed:** Slow / Normal / Fast (touch only; the desk speed preset is separate).
+- **Camera menu (⋯):** aperture, shutter and ISO are sliders over the steps the camera reports (AUTO / AWB is a button
+  beside the slider); white balance, focus mode and focus area are rows of buttons. A changed value is greyed until
+  the camera confirms it.
 - **Track speed (camera menu ⋯):** a slider, 5–100 %, for how fast person tracking may move that rig. Applied at
   once and saved to `devices.yaml` (`tracking.speeds.<device>`); it overrides `maxSpeed` / `viscaMaxSpeed` for that rig.
 - **The program camera cannot be moved by touch.** Only the preview camera is driven from the page; a controller
   can still move whatever it controls.
 - **Bluetooth button (top right):** its light is grey with no controller, green when one is connected, red when the
-  page does not recognise it. Tap it for the pairing steps and what the page currently sees.
+  page does not recognise it. Tap it for the pairing steps, what the page currently sees, and **Map buttons…**
+- **Button mapping (like MIDI mapping):** in map mode every mappable control gets a dashed frame; tap one, then press
+  the controller button that should drive it. Mappable: Take control / Release, TRANSITION, LOWER THIRD, STOP, zoom
+  in / out (held), the three speeds, the four rig panes, Track. A mapped button is taken out of the frames sent to the
+  desk, so it stops doing its desk job while the page is open. Sticks and triggers are not remapped. Saved per iPad.
 - **☰ menu (top right):** this iPad's name (what the desk shows as the owner of the seat).
 - Messages (refusals, STOP, lost control) appear in the top bar's free space and never move the layout.
 - A controller on the same page wins while its sticks or buttons are being touched. The seat is kept alive by neutral

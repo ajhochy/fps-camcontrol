@@ -48,6 +48,16 @@
 
   function neutralFrame() { return { a: [0, 0, 0, 0], tr: [0, 0], b: 0 }; }
 
+  // ---- page-side button mapping (Ableton style: arm a control, press a pad button). The mapped bits are taken out
+  // of the frame so the desk's own mapping does not fire for them as well.
+  var BUTTON_NAMES = { 0: 'A', 1: 'B', 2: 'X', 3: 'Y', 4: 'LB', 5: 'RB', 8: 'Back', 9: 'Menu', 10: 'LS', 11: 'RS', 12: 'D-pad up', 13: 'D-pad down', 14: 'D-pad left', 15: 'D-pad right' };
+  function buttonName(bit) { return BUTTON_NAMES[bit] || ('Button ' + bit); }
+  /** Bits that went 0 -> 1 between two masks. */
+  function risingBits(prevMask, mask) { var out = [], changed = (mask & ~prevMask) & 0xffff; for (var i = 0; i < 16; i++) if (changed & (1 << i)) out.push(i); return out; }
+  function fallingBits(prevMask, mask) { return risingBits(mask, prevMask); }
+  /** The mask without the mapped bits (object keys are bit numbers). */
+  function stripMapped(mask, mapping) { var m = mask; Object.keys(mapping || {}).forEach(function (k) { m &= ~(1 << Number(k)); }); return m & 0xffff; }
+
   function startHeld(frame) { return (frame.b & (1 << START_BIT)) !== 0; }
 
   /** The first connected pad, with what the page should say about it. */
@@ -450,6 +460,7 @@
     STICK_DEADZONE: STICK_DEADZONE,
     MASK_BITS: MASK_BITS,
     stick: stick, frameFromPad: frameFromPad, neutralFrame: neutralFrame, startHeld: startHeld,
+    BUTTON_NAMES: BUTTON_NAMES, buttonName: buttonName, risingBits: risingBits, fallingBits: fallingBits, stripMapped: stripMapped,
     padStatus: padStatus, deniedText: deniedText, ownerPill: ownerPill, lostText: lostText,
     camerasView: camerasView, previewCameraId: previewCameraId, speedLine: speedLine,
     PROPERTY_NAMES: PROPERTY_NAMES, layoutFor: layoutFor, tagsFor: tagsFor, paneView: paneView, multiviewPlan: multiviewPlan,

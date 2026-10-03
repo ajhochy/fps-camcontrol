@@ -106,6 +106,8 @@ export interface RemoteHubDeps {
   setPreview?: (id: string, who: string) => 'ok' | 'no-camera' | 'no-input' | 'atem-offline';
   /** The TRANSITION button: auto-transition what is in preview to program; a refusal reason, or 'ok'. */
   transition?: (who: string) => 'ok' | 'nothing-to-take' | 'no-input' | 'atem-offline';
+  /** The LOWER THIRD button: toggle the DSK (the desk's D-pad left/right); a refusal reason, or 'ok'. */
+  lowerThirds?: (who: string) => 'ok' | 'atem-offline';
   /** 4-8 digit PIN a page must give before it may claim control; absent = none. */
   pin?: string | null;
   now?: () => number;
@@ -260,6 +262,13 @@ export class RemoteControlHub {
         const r = this.deps.transition ? this.deps.transition(this.labelOf(s)) : 'atem-offline';
         if (r === 'ok') this.lastTransitionAt = t;
         else this.refuse(s, 'Transition', r);
+        break;
+      }
+      case 'lowerThirds': {
+        const refusal = this.ownerRefusal(s);
+        if (refusal) { if (refusal !== 'silent') this.send(s, { t: 'denied', reason: refusal }); break; }
+        const r = this.deps.lowerThirds ? this.deps.lowerThirds(this.labelOf(s)) : 'atem-offline';
+        if (r !== 'ok') this.refuse(s, 'Lower third', r);
         break;
       }
       case 'stop':

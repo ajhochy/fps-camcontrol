@@ -25,11 +25,12 @@
     </div>
     <span id="ownerPill" class="pill pill-wait">Connecting</span>
     <span id="padPill" class="pill pill-wait">No controller</span>
-    <button id="claimBtn" class="btn btn-primary btn-claim" type="button">Take control</button>
-    <button id="releaseBtn" class="btn btn-claim" type="button" hidden>Release</button>
+    <button id="claimBtn" class="btn btn-primary btn-claim" type="button" data-map="seat">Take control</button>
+    <button id="releaseBtn" class="btn btn-claim" type="button" hidden data-map="seat">Release</button>
     <p id="hint" class="muted">Tap Take control to drive with touch, or wake the controller and hold Menu for 1 s.</p>
     <p id="wakeHint" class="muted" hidden></p>
     <div id="banner" class="banner" role="status" aria-live="polite" hidden></div>
+    <span id="mapBar" class="map-bar" hidden><button id="mapClear" class="btn btn-sm" type="button">Clear</button><button id="mapDone" class="btn btn-sm btn-primary" type="button">Done</button></span>
     <button id="padBtn" class="icon-btn" type="button" aria-label="Game controller (Bluetooth)">
       <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M7 7l10 10-5 5V2l5 5L7 17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <span id="padDot" class="dot pad-dot"></span>
@@ -60,23 +61,30 @@
 
     <footer id="actions" aria-label="Controls">
       <div class="rail-zoom" aria-label="Zoom (preview camera)">
-        <button id="zoomIn" class="btn zoom-btn" type="button" aria-label="Zoom in"><span aria-hidden="true">+</span></button>
-        <button id="zoomOut" class="btn zoom-btn" type="button" aria-label="Zoom out"><span aria-hidden="true">−</span></button>
+        <button id="zoomIn" class="btn zoom-btn" type="button" aria-label="Zoom in" data-map="zoomIn"><span aria-hidden="true">+</span></button>
+        <button id="zoomOut" class="btn zoom-btn" type="button" aria-label="Zoom out" data-map="zoomOut"><span aria-hidden="true">−</span></button>
       </div>
       <div class="rail-left">
-        <button id="transitionBtn" class="btn btn-transition" type="button" aria-label="Transition: take preview to program">TRANSITION<small>PVW → PGM</small></button>
-        <button id="stopBtn" class="btn btn-stop" type="button">STOP</button>
+        <button id="transitionBtn" class="btn btn-transition" type="button" aria-label="Transition: take preview to program" data-map="transition">TRANSITION<small>PVW → PGM</small></button>
+        <button id="ltBtn" class="btn btn-lt" type="button" aria-pressed="false" data-map="lowerThirds"><span class="lt-dot" aria-hidden="true"></span>LOWER THIRD<small id="ltState">OFF</small></button>
+        <button id="stopBtn" class="btn btn-stop" type="button" data-map="stop">STOP</button>
       </div>
       <div class="rail-mid">
         <div class="label">Speed</div>
         <div id="speedBtns" class="seg" role="group" aria-label="Touch speed">
-          <button type="button" class="seg-btn" data-speed="slow">Slow</button>
-          <button type="button" class="seg-btn" data-speed="normal">Normal</button>
-          <button type="button" class="seg-btn" data-speed="fast">Fast</button>
+          <button type="button" class="seg-btn" data-speed="slow" data-map="speedSlow">Slow</button>
+          <button type="button" class="seg-btn" data-speed="normal" data-map="speedNormal">Normal</button>
+          <button type="button" class="seg-btn" data-speed="fast" data-map="speedFast">Fast</button>
         </div>
       </div>
       <div class="rail-right">
         <div id="stick" class="stick" aria-label="Joystick: pans and tilts the preview camera"><div id="stickKnob" class="stick-knob"></div></div>
+        <div id="dpad" class="dpad" aria-label="Arrows: pan and tilt the preview camera" hidden>
+          <button type="button" class="arrow arrow-up" data-dir="up" aria-label="Tilt up">▲</button>
+          <button type="button" class="arrow arrow-left" data-dir="left" aria-label="Pan left">◀</button>
+          <button type="button" class="arrow arrow-right" data-dir="right" aria-label="Pan right">▶</button>
+          <button type="button" class="arrow arrow-down" data-dir="down" aria-label="Tilt down">▼</button>
+        </div>
         <div id="stickLabel" class="stick-label label">Preview</div>
       </div>
     </footer>
@@ -103,12 +111,17 @@
     </ol>
     <p class="muted small">While a stick or button is being touched the controller wins over the on-screen joystick. Letting the
       iPad sleep or switching away hands control back.</p>
+    <div class="sheet-row name-row"><label>Button mapping</label><button id="mapBtn" class="btn btn-sm" type="button">Map buttons…</button></div>
+    <p class="muted small">Like MIDI mapping: tap a control on the screen, then press the controller button that should drive it.
+      Mapped buttons stop doing their desk job while this page is open. The sticks and triggers are not remapped.</p>
+    <div id="mapList" class="map-list muted small"></div>
   </section>
   <section id="menuSheet" class="sheet" role="dialog" aria-modal="true" aria-labelledby="menuSheetTitle" hidden>
     <div class="sheet-head">
       <div><h2 id="menuSheetTitle">This iPad</h2><div class="muted">CamControl Remote</div></div>
       <button id="menuSheetClose" class="btn btn-sm" type="button">Done</button>
     </div>
+    <div class="sheet-row"><label>Pan / tilt control</label><div id="driveMode" class="seg" role="group" aria-label="Pan/tilt control"><button type="button" class="seg-btn" data-drive="stick">Joystick</button><button type="button" class="seg-btn" data-drive="arrows">Arrows</button></div></div>
     <div class="sheet-row"><label for="nameBtn">Name shown on the desk</label><button id="nameBtn" class="name-btn" type="button">iPad</button></div>
     <p class="muted small">The desk shows this name as the owner of the seat while this iPad has control.</p>
   </section>
