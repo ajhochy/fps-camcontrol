@@ -142,30 +142,20 @@ export class FakeSonySidecar {
   private frame(camera: FakeCamera): string {
     camera.frames++;
     const t = new Date().toISOString().slice(11, 23);
-    // A 16:9 "demo" scene (stage, a person to tap for tracking, safe-area marks) so the panes show what a real
-    // picture does; the person drifts slowly so the frame is visibly live. The slate stays in the corner.
+    // A 16:9 SMPTE-style test pattern (75% bars, sub-bar row, slate field) with a plain white "subject marker" that
+    // drifts left-right on a sine so the frame is visibly live and person tracking has a target to tap.
     const x = 320 + Math.sin(camera.frames / 40) * 120;
-    const sway = Math.sin(camera.frames / 9) * 3;
+    const w = 640 / 7;
+    const bars = (colors: string[], y: number, h: number): string =>
+      colors.map((c, i) => `<rect x="${(i * w).toFixed(2)}" y="${y}" width="${(w + 0.5).toFixed(2)}" height="${h}" fill="${c}"/>`).join('');
     return `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360">
-<defs>
-<linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1b2a3d"/><stop offset="1" stop-color="#3a4a5e"/></linearGradient>
-<linearGradient id="floor" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3b3328"/><stop offset="1" stop-color="#1c1813"/></linearGradient>
-</defs>
-<rect width="640" height="360" fill="url(#sky)"/>
-<rect y="236" width="640" height="124" fill="url(#floor)"/>
-<rect x="60" y="40" width="520" height="196" fill="#0e141c" opacity="0.55"/>
-<rect x="60" y="40" width="520" height="12" fill="#c9a24a" opacity="0.8"/>
+<rect width="640" height="360" fill="#101010"/>
+${bars(['#bfbfbf', '#bfbf00', '#00bfbf', '#00bf00', '#bf00bf', '#bf0000', '#0000bf'], 0, 206)}
+${bars(['#0000bf', '#131313', '#bf00bf', '#131313', '#00bfbf', '#131313', '#bfbfbf'], 206, 28)}
+<rect x="${(x - 12).toFixed(1)}" y="252" width="24" height="60" fill="#ffffff"/>
 <g stroke="#ffffff" stroke-opacity="0.35" stroke-width="1" fill="none"><rect x="32" y="18" width="576" height="324"/><line x1="320" y1="18" x2="320" y2="30"/><line x1="320" y1="330" x2="320" y2="342"/><line x1="32" y1="180" x2="44" y2="180"/><line x1="596" y1="180" x2="608" y2="180"/></g>
-<g transform="translate(${x.toFixed(1)} 0)">
-<ellipse cx="0" cy="300" rx="34" ry="7" fill="#000" opacity="0.4"/>
-<rect x="-22" y="150" width="44" height="90" rx="12" fill="#c45a3c"/>
-<rect x="-18" y="236" width="14" height="62" fill="#2b3340"/><rect x="4" y="236" width="14" height="62" fill="#2b3340"/>
-<circle cx="${sway.toFixed(1)}" cy="124" r="24" fill="#e2b48f"/>
-<path d="M-24 118 a24 24 0 0 1 48 0 v6 h-48z" fill="#3b2a1f" transform="translate(${sway.toFixed(1)} 0)"/>
-</g>
-<rect x="36" y="296" width="250" height="46" fill="#000" opacity="0.55"/>
-<text x="46" y="314" fill="#e8eef5" font-family="monospace" font-size="15">${camera.model}  ${camera.id}</text>
-<text x="46" y="334" fill="#f2b84b" font-family="monospace" font-size="14">SANDBOX ${t}  frame ${camera.frames}</text></svg>`;
+<text x="44" y="334" fill="#d0d0d0" font-family="monospace" font-size="14">${camera.model}  ${camera.id}</text>
+<text x="596" y="334" fill="#d0d0d0" font-family="monospace" font-size="14" text-anchor="end">${t}  F${String(camera.frames).padStart(6, '0')}</text></svg>`;
   }
 
   private async handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {

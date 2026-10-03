@@ -12,7 +12,7 @@
   --line: oklch(33% 0.012 240);
   --text: oklch(94% 0.006 240);
   --muted: oklch(70% 0.014 240);
-  --accent: oklch(78% 0.13 78);         /* amber: status-LED colour, the seat, selection */
+  --accent: oklch(78% 0.13 78);         /* amber: status-LED colour; only the seat, warnings and the lit TRANSITION */
   --ok: oklch(68% 0.13 155);            /* preview green */
   --warn: var(--accent);
   --bad: oklch(58% 0.17 27);            /* program red */
@@ -24,7 +24,18 @@
   --plate: oklch(12% 0.01 240 / 0.88);  /* buttons sitting on the picture */
   --plate-line: oklch(70% 0.01 240 / 0.45);
   --radius: 3px;
-  --bar-h: 44px;                        /* every cell and button in the top bar */
+  /* Keys: a backlit cap a step above the panel, bevelled (light top edge, dark bottom), inverted while pressed.
+     The bevel is translucent so the same edge reads on an unlit cap and on a lit (amber / red / green / white) one. */
+  --cap: oklch(25% 0.013 240);
+  --cap-edge: oklch(10% 0.01 240);
+  --bevel: inset 0 1px 0 oklch(100% 0 0 / 0.16), inset 0 -1px 0 oklch(0% 0 0 / 0.5);
+  --bevel-in: inset 0 1px 0 oklch(0% 0 0 / 0.55), inset 0 -1px 0 oklch(100% 0 0 / 0.08);
+  --legend-dim: oklch(94% 0.006 240 / 0.45);  /* an unlit, unavailable key */
+  --lit: oklch(90% 0.005 240);                 /* a lit white key (the selected speed) */
+  --well: oklch(9% 0.01 240);                  /* recessed displays: message strip, joystick well */
+  --led-off: oklch(27% 0.01 240);
+  --key-r: 2px;
+  --bar-h: 44px;                      /* every cell and button in the top bar */
   --gap: 12px;
 }
 
@@ -41,9 +52,9 @@ p { margin: 0; }
 [hidden] { display: none !important; }
 .muted { color: var(--muted); }
 .spacer { flex: 1; }
-:where(button, select, input, [tabindex]):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+:where(button, select, input, [tabindex]):focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
 /* ponytail: panel-label style, system font. A condensed web font would be a network dependency in an offline booth. */
-.label { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.label { font-size: 11px; font-weight: 700; text-transform: uppercase; }
 #app {
   display: flex; flex-direction: column; height: 100%;
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
@@ -56,41 +67,46 @@ p { margin: 0; }
 }
 /* The how-to sentence is for first use only and costs a column of the top bar: the banner says what matters. */
 #hint { display: none; }
+/* Status cluster: square LEDs with a legend beneath, on the bar's own surface; hairlines between groups, no boxes.
+   Every cell has a fixed size: state changes colour only, so the bar never reflows. */
 .status-chip, .pill {
-  display: inline-flex; align-items: center; gap: 8px; height: var(--bar-h); padding: 0 12px; border-radius: var(--radius);
-  border: 1px solid var(--line); background: var(--panel-2); font-size: 12px; font-weight: 700; letter-spacing: 0.06em;
-  text-transform: uppercase; white-space: nowrap; color: var(--muted);
+  display: inline-grid; grid-template-columns: auto; justify-items: center; align-content: center; row-gap: 5px;
+  height: var(--bar-h); padding: 0 14px 0 4px; border-right: 1px solid var(--line); white-space: nowrap; color: var(--muted);
 }
-.status-chip { color: var(--text); width: auto; padding: 0 10px; }
+.status-chip { grid-template-columns: auto 6ch; column-gap: 10px; }
+.status-chip > svg, #ownerPill > svg { display: none; }
+.status-chip::after, #ownerPill::after { grid-row: 2; grid-column: 1; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; line-height: 1; color: var(--muted); }
+.status-chip::after { content: 'LINK'; }
+#ownerPill::after { content: 'SEAT'; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-/* The seat cell: tablet glyph + light. Colour = who has the seat (green you, grey desk, amber another iPad, red off). */
+/* The seat LED: amber you, grey desk, hollow amber another iPad (a warning), red off, unlit waiting. */
 .seat-dot { background: currentColor; }
-.pill-wait .seat-dot { background: var(--muted); }
-/* Fixed cells: the text changes with the state, the box never does, so the bar never reflows. */
-#ownerPill { width: auto; display: inline-flex; align-items: center; gap: 8px; padding: 0 10px; }
+.pill-wait .seat-dot { background: var(--led-off); }
 /* Controller state lives on its own screen (the Controller button); the cell stays in the DOM for the script only. */
 #padPill { display: none; }
-.pill, .status-chip { overflow: hidden; }
-/* Pills are text only: block + line-height so a long state ends in an ellipsis instead of clipping both ends. */
 
-.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex: none; }
-.dot-on { background: var(--ok); }
-.dot-off { background: var(--bad); }
-#rtt { font-weight: 500; letter-spacing: 0; text-transform: none; }
-.pill-you { background: var(--ok-dim); border-color: var(--ok); color: var(--ok); }
-.pill-desk { color: var(--text); }
-.pill-other { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
-.pill-off { background: var(--bad-dim); border-color: var(--bad); color: var(--bad); }
+.dot { width: 9px; height: 9px; border-radius: 1px; background: var(--led-off); flex: none; box-shadow: inset 0 0 0 1px oklch(0% 0 0 / 0.35); }
+.dot-on { background: var(--ok); box-shadow: 0 0 6px color-mix(in oklch, var(--ok) 55%, transparent); }
+.dot-off { background: var(--bad); box-shadow: 0 0 6px color-mix(in oklch, var(--bad) 55%, transparent); }
+#rtt { grid-row: 1 / span 2; grid-column: 2; align-self: center; justify-self: start; font-size: 13px; font-weight: 500; color: var(--muted); }
+#conn, .seat-dot { grid-row: 1; grid-column: 1; }
+.pill-you { color: var(--accent); }
+.pill-you .seat-dot { box-shadow: 0 0 6px color-mix(in oklch, var(--accent) 55%, transparent); }
+.pill-desk { color: var(--muted); }
+.pill-other { color: var(--accent); }
+.pill-other .seat-dot { background: transparent; box-shadow: inset 0 0 0 2px var(--accent); }
+.pill-other::after { color: var(--accent); }
+.pill-off { color: var(--bad); }
 .pill-wait { color: var(--muted); }
 .name-btn { height: var(--bar-h); padding: 0 14px; border-radius: var(--radius); border: 1px solid var(--line); background: transparent; color: var(--accent); font-size: 15px; font-weight: 600; }
 
 /* ---- messages */
 /* Messages sit in the top bar's free space, right-aligned, and shrink / truncate rather than move anything. */
-.banner { flex: 0 1 auto; min-width: 0; margin-left: auto; height: var(--bar-h); line-height: calc(var(--bar-h) - 2px); padding: 0 12px; border-radius: var(--radius); border: 1px solid var(--accent); background: var(--accent-dim); color: var(--accent); font-size: clamp(11px, 1.15vw, 14px); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.banner.bad { background: var(--bad-dim); color: var(--bad); border-color: var(--bad); }
+.banner { flex: 0 1 auto; min-width: 0; margin-left: auto; height: var(--bar-h); line-height: var(--bar-h); padding: 0 14px; border-radius: var(--key-r); background: var(--well); box-shadow: var(--bevel-in); color: var(--text); font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.banner.bad { color: var(--bad); }
 #padBtn { margin-left: auto; }
-.icon-btn { position: relative; width: var(--bar-h); height: var(--bar-h); padding: 0; border-radius: var(--radius); border: 1px solid var(--line); background: transparent; color: var(--text); display: inline-flex; align-items: center; justify-content: center; }
-.pad-dot { position: absolute; right: 6px; top: 6px; width: 8px; height: 8px; }
+.icon-btn { position: relative; width: var(--bar-h); height: var(--bar-h); padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+.pad-dot { position: absolute; right: 5px; top: 5px; width: 8px; height: 8px; }
 .banner:not([hidden]) ~ #padBtn { margin-left: 0; }
 .pin-row { display: flex; align-items: center; justify-content: center; gap: 14px; padding: 12px var(--gap); background: var(--accent-dim); border-bottom: 1px solid var(--line); }
 .pin-row label { font-size: 17px; font-weight: 700; color: var(--accent); }
@@ -108,67 +124,70 @@ p { margin: 0; }
 #infoBar { display: flex; gap: 20px; min-height: 30px; padding: 6px var(--gap); font-size: 14px; }
 #controlInfo:not(:empty) { color: var(--accent); font-weight: 600; }
 
-/* ---- multiview: PVW | PGM on top, rig panes four to a row below */
+/* ---- multiview: PVW | PGM on top, rig panes four to a row below. Reads like a hardware multiviewer: a thin dark
+   frame per pane, tally as a strip on the top edge, the name in a solid black label bar along the bottom. */
 #multiview {
   flex: 1; display: grid; gap: 10px; min-width: 0; min-height: 0;
   grid-template-columns: repeat(8, minmax(0, 1fr)); grid-template-rows: minmax(0, 2fr) minmax(0, 1fr);
 }
 .small-panes { display: contents; }
-.pane { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--black); border: 2px solid var(--line); border-radius: var(--radius); }
+.pane { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--black); border: 1px solid var(--line); border-radius: 2px; }
 .pane-big { grid-column: span 4; }
-.pane-pvw { border-color: var(--ok); }
-.pane-pgm { border-color: var(--bad); }
 .pane-small { grid-column: span 2; cursor: pointer; }
-.pane-small:active { filter: brightness(1.2); }
-.pane-small.is-pvw { border-color: var(--ok); }
-.pane-small.is-pgm { border-color: var(--bad); }
-.pane-small.is-pgm.is-pvw { border-color: var(--bad); }
+.pane-small:active { filter: brightness(1.25); }
+/* Tally: a 3 px strip across the top edge. Program wins when a pane is both. */
+.pane::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; z-index: 5; pointer-events: none; }
+.pane-pvw::before, .pane.is-pvw::before { background: var(--ok); }
+.pane-pgm::before, .pane.is-pgm::before { background: var(--bad); }
 
 .pane-pic { position: absolute; inset: 0; }
 .pane-pic img { display: block; width: 100%; height: 100%; object-fit: contain; -webkit-touch-callout: none; }
 .pane-big .pane-pic img { cursor: crosshair; }
 .pane.tracking-mode .pane-pic img { outline: 2px solid var(--ok); outline-offset: -2px; }
-.pane-note { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 56px 16px; text-align: center; font-size: 16px; color: var(--muted); pointer-events: none; }
+.pane-note { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 56px 16px 32px; text-align: center; font-size: 14px; color: var(--muted); pointer-events: none; }
 .pane-note.check { color: var(--accent); }
 .pane-note.down { color: var(--bad); }
+.pane-small .pane-note { padding: 36px 8px 28px; }
 
-.pane-head { position: absolute; top: 0; left: 0; right: 0; z-index: 4; display: flex; align-items: flex-start; gap: 6px; padding: 8px; pointer-events: none; }
-.pane-ind { margin-right: auto; }
-.pane-small .pane-title { font-size: 12px; padding: 2px 8px; bottom: 4px; }
+/* The head covers the pane (click-through) so the indicators can sit in the bottom bar while staying in its DOM;
+   only Track + the menu remain at the top right. */
+.pane-head { position: absolute; inset: 0; z-index: 4; display: flex; align-items: flex-start; align-content: flex-start; justify-content: flex-end; gap: 6px; padding: 8px; pointer-events: none; }
 .pane-head > * { pointer-events: auto; }
-/* The rig name: a centred label on the pane's bottom line, as on a Blackmagic multiview. */
-.pane-title { position: absolute; left: 50%; bottom: 6px; transform: translateX(-50%); z-index: 2; max-width: 70%; padding: 3px 12px; border-radius: 2px; background: oklch(8% 0.01 240 / 0.82); font-size: 14px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
-/* Head link + batteries, drawn with the pane's glyph sprite; colours: ok / warn / bad / off (unknown). */
-.pane-ind { display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 0 8px; pointer-events: none; }
-.ind { display: inline-flex; align-items: center; gap: 3px; height: 24px; padding: 0 6px; border-radius: 3px; background: var(--plate); color: var(--muted); font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.pane-small .pane-head { padding: 6px; }
+/* The health line is retired: the bottom-bar icons say link + battery, the centre note says why there is no picture. */
+.pane-foot { display: none; }
+
+/* Label bar: solid black along the bottom, name left, indicators right. */
+.pane-title { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; height: 24px; line-height: 24px; padding: 0 10px; background: var(--black); color: var(--text); font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+.pane-small .pane-title { height: 22px; line-height: 22px; font-size: 12px; }
+/* Head link + batteries; colours: ok / warn / bad / off (unknown). */
+.pane-ind { position: absolute; right: 0; bottom: 0; z-index: 3; display: flex; align-items: center; gap: 8px; height: 24px; padding: 0 8px; background: var(--black); pointer-events: none; }
+.pane-ind:empty { display: none; }
+.pane-small .pane-ind { height: 22px; gap: 6px; padding: 0 6px; }
+.ind { display: inline-flex; align-items: center; gap: 1px; height: 100%; color: var(--muted); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .ind-ok { color: var(--ok); }
 .ind-warn { color: var(--accent); }
 .ind-bad { color: var(--bad); }
-.ico { width: 16px; height: 16px; fill: currentColor; flex: none; }
+.ico { width: 14px; height: 14px; fill: currentColor; flex: none; }
+.pane-small .ico { width: 12px; height: 12px; }
 .bars rect { fill: currentColor; opacity: 0.22; }
 .bars-1 .b1, .bars-2 .b1, .bars-2 .b2, .bars-3 .b1, .bars-3 .b2, .bars-3 .b3 { opacity: 1; }
 .bars .slash { display: none; }
 .bars.crossed .slash { display: block; }
-.batt { position: relative; width: 20px; height: 10px; border: 1.5px solid currentColor; border-radius: 2px; flex: none; }
-.batt::after { content: ''; position: absolute; right: -4px; top: 2px; width: 2px; height: 4px; background: currentColor; border-radius: 0 1px 1px 0; }
+.batt { position: relative; width: 18px; height: 9px; margin: 0 3px 0 2px; border: 1.5px solid currentColor; border-radius: 1px; flex: none; }
+.batt::after { content: ''; position: absolute; right: -4px; top: 1.5px; width: 2px; height: 3px; background: currentColor; }
 .batt-fill { height: 100%; background: currentColor; }
-.pct { min-width: 30px; }
-.pane-small .pane-ind { gap: 6px; padding: 0 4px; }
-.pane-small .ind { height: 22px; padding: 0 4px; font-size: 11px; }
-.pane-small .ico { width: 14px; height: 14px; }
-.pane-small .batt { width: 16px; height: 9px; }
+.pane-small .batt { width: 15px; height: 8px; }
+.pct { min-width: 28px; font-size: 11px; font-variant-numeric: tabular-nums; }
 .pane-small .pct { min-width: 26px; }
-.pane-menu, .track-btn, .track-state { border-radius: 4px; border: 1px solid var(--plate-line); background: var(--plate); }
+
+/* Buttons on the picture: solid dark plates, white legends. Disabled dims the legend, not the plate. */
+.pane-menu, .track-btn, .track-state { border-radius: 2px; border: 1px solid var(--line); background: oklch(12% 0.01 240 / 0.96); color: var(--text); }
 .pane-menu { flex: none; width: 44px; height: 44px; padding: 0; font-size: 24px; line-height: 1; }
-.pane-menu:disabled, .track-btn:disabled { color: var(--muted); border-color: oklch(45% 0.01 240 / 0.6); cursor: default; }
-/* The health line is retired: the header icons say link + battery, the centre note says why there is no picture. */
-.pane-foot { display: none; }
-.pane-small .pane-head { padding: 6px; }
-.pane-small .pane-note { font-size: 13px; padding: 36px 8px 24px; }
+.pane-menu:disabled, .track-btn:disabled { color: color-mix(in oklch, var(--text) 45%, transparent); cursor: default; }
 
-
-.crosshair { position: absolute; width: 48px; height: 48px; margin: -24px 0 0 -24px; border: 2px solid var(--accent); border-radius: 50%; opacity: 0; pointer-events: none; transition: opacity 0.4s; }
-.crosshair::before, .crosshair::after { content: ''; position: absolute; background: var(--accent); }
+.crosshair { position: absolute; width: 48px; height: 48px; margin: -24px 0 0 -24px; border: 2px solid var(--text); border-radius: 50%; opacity: 0; pointer-events: none; transition: opacity 0.4s; }
+.crosshair::before, .crosshair::after { content: ''; position: absolute; background: var(--text); }
 .crosshair::before { left: 50%; top: -6px; bottom: -6px; width: 2px; margin-left: -1px; }
 .crosshair::after { top: 50%; left: -6px; right: -6px; height: 2px; margin-top: -1px; }
 .crosshair.on { opacity: 1; transition: none; }
@@ -182,7 +201,7 @@ p { margin: 0; }
 .track-bar[hidden], .track-bar [hidden] { display: none; }
 .track-btn { height: 44px; min-width: 44px; padding: 0 12px; font-size: 15px; font-weight: 700; }
 .track-btn.on { background: var(--ok); border-color: var(--ok); color: var(--ink); }
-.track-stop { border-color: var(--bad); color: var(--bad); }
+.track-stop { color: var(--bad); }
 .track-state { padding: 6px 10px; font-size: 13px; font-weight: 600; white-space: nowrap; }
 .track-state:empty { display: none; }
 .track-state.tracking { color: var(--ok); }
@@ -197,60 +216,77 @@ p { margin: 0; }
   background: var(--panel); border-top: 1px solid var(--line);
 }
 .rail-zoom { display: grid; grid-template-rows: 1fr 1fr; gap: 8px; width: 72px; }
-.zoom-btn { min-height: 0; padding: 0; font-size: 30px; font-weight: 500; line-height: 1; color: var(--text); }
-.zoom-btn.held { background: var(--accent); border-color: var(--accent); color: var(--ink); }
-.zoom-btn.dim { opacity: 0.35; }
+.zoom-btn { min-height: 0; padding: 0; line-height: 1; }
 .rail-left { display: grid; grid-template-rows: 1fr 1fr 1fr; gap: 8px; min-width: 200px; }
-.btn-lt { min-height: 0; display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 15px; letter-spacing: 0.08em; color: var(--muted); border-style: dashed; }
-.btn-lt small { font-size: 12px; font-weight: 800; letter-spacing: 0.1em; padding: 2px 6px; border-radius: 2px; background: var(--panel); color: var(--muted); }
-.lt-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--line); flex: none; }
-.btn-lt.on { color: var(--ink); background: var(--ok); border: 2px solid var(--ok); border-style: solid; animation: lt-pulse 1.6s ease-in-out infinite; }
-.btn-lt.on small { background: var(--ink); color: var(--ok); }
-.btn-lt.on .lt-dot { background: var(--ink); }
+.btn-lt { min-height: 0; display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 15px; }
+.btn-lt small { font-size: 11px; font-weight: 700; color: var(--muted); }
+.lt-dot { width: 9px; height: 9px; border-radius: 1px; background: var(--led-off); box-shadow: inset 0 0 0 1px oklch(0% 0 0 / 0.4); flex: none; }
+.btn-lt.on { background: var(--ok); color: var(--ink); }
+.btn-lt.on small { color: var(--ink); }
+.btn-lt.on .lt-dot { background: oklch(97% 0.06 155); box-shadow: 0 0 6px oklch(97% 0.06 155 / 0.8); }
 @keyframes lt-pulse { 50% { filter: brightness(0.8); } }
-.btn-lt.dim { opacity: 0.4; }
 .rail-mid { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-width: 0; }
 .rail-mid .label { color: var(--muted); }
 .rail-right { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
-.stick { position: relative; height: calc(100% - 26px); max-height: 220px; min-height: 120px; aspect-ratio: 1; border-radius: 50%; border: 2px solid var(--line); background: var(--panel-2); touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
-.stick::before { content: ''; position: absolute; left: 50%; top: 50%; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; background: var(--line); }
-.stick-knob { position: absolute; left: 50%; top: 50%; width: 40%; height: 40%; margin: -20% 0 0 -20%; border-radius: 50%; background: var(--text); border: 2px solid var(--bg); pointer-events: none; }
-.stick.held { border-color: var(--accent); }
-.stick.held .stick-knob { background: var(--accent); }
-.stick.dim { opacity: 0.35; }
-.stick-label { color: var(--muted); white-space: nowrap; max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+/* The joystick as a physical stick: a knurled outer ring, a hairline, a flat recessed well, and a domed stick top
+   with a highlight on its upper edge. Held: the ring lights amber. Geometry (2px ring, 40% knob) is what the script measures. */
+.stick {
+  position: relative; height: calc(100% - 26px); max-height: 220px; min-height: 120px; aspect-ratio: 1; border-radius: 50%;
+  border: 2px solid var(--cap-edge); touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+  background:
+    radial-gradient(circle closest-side, var(--well) 0 70%, var(--line) 70% 72%, transparent 72.5%),
+    repeating-conic-gradient(oklch(27% 0.012 240) 0 3deg, oklch(22% 0.012 240) 3deg 6deg);
+  box-shadow: inset 0 1px 0 oklch(100% 0 0 / 0.12), inset 0 -1px 0 oklch(0% 0 0 / 0.5);
+}
+.stick::before { content: ''; position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; background: var(--line); }
+.stick-knob {
+  position: absolute; left: 50%; top: 50%; width: 40%; height: 40%; margin: -20% 0 0 -20%; border-radius: 50%; pointer-events: none;
+  border: 1px solid var(--cap-edge);
+  background: radial-gradient(circle at 50% 38%, oklch(48% 0.01 240), oklch(32% 0.012 240) 62%, oklch(24% 0.012 240));
+  box-shadow: inset 0 1px 0 oklch(100% 0 0 / 0.35), 0 3px 6px oklch(0% 0 0 / 0.55);
+}
+.stick.held { border-color: var(--accent); box-shadow: 0 0 8px color-mix(in oklch, var(--accent) 45%, transparent); }
+.stick.dim { opacity: 0.45; }
+.stick-label { letter-spacing: 0; color: var(--muted); white-space: nowrap; max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
 #menuSheet .seg { flex: 1; display: grid; grid-template-columns: 1fr 1fr; }
 #menuSheet .seg-btn { min-height: 48px; }
 .dpad { display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); grid-template-areas: '. up .' 'left . right' '. down .'; gap: 6px; height: calc(100% - 26px); max-height: 220px; min-height: 120px; aspect-ratio: 1; }
-.arrow { min-height: 0; padding: 0; border-radius: var(--radius); border: 1px solid var(--line); background: var(--panel-2); color: var(--text); font-size: 22px; font-weight: 700; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.arrow { min-height: 0; padding: 0; font-size: 20px; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 .arrow-up { grid-area: up; } .arrow-down { grid-area: down; } .arrow-left { grid-area: left; } .arrow-right { grid-area: right; }
-.arrow.held { background: var(--accent); border-color: var(--accent); color: var(--ink); }
-.dpad.dim { opacity: 0.35; }
+.dpad.dim .arrow { color: var(--legend-dim); }
 #hint, #wakeHint { font-size: 13px; line-height: 1.3; max-width: 340px; }
 
-.btn {
-  min-height: 64px; padding: 0 22px; border-radius: var(--radius); border: 1px solid var(--line);
-  background: var(--panel-2); font-size: 19px; font-weight: 700; white-space: nowrap; transition: filter 0.08s;
+/* ---- keys: every button in the top bar and the control bar is a bevelled cap with a white legend.
+   Unlit = cap; pressed / held = cap darkens and the bevel inverts; lit = a saturated fill with a dark legend. */
+.btn, .seg-btn, .arrow, .icon-btn {
+  border: 1px solid var(--cap-edge); border-radius: var(--key-r); background: var(--cap); color: var(--text);
+  box-shadow: var(--bevel); font-weight: 700; transition: filter 0.08s;
 }
-.btn:active { filter: brightness(1.25); }
+.btn:active, .seg-btn:active, .arrow:active, .icon-btn:active, .zoom-btn.held, .arrow.held { box-shadow: var(--bevel-in); filter: brightness(0.78); }
+.btn { min-height: 64px; padding: 0 22px; font-size: 15px; white-space: nowrap; }
+.zoom-btn { font-size: 24px; }
 .btn:disabled { cursor: default; }
-.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--ink); }
-.btn-primary:disabled { background: var(--panel-2); border-color: var(--line); color: var(--muted); }
-.btn-claim { min-height: 0; height: var(--bar-h); min-width: 150px; padding: 0 18px; font-size: 16px; }
-.btn-sm { min-height: 48px; padding: 0 18px; font-size: 17px; }
+.zoom-btn.dim, .btn-lt.dim, .btn:disabled { color: var(--legend-dim); }
+.btn-primary { background: var(--accent); color: var(--ink); }
+.btn-primary:disabled { background: var(--cap); color: var(--legend-dim); }
+#mapBar .btn-primary { background: var(--lit); color: var(--ink); }
+.btn-claim { min-height: 0; height: var(--bar-h); min-width: 150px; padding: 0 18px; font-size: 13px; }
+.btn-sm { min-height: 48px; padding: 0 18px; font-size: 15px; }
 
-.seg { display: inline-flex; flex: none; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
-.seg-btn { min-height: 64px; min-width: 84px; padding: 0 12px; border: 0; border-right: 1px solid var(--line); background: var(--panel-2); color: var(--muted); font-size: 16px; font-weight: 700; }
+/* Speed: one strip of keys split by the cap edge; the selected one is a lit white key. */
+.seg { display: inline-flex; flex: none; border: 1px solid var(--cap-edge); border-radius: var(--key-r); overflow: hidden; }
+.seg-btn { min-height: 64px; min-width: 84px; padding: 0 12px; border: 0; border-right: 1px solid var(--cap-edge); border-radius: 0; font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase; }
 .seg-btn:last-child { border-right: 0; }
-.seg-btn.on { background: var(--accent-dim); color: var(--text); box-shadow: inset 0 -3px 0 var(--accent); }
+.seg-btn.on { background: var(--lit); color: var(--ink); }
 
+/* TRANSITION is lit amber only while it will cut; otherwise an unlit cap. STOP is always lit red. */
 .btn-transition {
-  min-height: 0; display: flex; font-size: 20px; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
-  background: var(--accent); border-color: var(--accent); color: var(--ink); font-size: 24px; letter-spacing: 0.06em; line-height: 1;
+  min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  background: var(--accent); color: var(--ink); font-size: 24px; letter-spacing: 0.04em; line-height: 1;
 }
-.btn-transition small { font-size: 12px; font-weight: 700; letter-spacing: 0.04em; opacity: 0.75; }
-.btn-transition.dim { background: var(--panel-2); border-color: var(--line); color: var(--muted); }
-.btn-stop { min-height: 0; background: var(--bad); border: 2px solid var(--bad); color: var(--ink); font-size: 26px; letter-spacing: 0.12em; }
+.btn-transition small { font-size: 11px; font-weight: 700; letter-spacing: 0.04em; opacity: 0.75; }
+.btn-transition.dim { background: var(--cap); color: var(--legend-dim); }
+.btn-stop { min-height: 0; background: var(--bad); color: var(--ink); font-size: 24px; letter-spacing: 0.04em; }
 
 /* ---- camera menu: a drawer from the right in landscape */
 .sheet-back { position: fixed; inset: 0; z-index: 10; background: oklch(5% 0.01 240 / 0.6); }
@@ -287,18 +323,18 @@ p { margin: 0; }
 .sheet-row .name-btn { flex: 1; text-align: left; padding: 0 14px; min-height: 48px; }
 #menuSheet .small { margin-top: 10px; }
 .small { font-size: 13px; line-height: 1.4; }
-/* Map mode: a strip under the top bar; every mappable control shows a dashed amber frame and its binding tag. */
+/* Map mode: every mappable control shows a grey frame (white when armed) and its binding tag. */
 /* Map mode lives in the top bar: the instruction in the message slot, Clear / Done beside the Bluetooth button. */
 .map-bar { display: inline-flex; gap: 6px; }
 .map-bar:not([hidden]) + #padBtn { margin-left: 0; }
-.banner.map { background: var(--panel-2); border-color: var(--accent); color: var(--accent); }
-body.mapping [data-map] { outline: 2px dashed var(--accent); outline-offset: 2px; position: relative; }
-body.mapping [data-map].armed { outline-style: solid; animation: lt-pulse 0.8s ease-in-out infinite; }
-.map-tag { position: absolute; left: 50%; bottom: -10px; transform: translateX(-50%); z-index: 5; padding: 1px 6px; border-radius: 2px; background: var(--accent); color: var(--ink); font-size: 10px; font-weight: 800; letter-spacing: 0.06em; white-space: nowrap; pointer-events: none; }
+.banner.map { color: var(--accent); }
+body.mapping [data-map] { outline: 1px solid var(--muted); outline-offset: 2px; position: relative; }
+body.mapping [data-map].armed { outline: 2px solid var(--text); animation: lt-pulse 0.8s ease-in-out infinite; }
+.map-tag { position: absolute; left: 50%; bottom: -10px; transform: translateX(-50%); z-index: 5; padding: 1px 6px; border-radius: 2px; background: var(--lit); color: var(--ink); font-size: 11px; font-weight: 700; letter-spacing: 0.04em; white-space: nowrap; pointer-events: none; }
 body:not(.mapping) .map-tag { opacity: 0.85; }
 .pane-small .map-tag { bottom: auto; top: 6px; left: auto; right: 56px; transform: none; }
 .map-list { margin-top: 10px; line-height: 1.5; }
-#mapBar .btn-sm { min-height: 0; height: var(--bar-h); padding: 0 14px; font-size: 14px; }
+#mapBar .btn-sm { min-height: 0; height: var(--bar-h); padding: 0 14px; font-size: 13px; }
 .sheet-status { min-height: 22px; margin-top: 14px; font-size: 15px; color: var(--muted); }
 .sheet-status.bad { color: var(--bad); }
 .lvl-ready { color: var(--ok); }
@@ -310,7 +346,6 @@ body:not(.mapping) .map-tag { opacity: 0.85; }
   :root { }
   .rail-left { min-width: 160px; }
   .pane-big .pane-head { flex-wrap: wrap; }
-  .pane-big .pane-title { flex: 1 1 100%; }
 }
 @media (max-height: 700px) {
   :root { --gap: 10px; }
@@ -334,14 +369,14 @@ body:not(.mapping) .map-tag { opacity: 0.85; }
   .rail-zoom { width: 56px; }
   .rail-left { min-width: 150px; }
   .rail-mid .seg { display: grid; grid-template-columns: 1fr; width: 100%; max-width: 120px; }
-  .rail-mid .seg-btn { min-height: 48px; border-right: 0; border-bottom: 1px solid var(--line); }
+  .rail-mid .seg-btn { min-height: 48px; border-right: 0; border-bottom: 1px solid var(--cap-edge); }
   .rail-mid .seg-btn:last-child { border-bottom: 0; }
   .stick { height: 150px; }
   .btn-transition { font-size: 20px; }
-  .btn-stop { font-size: 22px; }
+  .btn-stop { font-size: 20px; }
   .sheet { top: auto; left: 0; width: 100%; max-height: 88%; border-left: 0; border-top: 1px solid var(--line); }
   #topbar { flex-wrap: nowrap; }
   .btn-claim { min-width: 120px; padding: 0 12px; }
 }
-@media (max-width: 520px) { #rtt { display: none; } .status-chip { width: auto; } .rail-zoom { width: 44px; } .zoom-btn { font-size: 24px; }  .rail-left { min-width: 104px; } .rail-mid .seg { max-width: 84px; } .rail-mid .seg-btn { min-width: 0; font-size: 14px; } .stick { height: 120px; min-height: 120px; } .btn-transition { font-size: 15px; } .btn-stop { font-size: 17px; } }
-@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } }
+@media (max-width: 520px) { #rtt { display: none; } .status-chip { grid-template-columns: auto; } .rail-zoom { width: 44px; } .zoom-btn { font-size: 20px; }  .rail-left { min-width: 104px; } .rail-mid .seg { max-width: 84px; } .rail-mid .seg-btn { min-width: 0; font-size: 13px; } .stick { height: 120px; min-height: 120px; } .btn-transition { font-size: 15px; } .btn-stop { font-size: 15px; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
