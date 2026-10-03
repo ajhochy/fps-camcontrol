@@ -24,6 +24,15 @@ direction/gain/killed-app-stops-head checks are MANUAL_PENDING. Calibration stay
 `integration/combine-open-prs` (draft, not to be merged without review and the manual hardware checks of each
 source PR). Merge order: #36, #59, #57, #58 (`git merge --no-ff`).
 
+## iPad remote page redesign (2026-10-02, branch `feat/ipad-remote-touch-redesign` off the integration branch)
+`ui/remote/index.html` + `remote.css` only; `remote.js` and every ID/class it uses are unchanged. Designed for an
+iPad in landscape: the seat (Take control / Release + hint) sits in the top bar next to the connection state, the
+multiview takes the full width (PVW | PGM, rig panes four to a row), and one bottom bar holds Slow/Normal/Fast,
+TRANSITION and STOP (STOP bottom-right, under the right thumb). Pads are 64 px glass buttons; the big-pane health
+line sits between the zoom and D-pad. Portrait/phone stacks the panes and wraps the bar. A side rail was tried and
+dropped (it squashed the multiview). Checked in the sandbox (`.claude/launch.json` now has a `sandbox` entry on
+8090); `pnpm sandbox:check` 239/239. Not yet seen on a real iPad.
+
 ## Electron line — state as recorded on PR #58 (codex/electron-tracking, stacked on #57)
 
 ### Current focus

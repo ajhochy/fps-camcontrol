@@ -6,63 +6,73 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="theme-color" content="#0b0e10">
+<meta name="theme-color" content="#0a0d10">
 <title>CamControl Remote</title>
 <link rel="stylesheet" href="/ui/remote/remote.css">
 </head>
 <body>
 <div id="app">
   <header id="topbar">
-    <span id="conn" class="dot dot-off" title="Connection"></span>
-    <span id="connText">Connecting…</span>
-    <span id="rtt" class="muted"></span>
+    <div class="status-chip" title="Connection">
+      <span id="conn" class="dot dot-off"></span>
+      <span id="connText">Connecting…</span>
+      <span id="rtt" class="muted"></span>
+    </div>
     <span id="ownerPill" class="pill pill-wait">Connecting</span>
     <span id="padPill" class="pill pill-wait">No controller</span>
+    <button id="claimBtn" class="btn btn-primary btn-claim" type="button">Take control</button>
+    <button id="releaseBtn" class="btn btn-claim" type="button" hidden>Release</button>
+    <p id="hint" class="muted">Tap Take control to drive with touch, or wake the controller and hold Menu for 1 s.</p>
+    <p id="wakeHint" class="muted" hidden></p>
     <span class="spacer"></span>
-    <button id="nameBtn" class="link" type="button" title="Name shown on the desk">iPad</button>
+    <button id="nameBtn" class="name-btn" type="button" title="Name shown on the desk">iPad</button>
   </header>
 
   <div id="banner" class="banner" hidden></div>
 
-  <main id="main" data-layout="wide">
-    <div id="multiview" aria-label="Multiview">
-      <section class="pane pane-big pane-pvw" id="pane-pvw" data-pane="pvw"></section>
-      <section class="pane pane-big pane-pgm" id="pane-pgm" data-pane="pgm"></section>
-      <div id="smallPanes" class="small-panes"></div>
+  <form id="pinRow" class="pin-row" hidden onsubmit="return false">
+    <label for="pinInput">Enter the desk PIN to take control</label>
+    <input id="pinInput" type="password" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="4–8 digits">
+    <button id="pinBtn" class="btn btn-primary" type="button">Unlock</button>
+  </form>
+
+  <div id="stage">
+    <div id="viewCol">
+      <main id="main" data-layout="wide">
+        <div id="multiview" aria-label="Multiview">
+          <section class="pane pane-big pane-pvw" id="pane-pvw" data-pane="pvw"></section>
+          <section class="pane pane-big pane-pgm" id="pane-pgm" data-pane="pgm"></section>
+          <div id="smallPanes" class="small-panes"></div>
+        </div>
+      </main>
+      <div id="infoBar" class="muted"><span id="controlInfo"></span><span id="speedLine"></span></div>
     </div>
-  </main>
-  <div id="infoBar" class="muted"><span id="controlInfo"></span><span id="speedLine"></span></div>
+
+    <footer id="actions" aria-label="Controls">
+      <div class="rail-group">
+        <div id="speedBtns" class="seg" role="group" aria-label="Touch speed">
+          <button type="button" class="seg-btn" data-speed="slow">Slow</button>
+          <button type="button" class="seg-btn" data-speed="normal">Normal</button>
+          <button type="button" class="seg-btn" data-speed="fast">Fast</button>
+        </div>
+      </div>
+
+      <span class="spacer"></span>
+
+      <button id="transitionBtn" class="btn btn-transition" type="button" title="Take preview to program (auto transition)">TRANSITION<small>PVW → PGM</small></button>
+      <button id="stopBtn" class="btn btn-stop" type="button">STOP</button>
+    </footer>
+  </div>
 
   <div id="sheetBack" class="sheet-back" hidden></div>
   <section id="sheet" class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle" hidden>
     <div class="sheet-head">
       <div><h2 id="sheetTitle">Camera</h2><div id="sheetBattery" class="muted"></div></div>
-      <button id="sheetClose" class="btn btn-sm" type="button">Close</button>
+      <button id="sheetClose" class="btn btn-sm" type="button">Done</button>
     </div>
     <div id="sheetRows" class="sheet-rows"></div>
     <div id="sheetStatus" class="sheet-status" aria-live="polite"></div>
   </section>
-
-  <form id="pinRow" class="pin-row" hidden onsubmit="return false">
-    <label for="pinInput">PIN</label>
-    <input id="pinInput" type="password" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="4-8 digits">
-    <button id="pinBtn" class="btn" type="button">Unlock</button>
-  </form>
-
-  <footer id="actions">
-    <button id="claimBtn" class="btn btn-primary" type="button">Take control</button>
-    <button id="releaseBtn" class="btn" type="button" hidden>Release</button>
-    <span id="hint" class="muted">Tap Take control to drive with touch, or wake the controller and hold Menu for 1 s.</span>
-    <span class="spacer"></span>
-    <div id="speedBtns" class="seg" role="group" aria-label="Touch speed">
-      <button type="button" class="seg-btn" data-speed="slow">Slow</button>
-      <button type="button" class="seg-btn" data-speed="normal">Normal</button>
-      <button type="button" class="seg-btn" data-speed="fast">Fast</button>
-    </div>
-    <button id="transitionBtn" class="btn btn-transition" type="button" title="Take preview to program (auto transition)">TRANSITION<small>PVW to PGM</small></button>
-    <button id="stopBtn" class="btn btn-stop" type="button">STOP</button>
-  </footer>
-  <div id="wakeHint" class="muted" hidden></div>
 </div>
 
 <script src="/ui/remote/remoteModel.js"></script>
