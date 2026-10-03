@@ -24,7 +24,7 @@ direction/gain/killed-app-stops-head checks are MANUAL_PENDING. Calibration stay
 `integration/combine-open-prs` (draft, not to be merged without review and the manual hardware checks of each
 source PR). Merge order: #36, #59, #57, #58 (`git merge --no-ff`).
 
-## iPad remote page redesign (2026-10-02/03, branch `feat/ipad-remote-touch-redesign` off `integration/combine-open-prs` @ ac17a1e)
+## iPad remote page redesign (2026-10-02/03, branch `feat/ipad-remote-touch-redesign` off `integration/combine-open-prs` @ ac17a1e — draft PR #62)
 Hardware-panel look (bevelled backlit keys, LED status cluster, tally-strip multiview with centred labels and head /
 battery icons, knob joystick, panel-face drawers). Controls: joystick or arrows (☰), zoom keys or spring-back lever (☰),
 TRANSITION / LOWER THIRD (green on air) / STOP, speed keys, Ableton-style controller button mapping (Bluetooth drawer),
@@ -35,7 +35,8 @@ AVFoundation or DeckLink → MJPEG; `program:` block; `/api/program/*`; fake in 
 (fake ATEM, SMPTE frame, fake program) and its fake ports are env-overridable. Gate: `pnpm sandbox:check` 253/253.
 **Deploy target:** Mac Studio `~/Developer/fps-camcontrol-live` (launchd `com.fpscamcontrol.app`, node
 `~/.hermes/node/bin/node`, config in `config/` with uncommitted rig edits + ignored `sony-cameras.json` — never overwrite).
-Open on the show machine: ffmpeg with DeckLink support for the UltraStudio Recorder 3G (see `docs/program-feed.md`), real
+DeckLink build script + vendored SDK 16 headers exist UNCOMMITTED in the working tree (the Studio runs Desktop Video 14.2;
+the SDK must match; no driver changes before the 2026-10-04 show). Open on the show machine: that DeckLink ffmpeg, real
 Sony zoom / zoom-setting on a body, custom sliders on iPad Safari. Per-pass detail: `docs/ai/runs/2026-10-02-ipad-remote-touch-redesign.md`.
 
 ## Electron line — state as recorded on PR #58 (codex/electron-tracking, stacked on #57)
