@@ -22,7 +22,7 @@
   function $(id) { return document.getElementById(id); }
   var el = {
     conn: $('conn'), connText: $('connText'), rtt: $('rtt'), ownerPill: $('ownerPill'), padPill: $('padPill'),
-    nameBtn: $('nameBtn'), padBtn: $('padBtn'), padDot: $('padDot'), padSheet: $('padSheet'), padSheetClose: $('padSheetClose'), padStatus: $('padStatus'), banner: $('banner'), main: $('main'), paneEls: { pvw: $('pane-pvw'), pgm: $('pane-pgm') }, smallPanes: $('smallPanes'),
+    nameBtn: $('nameBtn'), padBtn: $('padBtn'), padDot: $('padDot'), menuBtn: $('menuBtn'), menuSheet: $('menuSheet'), menuSheetClose: $('menuSheetClose'), padSheet: $('padSheet'), padSheetClose: $('padSheetClose'), padStatus: $('padStatus'), banner: $('banner'), main: $('main'), paneEls: { pvw: $('pane-pvw'), pgm: $('pane-pgm') }, smallPanes: $('smallPanes'),
     controlInfo: $('controlInfo'), speedLine: $('speedLine'), claimBtn: $('claimBtn'),
     sheet: $('sheet'), sheetBack: $('sheetBack'), sheetTitle: $('sheetTitle'), sheetBattery: $('sheetBattery'), sheetRows: $('sheetRows'), sheetStatus: $('sheetStatus'), sheetClose: $('sheetClose'),
     releaseBtn: $('releaseBtn'), stopBtn: $('stopBtn'), hint: $('hint'), wakeHint: $('wakeHint'),
@@ -794,8 +794,10 @@
   function closeSheet() {
     if (sheetState) sheetState.timers.forEach(clearTimeout);
     sheetState = null;
-    el.sheet.hidden = true; el.padSheet.hidden = true; el.sheetBack.hidden = true;
+    el.sheet.hidden = true; el.padSheet.hidden = true; el.menuSheet.hidden = true; el.sheetBack.hidden = true;
   }
+  el.menuBtn.addEventListener('click', function () { closeSheet(); el.menuSheet.hidden = false; el.sheetBack.hidden = false; });
+  el.menuSheetClose.addEventListener('click', closeSheet);
   // The controller screen: pairing steps and what the page currently sees. Same backdrop and close paths as the camera menu.
   el.padBtn.addEventListener('click', function () { closeSheet(); el.padSheet.hidden = false; el.sheetBack.hidden = false; });
   el.padSheetClose.addEventListener('click', closeSheet);

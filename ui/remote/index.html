@@ -34,6 +34,9 @@
       <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M7 7l10 10-5 5V2l5 5L7 17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <span id="padDot" class="dot pad-dot"></span>
     </button>
+    <button id="menuBtn" class="icon-btn" type="button" aria-label="Menu">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>
   </header>
 
 
@@ -86,7 +89,7 @@
   </section>
   <section id="padSheet" class="sheet" role="dialog" aria-modal="true" aria-labelledby="padSheetTitle" hidden>
     <div class="sheet-head">
-      <div><h2 id="padSheetTitle">This iPad</h2><div id="padStatus" class="pad-status muted">No controller</div></div>
+      <div><h2 id="padSheetTitle">Game controller</h2><div id="padStatus" class="pad-status muted">No controller</div></div>
       <button id="padSheetClose" class="btn btn-sm" type="button">Done</button>
     </div>
     <ol class="steps">
@@ -96,7 +99,14 @@
     </ol>
     <p class="muted small">While a stick or button is being touched the controller wins over the on-screen joystick. Letting the
       iPad sleep or switching away hands control back.</p>
-    <div class="sheet-row name-row"><label for="nameBtn">Name shown on the desk</label><button id="nameBtn" class="name-btn" type="button">iPad</button></div>
+  </section>
+  <section id="menuSheet" class="sheet" role="dialog" aria-modal="true" aria-labelledby="menuSheetTitle" hidden>
+    <div class="sheet-head">
+      <div><h2 id="menuSheetTitle">This iPad</h2><div class="muted">CamControl Remote</div></div>
+      <button id="menuSheetClose" class="btn btn-sm" type="button">Done</button>
+    </div>
+    <div class="sheet-row"><label for="nameBtn">Name shown on the desk</label><button id="nameBtn" class="name-btn" type="button">iPad</button></div>
+    <p class="muted small">The desk shows this name as the owner of the seat while this iPad has control.</p>
   </section>
 </div>
 

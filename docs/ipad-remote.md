@@ -76,8 +76,8 @@ Tap **Take control**, then:
 - **The program camera cannot be moved by touch.** Only the preview camera is driven from the page; a controller
   can still move whatever it controls.
 - **Bluetooth button (top right):** its light is grey with no controller, green when one is connected, red when the
-  page does not recognise it. Tap it for the pairing steps, what the page currently sees, and this iPad's name (what
-  the desk shows as the owner of the seat).
+  page does not recognise it. Tap it for the pairing steps and what the page currently sees.
+- **☰ menu (top right):** this iPad's name (what the desk shows as the owner of the seat).
 - Messages (refusals, STOP, lost control) appear in the top bar's free space and never move the layout.
 - A controller on the same page wins while its sticks or buttons are being touched. The seat is kept alive by neutral
   frames, and every safety stop below applies unchanged.

@@ -249,8 +249,8 @@ p { margin: 0; }
 .steps { margin: 0 0 14px; padding-left: 22px; font-size: 16px; line-height: 1.45; }
 .steps li + li { margin-top: 10px; }
 .pad-status { font-size: 14px; font-weight: 600; }
-.name-row { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
-.name-row .name-btn { flex: 1; text-align: left; padding: 0 14px; min-height: 48px; }
+.sheet-row .name-btn { flex: 1; text-align: left; padding: 0 14px; min-height: 48px; }
+#menuSheet .small { margin-top: 10px; }
 .small { font-size: 13px; line-height: 1.4; }
 .sheet-status { min-height: 22px; margin-top: 14px; font-size: 15px; color: var(--muted); }
 .sheet-status.bad { color: var(--bad); }
