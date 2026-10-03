@@ -73,7 +73,10 @@ export function createStatusServer(
     next();
   });
   app.use(express.json());
-  installTrackingRoutes(app, config, getTracking, () => trackingRuntimeFor(state));
+  installTrackingRoutes(app, config, getTracking, () => trackingRuntimeFor(state), (device, value) => {
+    commitConfigEdit(undefined, (raw) => { raw.tracking = raw.tracking ?? {}; raw.tracking.speeds = { ...(raw.tracking.speeds ?? {}), [device]: value }; return raw; });
+    config.tracking = loadConfig().tracking;
+  });
   installTrackingCalibrationRoutes(app, config, devices, getTracking);
   // The rigs screen is plain JS/CSS files (not part of the page template) so they can be syntax-checked and
   // tested on their own. dist/ui and src/ui are both two levels below the repo root.

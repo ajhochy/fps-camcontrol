@@ -22,12 +22,12 @@
   function $(id) { return document.getElementById(id); }
   var el = {
     conn: $('conn'), connText: $('connText'), rtt: $('rtt'), ownerPill: $('ownerPill'), padPill: $('padPill'),
-    nameBtn: $('nameBtn'), banner: $('banner'), main: $('main'), paneEls: { pvw: $('pane-pvw'), pgm: $('pane-pgm') }, smallPanes: $('smallPanes'),
+    nameBtn: $('nameBtn'), padBtn: $('padBtn'), padDot: $('padDot'), padSheet: $('padSheet'), padSheetClose: $('padSheetClose'), padStatus: $('padStatus'), banner: $('banner'), main: $('main'), paneEls: { pvw: $('pane-pvw'), pgm: $('pane-pgm') }, smallPanes: $('smallPanes'),
     controlInfo: $('controlInfo'), speedLine: $('speedLine'), claimBtn: $('claimBtn'),
     sheet: $('sheet'), sheetBack: $('sheetBack'), sheetTitle: $('sheetTitle'), sheetBattery: $('sheetBattery'), sheetRows: $('sheetRows'), sheetStatus: $('sheetStatus'), sheetClose: $('sheetClose'),
     releaseBtn: $('releaseBtn'), stopBtn: $('stopBtn'), hint: $('hint'), wakeHint: $('wakeHint'),
     pinRow: $('pinRow'), pinInput: $('pinInput'), pinBtn: $('pinBtn'),
-    transitionBtn: $('transitionBtn'), speedBtns: $('speedBtns'),
+    transitionBtn: $('transitionBtn'), speedBtns: $('speedBtns'), stick: $('stick'), stickKnob: $('stickKnob'), stickLabel: $('stickLabel'),
   };
 
   var ws = null;
@@ -53,6 +53,7 @@
   var touchSpeedName = M.speedLevel(store('fps-remote-speed') || M.DEFAULT_SPEED);
   var press = null;            // the arrow being held: { pointerId, key, rigId, dirs, onAir, startedAt }
   var pgmUnlockedUntil = 0;    // ms timestamp until which moving the program camera is allowed
+  var stick = null;            // the joystick being held: { pointerId, rigId, x, y } (x,y: knob offset / ring radius)
 
   // ---- small helpers
   function store(key, value) { try { if (value === undefined) return localStorage.getItem(key); localStorage.setItem(key, value); } catch (_) { /* private mode */ } return null; }
@@ -190,7 +191,8 @@
     }
     if (!isVisible()) endPress();
     var padFrame = padActive ? M.frameFromPad(padInfo.pad) : null;
-    var touchFrame = touchSeat && press ? M.arrowFrame(press.dirs, touchSpeedName, M.onAir(press.rigId, status)) : null;
+    var touchFrame = touchSeat && press ? M.arrowFrame(press.dirs, touchSpeedName, M.onAir(press.rigId, status))
+      : touchSeat && stick ? M.stickFrame(stick.x, stick.y, touchSpeedName, M.onAir(stick.rigId, status)) : null;
     var chosen = M.chooseFrame(padFrame, touchFrame); // the pad wins while it is being touched
     sending = true;
     sendFrame(chosen.frame);
@@ -258,6 +260,10 @@
     el.ownerPill.textContent = pill.text;
     el.padPill.className = 'pill ' + (padInfo.kind === 'ok' ? 'pill-you' : (padInfo.kind === 'unsupported' ? 'pill-off' : 'pill-wait'));
     el.padPill.textContent = padInfo.text;
+    el.padStatus.textContent = padInfo.text;
+    el.padDot.className = 'dot pad-dot ' + (padInfo.kind === 'ok' ? 'dot-on' : padInfo.kind === 'unsupported' ? 'dot-off' : '');
+    el.padBtn.title = padInfo.text;
+    el.padStatus.className = 'pad-status ' + (padInfo.kind === 'ok' ? 'lvl-ready' : padInfo.kind === 'unsupported' ? 'lvl-down' : 'muted');
 
     el.pinRow.hidden = !(connected && welcomed && needsPin);
     var mine = haveOwnership();
@@ -325,7 +331,6 @@
     var foot = div('pane-foot');
     root.appendChild(pic); root.appendChild(head); root.appendChild(foot);
     var n = { key: key, big: big, root: root, img: img, cross: cross, note: note, title: title, menu: menu, foot: foot, sig: '', crossTimer: null, url: '', pad: null, lock: null, track: null };
-    if (big) buildTouchPad(n, root, head);
     if (big) buildTrackBar(n, pic, head);
     menu.addEventListener('click', function (e) { e.stopPropagation(); var pane = paneFor(key); if (pane) openSheet(pane); });
     if (big) img.addEventListener('pointerup', function (e) { onBigTap(n, e); });
@@ -452,84 +457,14 @@
     })();
   }
 
-  // ---- touch control: arrows on the big panes move the camera shown there while held
-  var ARROW_GLYPHS = { up: '▲', down: '▼', left: '◀', right: '▶', zoomIn: '+', zoomOut: '−' };
-  var ARROW_LABELS = { up: 'Tilt up', down: 'Tilt down', left: 'Pan left', right: 'Pan right', zoomIn: 'Zoom in', zoomOut: 'Zoom out' };
-
-  function buildTouchPad(n, root, head) {
-    var pad = div('touchpad');
-    var moves = div('tp-moves'), zoom = div('tp-zoom');
-    ['left', 'up', 'down', 'right'].forEach(function (d) { moves.appendChild(arrowButton(n, d)); });
-    ['zoomIn', 'zoomOut'].forEach(function (d) { zoom.appendChild(arrowButton(n, d)); });
-    pad.appendChild(zoom); pad.appendChild(moves);
-    root.appendChild(pad);
-    n.pad = pad;
-    // Nothing on the pad may select text, scroll, zoom, open a callout or a context menu.
-    ['contextmenu', 'selectstart', 'dragstart', 'gesturestart'].forEach(function (ev) { pad.addEventListener(ev, function (e) { e.preventDefault(); }); });
-    if (n.key === 'pgm') {
-      var lock = document.createElement('button');
-      lock.type = 'button'; lock.className = 'pgm-lock';
-      lock.addEventListener('click', function (e) {
-        e.stopPropagation();
-        var block = M.selectBlock(enabled, owner);
-        if (!M.pgmLocked(pgmUnlockedUntil, Date.now())) { pgmUnlockedUntil = 0; endPress(); }
-        else if (block) showBanner(block, true, 3000);
-        else pgmUnlockedUntil = M.pgmUnlockUntil(Date.now());
-        updateTouchUi();
-      });
-      head.insertBefore(lock, n.menu);
-      n.lock = lock;
-    }
-  }
-
-  function arrowButton(n, dir) {
-    var b = document.createElement('button');
-    b.type = 'button'; b.className = 'arrow arrow-' + dir; b.textContent = ARROW_GLYPHS[dir];
-    b.setAttribute('aria-label', ARROW_LABELS[dir] + ' (' + n.key.toUpperCase() + ')');
-    b.addEventListener('pointerdown', function (e) {
-      if (e.button !== undefined && e.button > 0) return;
-      e.preventDefault(); e.stopPropagation();
-      try { b.releasePointerCapture(e.pointerId); } catch (_) { /* not captured */ } // so sliding off the button ends the press
-      if (!document.hidden) focused = true;
-      startPress(n.key, dir, e.pointerId);
-    });
-    ['pointerup', 'pointercancel', 'pointerleave', 'lostpointercapture'].forEach(function (ev) {
-      b.addEventListener(ev, function (e) { if (press && press.pointerId === e.pointerId) endPress(); });
-    });
-    b.addEventListener('click', function (e) { e.stopPropagation(); });
-    return b;
-  }
-
-  function startPress(key, dir, pointerId) {
-    if (press) return; // one finger at a time
-    var v = M.arrowsView(key, plan, status, enabled, owner, pgmUnlockedUntil, Date.now());
-    if (!v.show) return;
-    if (!v.enabled) { showBanner(v.reason, true, 3000); return; }
-    if (!connected || !welcomed || !isVisible()) return;
-    // Control this pane's camera first (control only: the ATEM preview stays where it is), then frames follow on
-    // the same socket, so the server sees the select before the first move.
-    send({ t: 'select', camera: v.rigId, preview: false });
-    press = { pointerId: pointerId, key: key, rigId: v.rigId, dirs: [dir], onAir: v.onAir, startedAt: Date.now() };
-    markPressed();
-    tick(); // first frame now, not up to 33 ms later
-  }
+  // ---- touch control: the joystick in the control bar (below). `press` is kept for the shared end paths.
 
   // Stop at once: a neutral frame goes out here, then the heartbeat carries on neutral.
   function endPress() {
+    endStick();
     if (!press) return;
     press = null;
-    markPressed();
     if (connected && welcomed && haveOwnership()) sendFrame(M.neutralFrame());
-  }
-
-  function markPressed() {
-    Object.keys(nodes).forEach(function (k) {
-      var n = nodes[k];
-      if (!n.pad) return;
-      Array.prototype.forEach.call(n.pad.querySelectorAll('.arrow'), function (b) {
-        b.classList.toggle('held', !!press && press.key === k && b.classList.contains('arrow-' + press.dirs[0]));
-      });
-    });
   }
 
   function updateTouchUi() {
@@ -553,6 +488,10 @@
         n.lock.classList.toggle('open', !M.pgmLocked(pgmUnlockedUntil, now));
       }
     });
+    var sv = M.arrowsView('pvw', plan, status, enabled, owner, pgmUnlockedUntil, now);
+    if (stick && (!sv.enabled || sv.rigId !== stick.rigId)) endStick();
+    el.stick.classList.toggle('dim', !sv.show || sv.dim);
+    el.stickLabel.textContent = sv.show && plan && plan.pvw.rigId ? plan.pvw.label : 'No preview camera';
     var tb = M.transitionBlock(enabled, owner, status);
     el.transitionBtn.classList.toggle('dim', !!tb);
     Array.prototype.forEach.call(el.speedBtns.querySelectorAll('.seg-btn'), function (b) {
@@ -569,6 +508,45 @@
     store('fps-remote-speed', touchSpeedName);
     updateTouchUi();
   });
+
+  // ---- joystick: drives the PREVIEW camera (the same rules as the PVW arrows). The knob follows the finger inside
+  // the ring; letting go, leaving the page or losing the seat recentres it and sends a neutral frame at once.
+  function stickRadius() { return el.stick.clientWidth / 2; }
+  function placeKnob(x, y) { var r = stickRadius() - el.stickKnob.offsetWidth / 2; el.stickKnob.style.transform = 'translate(' + (x * r) + 'px, ' + (y * r) + 'px)'; }
+  function moveStick(e) {
+    if (!stick || e.pointerId !== stick.pointerId) return;
+    var rect = el.stick.getBoundingClientRect(), r = rect.width / 2;
+    var x = (e.clientX - (rect.left + r)) / r, y = (e.clientY - (rect.top + r)) / r, len = Math.hypot(x, y);
+    if (len > 1) { x /= len; y /= len; }
+    stick.x = x; stick.y = y;
+    placeKnob(x, y);
+  }
+  function endStick() {
+    if (!stick) return;
+    stick = null;
+    placeKnob(0, 0);
+    el.stick.classList.remove('held');
+    if (connected && welcomed && haveOwnership()) sendFrame(M.neutralFrame());
+  }
+  el.stick.addEventListener('pointerdown', function (e) {
+    if (e.button !== undefined && e.button > 0) return;
+    e.preventDefault();
+    if (!document.hidden) focused = true;
+    if (press || stick) return; // one finger at a time
+    var v = M.arrowsView('pvw', plan, status, enabled, owner, pgmUnlockedUntil, Date.now());
+    if (!v.show) { showBanner('No preview camera to drive.', true, 2500); return; }
+    if (!v.enabled) { showBanner(v.reason, true, 3000); return; }
+    if (!connected || !welcomed || !isVisible()) return;
+    send({ t: 'select', camera: v.rigId, preview: false });
+    stick = { pointerId: e.pointerId, rigId: v.rigId, x: 0, y: 0 };
+    el.stick.classList.add('held');
+    try { el.stick.setPointerCapture(e.pointerId); } catch (_) { /* keep following the finger via the window */ }
+    moveStick(e);
+    tick();
+  });
+  el.stick.addEventListener('pointermove', moveStick);
+  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(function (ev) { el.stick.addEventListener(ev, function (e) { if (stick && e.pointerId === stick.pointerId) endStick(); }); });
+  ['contextmenu', 'selectstart', 'dragstart', 'gesturestart'].forEach(function (ev) { el.stick.addEventListener(ev, function (e) { e.preventDefault(); }); });
 
   el.transitionBtn.addEventListener('click', function () {
     var block = M.transitionBlock(enabled, owner, status);
@@ -757,20 +735,49 @@
       st.holders[name] = holder;
       holder.appendChild(div('ro', 'Loading…'));
     });
+    var src = trackSource(pane.sonyId);
+    if (src) addSpeedRow(st, src);
     var block = M.sonyWriteBlock(enabled);
     sheetSay(block ? block + ' Settings are read-only.' : 'Loading camera settings…', !!block);
     el.sheet.hidden = false; el.sheetBack.hidden = false;
     loadSheetProps(st);
     loadSheetBattery(st);
   }
+  // Track speed: how fast the tracker may move this rig (0.05..1 of full speed). Saved to devices.yaml and applied at
+  // once; a running track session picks it up on its next velocity. The slider is per rig, not per Sony camera.
+  function addSpeedRow(st, src) {
+    var row = div('sheet-row'), label = document.createElement('label'), holder = div('speed-holder');
+    label.textContent = 'Track speed';
+    var slider = document.createElement('input'), value = div('speed-value');
+    slider.type = 'range'; slider.min = '5'; slider.max = '100'; slider.step = '5'; slider.className = 'speed-slider';
+    slider.setAttribute('aria-label', 'Track speed for ' + st.label);
+    var pct = Math.round((typeof src.maxSpeed === 'number' ? src.maxSpeed : 0.35) * 100);
+    slider.value = String(pct); value.textContent = pct + '%';
+    slider.addEventListener('input', function () { value.textContent = slider.value + '%'; });
+    slider.addEventListener('change', function () {
+      var block = M.sonyWriteBlock(enabled);
+      if (block) { sheetSay(block, true); slider.value = String(pct); value.textContent = pct + '%'; return; }
+      slider.disabled = true;
+      fetch('/api/tracking/sources/' + encodeURIComponent(src.sourceId) + '/speed', { method: 'PUT', headers: REMOTE_JSON, body: JSON.stringify({ value: Number(slider.value) / 100 }) })
+        .then(function (r) { if (!r.ok) return apiError(r); pct = Number(slider.value); sheetSay('Track speed ' + pct + '% saved.'); pollTracking(); })
+        .catch(function (e) { slider.value = String(pct); value.textContent = pct + '%'; sheetSay('Track speed: ' + (e && e.message ? e.message : 'could not save'), true); })
+        .then(function () { slider.disabled = false; });
+    });
+    holder.appendChild(slider); holder.appendChild(value);
+    row.appendChild(label); row.appendChild(holder);
+    el.sheetRows.appendChild(row);
+  }
   function closeSheet() {
     if (sheetState) sheetState.timers.forEach(clearTimeout);
     sheetState = null;
-    el.sheet.hidden = true; el.sheetBack.hidden = true;
+    el.sheet.hidden = true; el.padSheet.hidden = true; el.sheetBack.hidden = true;
   }
+  // The controller screen: pairing steps and what the page currently sees. Same backdrop and close paths as the camera menu.
+  el.padBtn.addEventListener('click', function () { closeSheet(); el.padSheet.hidden = false; el.sheetBack.hidden = false; });
+  el.padSheetClose.addEventListener('click', closeSheet);
   el.sheetClose.addEventListener('click', closeSheet);
   el.sheetBack.addEventListener('click', closeSheet);
-  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && sheetState) closeSheet(); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeSheet(); });
 
   function loadSheetBattery(st) {
     getJson('/api/sony/status').then(function (s) {

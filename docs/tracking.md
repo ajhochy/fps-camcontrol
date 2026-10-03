@@ -41,6 +41,7 @@ tracking:
   sidecarUrl: ws://127.0.0.1:7900 # developer mode only (TRACKER_WS_TOKEN set); the app-owned helper is private
   maxSpeed: 0.35                 # start lower until physical gain is verified
   viscaMaxSpeed: 0.3             # extra cap for VISCA heads; the effective cap is min(maxSpeed, viscaMaxSpeed)
+  speeds: { vbot: 0.6 }          # per-device cap set from the iPad camera menu's Track speed slider; overrides both
   deadzone: 0.04
   lostHoldMs: 3000
   reacquireMs: 1000

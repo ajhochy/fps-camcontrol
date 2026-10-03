@@ -9,6 +9,8 @@ export class TrackingController {
   private frameTs: number | null = null;
   private lostAt: number | null = null;
   constructor(private readonly config: TrackingControlConfig) {}
+  /** The operator's cap (the Track speed slider); the config object is this controller's own copy. */
+  setMaxSpeed(value: number): void { (this.config as { maxSpeed: number }).maxSpeed = value; }
   reset(): void { this.filtered = [0, 0]; this.derivative = [0, 0]; this.active = [false, false]; this.frameTs = null; this.lostAt = null; }
   update(observation: TrackingObservation | null, now: number): ControlOutput {
     const v = observation;

@@ -55,11 +55,12 @@ export class ViscaTrackingDriver {
     private readonly device: MotionDevice,
     private readonly ledger: MotionLedger,
     private readonly timers: ViscaDriverTimers,
-    private readonly cap: number,
+    private cap: number,
     private readonly onDeadman?: () => void,
   ) {}
 
   get moving(): boolean { return this._moving; }
+  setCap(value: number): void { this.cap = value; }
 
   /** Feed a fresh velocity (-1..1 normalized). Returns true while the head is being moved. */
   drive(pan: number, tilt: number, now = this.timers.now()): boolean {

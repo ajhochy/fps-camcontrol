@@ -130,6 +130,12 @@ check('Sony status entries match case-insensitively', model.sonyCameraEntry({ ca
   const dl = wire(model.arrowFrame(['down', 'left'], 'normal', false));
   check('down+left is a diagonal: right stick x -0.6, y +0.6', dl.axes.rightStickX === -0.6 && dl.axes.rightStickY === 0.6);
   check('right is +x', model.arrowFrame(['right'], 'fast', false).a[2] === 1);
+  const js = wire(model.stickFrame(1, 0, 'fast', false));
+  check('a full right push of the joystick pans right at the chosen speed', js.axes.rightStickX === 1 && js.axes.rightStickY === 0 && js.axes.leftStickX === 0);
+  check('the joystick is proportional inside the ring', Math.abs(model.stickFrame(0.5, 0, 'fast', false).a[2] - 0.5) < 1e-9);
+  check('a diagonal never exceeds the ring', Math.hypot(model.stickFrame(1, 1, 'fast', false).a[2], model.stickFrame(1, 1, 'fast', false).a[3]) <= 1.000001);
+  check('a resting joystick sends nothing', !model.frameTouched(model.stickFrame(0.1, -0.1, 'fast', false)) && !model.frameTouched(model.stickFrame(NaN, 'x', 'fast', false)));
+  check('the joystick on an on-air camera is gentler', model.stickFrame(1, 0, 'fast', true).a[2] === model.PGM_SPEED_FACTOR);
   check('opposite arrows cancel', !model.frameTouched(model.arrowFrame(['left', 'right'], 'fast', false)) && !model.frameTouched(model.arrowFrame(['zoomIn', 'zoomOut'], 'fast', false)));
   const zi = wire(model.arrowFrame(['zoomIn'], 'normal', false)), zo = wire(model.arrowFrame(['zoomOut'], 'normal', false));
   check('zoom in is the right trigger, zoom out the left', zi.triggers.rightTrigger === 0.6 && zi.triggers.leftTrigger === 0 && zo.triggers.leftTrigger === 0.6 && zo.triggers.rightTrigger === 0);

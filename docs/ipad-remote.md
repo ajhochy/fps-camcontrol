@@ -59,11 +59,18 @@ Tap **Take control**, then:
   X/A/B/Y at the desk. Refused (with a message) if the ATEM is offline or the rig has no ATEM input.
 - **TRANSITION:** takes what is in **preview** to program (the same auto transition as RB). There is no confirmation;
   a second tap within 1.5 s is ignored, and it refuses when preview is already on program.
-- **Arrows on the PVW and PGM panes:** hold to move the camera shown in that pane (left/right pan, up/down tilt,
-  +/- zoom); release to stop. Pressing an arrow controls that pane's camera without moving the ATEM preview.
+- **Joystick (bottom right):** drag to pan and tilt the **preview** camera; the move is proportional to how far
+  the knob is from the centre, Slow / Normal / Fast sets the speed at full throw. Letting go recentres it and stops
+  the camera at once. It follows the same rules as the PVW arrows (seat, remote control on).
 - **Speed:** Slow / Normal / Fast (touch only; the desk speed preset is separate).
-- **PGM is locked by default.** The program camera's arrows are dimmed until you tap **Unlock PGM moves**; it
-  re-locks after 30 s, and moves at half the chosen speed.
+- **Track speed (camera menu ⋯):** a slider, 5–100 %, for how fast person tracking may move that rig. Applied at
+  once and saved to `devices.yaml` (`tracking.speeds.<device>`); it overrides `maxSpeed` / `viscaMaxSpeed` for that rig.
+- **The program camera cannot be moved by touch.** Only the preview camera is driven from the page; a controller
+  can still move whatever it controls.
+- **Bluetooth button (top right):** its light is grey with no controller, green when one is connected, red when the
+  page does not recognise it. Tap it for the pairing steps, what the page currently sees, and this iPad's name (what
+  the desk shows as the owner of the seat).
+- Messages (refusals, STOP, lost control) appear in the top bar's free space and never move the layout.
 - A controller on the same page wins while its sticks or buttons are being touched. The seat is kept alive by neutral
   frames, and every safety stop below applies unchanged.
 

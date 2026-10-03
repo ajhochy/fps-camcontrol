@@ -320,6 +320,22 @@
     return f;
   }
 
+  /**
+   * Frame for the on-screen joystick: x,y is the knob's offset as a fraction of the ring radius (right/down positive).
+   * The speed button sets the deflection at full throw; inside the ring the move is proportional. Below the server's
+   * stick deadzone the frame is neutral, so a resting knob never creeps.
+   */
+  function stickFrame(x, y, speedName, onAirNow) {
+    var f = neutralFrame();
+    var nx = Number(x) || 0, ny = Number(y) || 0, len = Math.hypot(nx, ny);
+    if (len > 1) { nx /= len; ny /= len; len = 1; }
+    if (len < 0.15) return f;
+    var v = touchSpeed(speedName, onAirNow);
+    f.a[2] = clamp(nx * v, -1, 1);
+    f.a[3] = clamp(ny * v, -1, 1);
+    return f;
+  }
+
   /** Is any control in the frame deflected or pressed? (The pad wins over touch while it is touched.) */
   function frameTouched(frame) {
     if (!frame) return false;
@@ -400,7 +416,7 @@
     batteryInfo: batteryInfo, sonyCameraEntry: sonyCameraEntry,
     SPEED_LEVELS: SPEED_LEVELS, SPEED_ORDER: SPEED_ORDER, DEFAULT_SPEED: DEFAULT_SPEED, PGM_SPEED_FACTOR: PGM_SPEED_FACTOR,
     PGM_UNLOCK_MS: PGM_UNLOCK_MS, MAX_HOLD_MS: MAX_HOLD_MS, ARROWS: ARROWS,
-    speedLevel: speedLevel, touchSpeed: touchSpeed, arrowFrame: arrowFrame, frameTouched: frameTouched, chooseFrame: chooseFrame,
+    speedLevel: speedLevel, touchSpeed: touchSpeed, arrowFrame: arrowFrame, stickFrame: stickFrame, frameTouched: frameTouched, chooseFrame: chooseFrame,
     paneControlCamera: paneControlCamera, onAir: onAir, pgmUnlockUntil: pgmUnlockUntil, pgmLocked: pgmLocked,
     pgmUnlockSeconds: pgmUnlockSeconds, pressExpired: pressExpired, arrowsView: arrowsView, pgmToggleText: pgmToggleText,
     transitionBlock: transitionBlock,

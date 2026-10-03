@@ -13,6 +13,8 @@ export const TrackingSchema = z.object({
   maxSpeed: z.number().finite().min(.05).max(1).default(.35),
   /** Extra cap for VISCA heads (their speed steps are coarse and unfiltered); the effective cap is min(maxSpeed, viscaMaxSpeed). */
   viscaMaxSpeed: z.number().finite().min(.05).max(1).default(.3),
+  /** Per-device speed cap set from the UI (device key -> 0.05..1); it overrides maxSpeed / viscaMaxSpeed for that device. */
+  speeds: z.record(z.string().min(1).max(128), z.number().finite().min(.05).max(1)).default({}),
   deadzone: z.number().finite().min(0).max(.3).default(.04),
   lostHoldMs: z.number().int().min(0).max(30000).default(3000),
   reacquireMs: z.number().int().min(100).max(5000).default(1000),

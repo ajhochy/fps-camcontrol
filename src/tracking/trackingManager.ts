@@ -23,6 +23,7 @@ interface Session {
   halted: boolean; seq: number; lostAt: number | null;
   /** Present for VISCA heads: owns the app-side dead-man and the discrete speed mapping. */
   visca?: ViscaTrackingDriver;
+  maxSpeed: number;
 }
 export interface TrackingManagerOptions {
   config: TrackingConfig; sources: ResolvedTrackingSource[]; devices: Map<string, MotionDevice>; client: TrackingPeer;
@@ -60,9 +61,9 @@ export class TrackingManager extends EventEmitter {
       const device = source.cameraId ? this.devices.get(source.cameraId) : undefined;
       const visca = device?.protocol === 'visca';
       // VISCA gain differs from a gimbal's and its speed steps are coarse: the effective cap is the lower of the two.
-      const maxSpeed = visca ? Math.min(this.config.maxSpeed, this.config.viscaMaxSpeed) : this.config.maxSpeed;
+      const maxSpeed = this.config.speeds[source.device] ?? (visca ? Math.min(this.config.maxSpeed, this.config.viscaMaxSpeed) : this.config.maxSpeed);
       const session: Session = { status: { ...source, sessionId: null, state: !this.config.enabled ? 'disabled' : device ? 'idle' : 'unavailable', reason: null, observation: null, pan: 0, tilt: 0 },
-        controller: new TrackingController({ ...this.config, ...source, maxSpeed }), device, halted: true, seq: -1, lostAt: null };
+        controller: new TrackingController({ ...this.config, ...source, maxSpeed }), device, halted: true, seq: -1, lostAt: null, maxSpeed };
       if (device && visca) {
         session.visca = new ViscaTrackingDriver(device, this.ledger, { now: this.now, setInterval: this.interval, clearInterval: this.clear }, maxSpeed, () => {
           // The dead-man fired (no fresh velocity for >300 ms): the head is already stopped.
@@ -104,6 +105,13 @@ export class TrackingManager extends EventEmitter {
     }
     return 'device_unavailable';
   }
+  /** The Track speed slider: cap this source now (controller and VISCA driver) and remember it for the next populate. */
+  setSpeed(sourceId: string, value: number): void {
+    const session = this.get(sourceId);
+    session.controller.setMaxSpeed(value); session.visca?.setCap(value);
+    this.config.speeds[session.status.device] = value; session.maxSpeed = value;
+  }
+  speedOf(sourceId: string): number | undefined { return this.sessions.get(sourceId)?.maxSpeed; }
   private get(sourceId: string): Session {
     const session = this.sessions.get(sourceId);
     if (!session) throw new TrackingError(404, 'unknown_source', 'Tracking source not found'); return session;

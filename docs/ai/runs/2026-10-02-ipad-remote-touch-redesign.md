@@ -43,3 +43,26 @@ Audit scored 12/20; the main finding was drift from `.impeccable.md` (pills, gla
 - `remote.js`: small panes are `role="button"`, focusable, Enter/Space select, `aria-label` "Select <rig> (tags)".
 - Skipped: a condensed web font (network dependency in an offline booth; system font kept).
 - `pnpm sandbox:check` 239/239 after the final edit.
+
+## Third pass — interactive sandbox, joystick, Track speed slider, 16:9 panes (same day)
+- Sandbox (`pnpm sandbox`) is demo-ready: `FakeAtemClient` in memory (`CAMCONTROL_FAKE_ATEM=1`), both powered Sony
+  cameras approved/connected, remote control on. The fake Sony frame is a 16:9 scene (stage, drifting person, safe-area
+  marks, slate) so the panes show real letterboxing. Self-test unchanged (it still checks the no-ATEM refusals).
+- Page: PVW | PGM and the rig row are 16:9 (`#main` height from the viewport width, shrinks under the bar's 160 px
+  minimum). Bottom bar: TRANSITION over STOP left, speed middle, a proportional joystick for the PREVIEW camera on the
+  right (always right, also in portrait / phone). `RemoteModel.stickFrame` + 5 checks in `remoteUiModelTest`.
+- Track speed: `tracking.speeds.<device>` (schema), `TrackingManager.setSpeed/speedOf`, `PUT /api/tracking/sources/:id/speed`
+  (saves through `commitConfigEdit`, applies live to controller + VISCA driver), `maxSpeed` in `/api/tracking/status`;
+  slider row in the camera menu for panes with a tracking source.
+- Top bar: fixed-width state cells (no reflow when the text changes), hint sentence removed, 52 px.
+- Checks: `pnpm sandbox:check` 239/239, trackingVisca 87, remoteUiModel 88, remoteFrame 36, remoteControl 76.
+
+## Fourth pass — user feedback on the live sandbox (same day)
+- On-pane arrow pads and the PGM lock removed (`buildTouchPad`, `arrowButton`, `startPress`, `markPressed` deleted);
+  the joystick is the only touch drive and it moves the preview camera only. `RemoteModel.arrowFrame` and the PGM
+  helpers stay in the model (tests still cover them) but the page no longer calls them.
+- Banner moved into the top bar's free space (right-aligned, `clamp()` font, ellipsis): nothing reflows when it shows.
+- Controller status cell removed; a Bluetooth icon button with a status light (grey / green / red) opens a drawer with
+  pairing steps and the live pad status (`#padSheet`). The hint sentence is gone; the top bar is 52 px with fixed-width
+  state cells.
+- Portrait / phone keep the same bar order (TRANSITION/STOP left, speed middle, joystick right).

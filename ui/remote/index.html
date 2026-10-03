@@ -13,7 +13,7 @@
 <body>
 <div id="app">
   <header id="topbar">
-    <div class="status-chip" title="Connection">
+    <div class="status-chip">
       <span id="conn" class="dot dot-off"></span>
       <span id="connText">Connecting…</span>
       <span id="rtt" class="muted"></span>
@@ -24,11 +24,13 @@
     <button id="releaseBtn" class="btn btn-claim" type="button" hidden>Release</button>
     <p id="hint" class="muted">Tap Take control to drive with touch, or wake the controller and hold Menu for 1 s.</p>
     <p id="wakeHint" class="muted" hidden></p>
-    <span class="spacer"></span>
-    <button id="nameBtn" class="name-btn" type="button" title="Name shown on the desk">iPad</button>
+    <div id="banner" class="banner" role="status" aria-live="polite" hidden></div>
+    <button id="padBtn" class="icon-btn" type="button" aria-label="Game controller (Bluetooth)">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M7 7l10 10-5 5V2l5 5L7 17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span id="padDot" class="dot pad-dot"></span>
+    </button>
   </header>
 
-  <div id="banner" class="banner" role="status" aria-live="polite" hidden></div>
 
   <form id="pinRow" class="pin-row" hidden onsubmit="return false">
     <label for="pinInput">Enter the desk PIN to take control</label>
@@ -49,18 +51,22 @@
     </div>
 
     <footer id="actions" aria-label="Controls">
-      <div class="rail-group">
+      <div class="rail-left">
+        <button id="transitionBtn" class="btn btn-transition" type="button" aria-label="Transition: take preview to program">TRANSITION<small>PVW → PGM</small></button>
+        <button id="stopBtn" class="btn btn-stop" type="button">STOP</button>
+      </div>
+      <div class="rail-mid">
+        <div class="label">Speed</div>
         <div id="speedBtns" class="seg" role="group" aria-label="Touch speed">
           <button type="button" class="seg-btn" data-speed="slow">Slow</button>
           <button type="button" class="seg-btn" data-speed="normal">Normal</button>
           <button type="button" class="seg-btn" data-speed="fast">Fast</button>
         </div>
       </div>
-
-      <span class="spacer"></span>
-
-      <button id="transitionBtn" class="btn btn-transition" type="button" title="Take preview to program (auto transition)">TRANSITION<small>PVW → PGM</small></button>
-      <button id="stopBtn" class="btn btn-stop" type="button">STOP</button>
+      <div class="rail-right">
+        <div id="stick" class="stick" aria-label="Joystick: pans and tilts the preview camera"><div id="stickKnob" class="stick-knob"></div></div>
+        <div id="stickLabel" class="stick-label label">Preview</div>
+      </div>
     </footer>
   </div>
 
@@ -72,6 +78,20 @@
     </div>
     <div id="sheetRows" class="sheet-rows"></div>
     <div id="sheetStatus" class="sheet-status" aria-live="polite"></div>
+  </section>
+  <section id="padSheet" class="sheet" role="dialog" aria-modal="true" aria-labelledby="padSheetTitle" hidden>
+    <div class="sheet-head">
+      <div><h2 id="padSheetTitle">This iPad</h2><div id="padStatus" class="pad-status muted">No controller</div></div>
+      <button id="padSheetClose" class="btn btn-sm" type="button">Done</button>
+    </div>
+    <ol class="steps">
+      <li>Pair the controller in <b>Settings › Bluetooth</b> on this iPad (hold its pairing button until the light blinks).</li>
+      <li>Come back here and <b>press any button</b> on it. The status above names it when the page sees it.</li>
+      <li><b>Hold Menu for 1 second</b> to take control; the sticks and buttons then work like the desk controller.</li>
+    </ol>
+    <p class="muted small">While a stick or button is being touched the controller wins over the on-screen joystick. Letting the
+      iPad sleep or switching away hands control back.</p>
+    <div class="sheet-row name-row"><label for="nameBtn">Name shown on the desk</label><button id="nameBtn" class="name-btn" type="button">iPad</button></div>
   </section>
 </div>
 

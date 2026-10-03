@@ -25,13 +25,15 @@ direction/gain/killed-app-stops-head checks are MANUAL_PENDING. Calibration stay
 source PR). Merge order: #36, #59, #57, #58 (`git merge --no-ff`).
 
 ## iPad remote page redesign (2026-10-02, branch `feat/ipad-remote-touch-redesign` off the integration branch)
-`ui/remote/index.html` + `remote.css` only; `remote.js` and every ID/class it uses are unchanged. Designed for an
-iPad in landscape: the seat (Take control / Release + hint) sits in the top bar next to the connection state, the
-multiview takes the full width (PVW | PGM, rig panes four to a row), and one bottom bar holds Slow/Normal/Fast,
-TRANSITION and STOP (STOP bottom-right, under the right thumb). Pads are 64 px glass buttons; the big-pane health
-line sits between the zoom and D-pad. Portrait/phone stacks the panes and wraps the bar. A side rail was tried and
-dropped (it squashed the multiview). Checked in the sandbox (`.claude/launch.json` now has a `sandbox` entry on
-8090); `pnpm sandbox:check` 239/239. Not yet seen on a real iPad.
+Landscape-iPad page in the `.impeccable.md` hardware-panel look (amber accent, OKLCH tokens, 3 px radii, no glass).
+Top bar: connection cell, owner cell (fixed widths), Take control / Release, inline message slot (never reflows),
+Bluetooth button with status light → controller drawer, iPad name. Multiview: 16:9 PVW | PGM over four 16:9 rig
+panes (`#main` height from viewport width). Bottom bar: TRANSITION over STOP left, Slow/Normal/Fast middle,
+proportional joystick (preview camera only) right — same order in portrait/phone. No on-pane arrows, no PGM moves
+from touch. Camera menu (⋯) has a **Track speed** slider → `PUT /api/tracking/sources/:id/speed`, saved as
+`tracking.speeds.<device>` and applied live. Sandbox (`pnpm sandbox`) is demo-ready: fake ATEM in memory
+(`CAMCONTROL_FAKE_ATEM=1`), Sony cameras connected, remote on, 16:9 demo scene. Not yet seen on a real iPad.
+Details per pass: `docs/ai/runs/2026-10-02-ipad-remote-touch-redesign.md`.
 
 ## Electron line — state as recorded on PR #58 (codex/electron-tracking, stacked on #57)
 

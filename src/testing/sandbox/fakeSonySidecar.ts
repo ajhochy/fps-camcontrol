@@ -142,13 +142,30 @@ export class FakeSonySidecar {
   private frame(camera: FakeCamera): string {
     camera.frames++;
     const t = new Date().toISOString().slice(11, 23);
+    // A 16:9 "demo" scene (stage, a person to tap for tracking, safe-area marks) so the panes show what a real
+    // picture does; the person drifts slowly so the frame is visibly live. The slate stays in the corner.
+    const x = 320 + Math.sin(camera.frames / 40) * 120;
+    const sway = Math.sin(camera.frames / 9) * 3;
     return `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360">
-<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#16324a"/><stop offset="1" stop-color="#0b1420"/></linearGradient></defs>
-<rect width="640" height="360" fill="url(#g)"/>
-<text x="320" y="150" fill="#e8eef5" font-family="monospace" font-size="34" text-anchor="middle">${camera.model}</text>
-<text x="320" y="190" fill="#8fb4d6" font-family="monospace" font-size="20" text-anchor="middle">${camera.id}</text>
-<text x="320" y="240" fill="#f2b84b" font-family="monospace" font-size="22" text-anchor="middle">SANDBOX ${t}</text>
-<text x="320" y="270" fill="#8fb4d6" font-family="monospace" font-size="16" text-anchor="middle">frame ${camera.frames}</text></svg>`;
+<defs>
+<linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1b2a3d"/><stop offset="1" stop-color="#3a4a5e"/></linearGradient>
+<linearGradient id="floor" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3b3328"/><stop offset="1" stop-color="#1c1813"/></linearGradient>
+</defs>
+<rect width="640" height="360" fill="url(#sky)"/>
+<rect y="236" width="640" height="124" fill="url(#floor)"/>
+<rect x="60" y="40" width="520" height="196" fill="#0e141c" opacity="0.55"/>
+<rect x="60" y="40" width="520" height="12" fill="#c9a24a" opacity="0.8"/>
+<g stroke="#ffffff" stroke-opacity="0.35" stroke-width="1" fill="none"><rect x="32" y="18" width="576" height="324"/><line x1="320" y1="18" x2="320" y2="30"/><line x1="320" y1="330" x2="320" y2="342"/><line x1="32" y1="180" x2="44" y2="180"/><line x1="596" y1="180" x2="608" y2="180"/></g>
+<g transform="translate(${x.toFixed(1)} 0)">
+<ellipse cx="0" cy="300" rx="34" ry="7" fill="#000" opacity="0.4"/>
+<rect x="-22" y="150" width="44" height="90" rx="12" fill="#c45a3c"/>
+<rect x="-18" y="236" width="14" height="62" fill="#2b3340"/><rect x="4" y="236" width="14" height="62" fill="#2b3340"/>
+<circle cx="${sway.toFixed(1)}" cy="124" r="24" fill="#e2b48f"/>
+<path d="M-24 118 a24 24 0 0 1 48 0 v6 h-48z" fill="#3b2a1f" transform="translate(${sway.toFixed(1)} 0)"/>
+</g>
+<rect x="36" y="296" width="250" height="46" fill="#000" opacity="0.55"/>
+<text x="46" y="314" fill="#e8eef5" font-family="monospace" font-size="15">${camera.model}  ${camera.id}</text>
+<text x="46" y="334" fill="#f2b84b" font-family="monospace" font-size="14">SANDBOX ${t}  frame ${camera.frames}</text></svg>`;
   }
 
   private async handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
