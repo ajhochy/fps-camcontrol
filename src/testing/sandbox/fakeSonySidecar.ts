@@ -65,6 +65,8 @@ export interface FakeSonyCameraSpec {
 
 interface FakeCamera extends Required<FakeSonyCameraSpec> {
   connected: boolean;
+  /** A touch-focus point is set (the real camera only lets you cancel one that is). */
+  touchPoint?: boolean;
   pairingOpen: boolean;
   props: Prop[];
   frames: number;
@@ -307,7 +309,13 @@ ${bars(['#0000bf', '#131313', '#bf00bf', '#131313', '#00bfbf', '#131313', '#bfbf
         camera.zoomCalls++;
         return this.json(res, 200, { success: true, message: 'Zoom accepted', camera: this.info(camera) });
       }
-      if ((sub === 'actions/touch' || sub === 'actions/touch-cancel') && method === 'POST') return this.json(res, 200, { success: true, message: 'Touch accepted', camera: this.info(camera) });
+      if (sub === 'actions/touch' && method === 'POST') { camera.touchPoint = true; return this.json(res, 200, { success: true, message: 'Touch accepted', camera: this.info(camera) }); }
+      if (sub === 'actions/touch-cancel' && method === 'POST') {
+        // Like the real service: nothing to cancel unless a touch point is set (and never in manual focus).
+        if (!camera.touchPoint) return this.json(res, 400, { success: false, message: 'Nothing to cancel — the camera reports CancelRemoteTouchOperationEnableStatus as Disable', camera: this.info(camera) });
+        camera.touchPoint = false;
+        return this.json(res, 200, { success: true, message: 'Remote touch cancelled', camera: this.info(camera) });
+      }
     }
     return this.json(res, 404, { success: false, message: 'Not found' });
   }

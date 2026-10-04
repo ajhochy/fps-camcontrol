@@ -285,7 +285,7 @@ export function createStatusServer(
   // The iPad remote's Sony writes (touch focus, camera settings) say so with X-Remote: 1 and are refused while
   // remote control is switched off at the desk. Reads and live view are not gated.
   app.use('/api/sony/cameras/:id', (req, res, next) => {
-    const write = (req.method === 'PUT' && req.path.startsWith('/properties/')) || (req.method === 'POST' && req.path === '/touch');
+    const write = (req.method === 'PUT' && req.path.startsWith('/properties/')) || (req.method === 'POST' && (req.path === '/touch' || req.path === '/touch-cancel'));
     if (write && req.get('x-remote') === '1' && !remoteHub?.enabled) { res.status(403).json({ error: 'Remote control is off' }); return; }
     next();
   });
@@ -355,6 +355,15 @@ export function createStatusServer(
       res.status(400).json({ error: 'Touch coordinates must be finite and normalized' }); return;
     }
     void manager.touch(id, { x, y }).then(body => res.json(body)).catch(error => sonyError(res, error));
+  });
+  const NOTHING_TO_CLEAR = 'Nothing to clear: no focus point is set (or the camera is in manual focus)';
+  app.post('/api/sony/cameras/:id/touch-cancel', (req, res) => {
+    const manager = sony(res); const id = sonyId(req, res); if (!manager || !id) return;
+    // The service answers 400 when the camera reports nothing to cancel: no touch point set, or manual focus (MF).
+    void manager.touchCancel(id).then(body => res.json(body)).catch(error => {
+      if ((error as { statusCode?: number })?.statusCode === 400) { res.status(409).json({ error: NOTHING_TO_CLEAR }); return; }
+      sonyError(res, error);
+    });
   });
 
   // GET /api/status
@@ -2875,7 +2884,7 @@ function sonyWidgetHtml(camera) {
     '<div class="sony-preview sony-preview-loading" id="sony-preview-' + esc(key) + '" role="region" aria-labelledby="sony-heading-' + esc(key) + '"><img alt="Live preview from ' + esc(camera.model || camera.id) + '" data-id="' + esc(camera.id) + '"><span class="sony-crosshair" aria-hidden="true"></span></div>' +
     '<div class="sony-roll" id="sony-roll-' + esc(key) + '" data-rig="' + esc(camera.gimbalRig && camera.gimbalRig.rollAdjustable ? camera.gimbalRig.id + '|' + camera.gimbalRig.label : '') + '">' + sonyRollHtml(camera) + '</div>' +
     '<div class="sony-controls">' + controls + '</div>' +
-    '<div class="sony-touch-controls"><label>X (0–1)<input class="cfg-input" id="sony-x-' + esc(key) + '" type="number" min="0" max="1" step="0.01" value="0.5"></label><label>Y (0–1)<input class="cfg-input" id="sony-y-' + esc(key) + '" type="number" min="0" max="1" step="0.01" value="0.5"></label><button class="btn-sm" data-id="' + esc(camera.id) + '" onclick="applySonyTouchInputs(this.dataset.id)">Apply touch point</button></div>' +
+    '<div class="sony-touch-controls"><label>X (0–1)<input class="cfg-input" id="sony-x-' + esc(key) + '" type="number" min="0" max="1" step="0.01" value="0.5"></label><label>Y (0–1)<input class="cfg-input" id="sony-y-' + esc(key) + '" type="number" min="0" max="1" step="0.01" value="0.5"></label><button class="btn-sm" data-id="' + esc(camera.id) + '" onclick="applySonyTouchInputs(this.dataset.id)">Apply touch point</button><button class="btn-sm sony-clear-focus" data-id="' + esc(camera.id) + '" onclick="clearSonyFocus(this.dataset.id)" title="Clear the touch-focus point (like the cancel button on the camera)">&#x2715; Clear focus</button></div>' +
     '<p>Camera Touch Function determines focus vs tracking.</p><div id="sony-status-' + esc(key) + '" aria-live="polite">Live preview loading. Loading camera controls…</div></article>';
 }
 
@@ -3060,6 +3069,17 @@ function applySonyTouchInputs(id) {
 async function sendSonyTouch(id, x, y) {
   try { var response=await fetch('/api/sony/cameras/'+id+'/touch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({normalized:{x:x,y:y}})}); if(!response.ok) throw new Error(); sonyStatus(id,'Touch point applied at '+x.toFixed(3)+', '+y.toFixed(3)+'.'); }
   catch (_) { sonyStatus(id,'Touch point failed.',true); }
+}
+// The cancel button on the camera's own screen: forget the touch point and go back to the normal focus area.
+async function clearSonyFocus(id) {
+  try {
+    var response = await fetch('/api/sony/cameras/' + id + '/touch-cancel', { method: 'POST' });
+    if (response.status === 409) { var why = await response.json().catch(function () { return {}; }); sonyStatus(id, why.error || 'Nothing to clear.'); return; }
+    if (!response.ok) throw new Error();
+    var crosshair = document.querySelector('#sony-preview-' + id.replace(/:/g, '-') + ' .sony-crosshair');
+    if (crosshair) crosshair.style.display = 'none';
+    sonyStatus(id, 'Focus point cleared.');
+  } catch (_) { sonyStatus(id, 'Clearing the focus point failed.', true); }
 }
 function sonyStatus(id, message, error) { var el=document.getElementById('sony-status-'+id.replace(/:/g,'-')); if(el){el.textContent=message;el.style.color=error?'var(--err-text)':'var(--text-2)';} }
 
