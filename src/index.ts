@@ -10,7 +10,7 @@ import { loadConfig } from './config/configLoader';
 import { getResourcePath } from './config/paths';
 import { createInitialState, AppState, CameraId, trackDeviceLinkState } from './app/state';
 import { AtemClient } from './atem/atemClient';
-import { toggleLowerThirds } from './atem/switcherActions';
+import { toggleLowerThirds, syncLowerThirdsFromAtem } from './atem/switcherActions';
 import { FakeAtemClient } from './atem/fakeAtemClient';
 import { MotionDevice } from './devices/motionDevice';
 import { createMotionDevice } from './devices/deviceFactory';
@@ -168,6 +168,12 @@ export async function startApplication(
     state.cameraIndex = config.cameras.indexOf(fallback);
   }
   state.previewCamera = state.controlledCamera;
+
+  // The slides / lower-third button always shows what the switcher really has on air.
+  const syncGraphics = () => { if (syncLowerThirdsFromAtem(atem, state, config)) logger.info({ onAir: state.lowerThirdsActive }, 'lower thirds changed at the switcher'); };
+  atem.on('stateChanged', syncGraphics);
+  atem.on('connected', syncGraphics);
+  syncGraphics();
 
   // Step 8: Sync ATEM preview to controlledCamera
   const controlledCam = config.cameras.find(c => c.id === state.controlledCamera);

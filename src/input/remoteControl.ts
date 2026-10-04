@@ -265,7 +265,8 @@ export class RemoteControlHub {
         break;
       }
       case 'lowerThirds': {
-        const refusal = this.ownerRefusal(s);
+        // Slides on/off is not camera control: it needs remote control on, not the seat.
+        const refusal = this.remoteRefusal(s);
         if (refusal) { if (refusal !== 'silent') this.send(s, { t: 'denied', reason: refusal }); break; }
         const r = this.deps.lowerThirds ? this.deps.lowerThirds(this.labelOf(s)) : 'atem-offline';
         if (r !== 'ok') this.refuse(s, 'Lower third', r);
@@ -279,6 +280,14 @@ export class RemoteControlHub {
   }
 
   /** Why this session may not drive (select/preview/transition are owner-only), or null; 'silent' = not hello'd yet. */
+  /** Allowed for any signed-in iPad while remote control is on (no seat needed). */
+  private remoteRefusal(s: Session): string | null {
+    if (!s.hello) return 'silent';
+    if (!s.authed) return 'pin';
+    if (!this.enabled) return 'disabled';
+    return null;
+  }
+
   private ownerRefusal(s: Session): string | null {
     if (!s.hello) return 'silent';
     if (!s.authed) return 'pin';

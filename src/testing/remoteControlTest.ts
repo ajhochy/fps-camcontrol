@@ -312,4 +312,27 @@ for (const [name, act] of [
   check('the same header from a LAN address is ignored (it could be spoofed)', !/boss@/.test(env2.state.remoteControl.ownerName ?? '') && /Sneaky/.test(env2.state.remoteControl.ownerName ?? ''));
 }
 
+// ---- slides / lower third: any signed-in page while remote control is on; the seat is not needed
+{
+  const calls: string[] = [];
+  let result: 'ok' | 'atem-offline' = 'ok';
+  const env = setup({ deps: { lowerThirds: (who) => { calls.push(`lt ${who}`); return result; } } });
+  const owner = env.connect(); owner.say({ t: 'hello', v: 1, name: 'Owner' }); owner.say({ t: 'claim' });
+  const other = env.connect(); other.say({ t: 'hello', v: 1, name: 'Other' });
+  other.say({ t: 'lowerThirds' });
+  check('a page without the seat can toggle the slides', calls.join() === 'lt iPad: Other' && !other.last('denied'));
+  const stranger = env.connect(); stranger.say({ t: 'lowerThirds' });
+  check('a page that never said hello is ignored for slides', calls.length === 1);
+  result = 'atem-offline'; other.say({ t: 'lowerThirds' });
+  check('ATEM offline is reported for slides', other.last('denied')?.reason === 'atem-offline');
+  env.hub.setEnabled(false); calls.length = 0;
+  other.say({ t: 'lowerThirds' });
+  check('with remote control off the slides toggle is refused: disabled', calls.length === 0 && other.last('denied')?.reason === 'disabled');
+}
+{
+  const env = setup({ pin: '4821', deps: { lowerThirds: () => 'ok' } });
+  const p = env.connect(); p.say({ t: 'hello', v: 1, name: 'NoPin' }); p.say({ t: 'lowerThirds' });
+  check('a page without the PIN cannot toggle the slides', p.last('denied')?.reason === 'pin');
+}
+
 console.log(`remoteControl: ${passed} checks passed`);
