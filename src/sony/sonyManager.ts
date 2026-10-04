@@ -919,6 +919,11 @@ export class SonyManager {
     }, READ_TIMEOUT_MS));
   }
 
+  /** Clear the touch-focus point, like the cancel button on the camera's screen (back to the normal focus area). */
+  touchCancel(id: string): Promise<unknown> {
+    return this.operation(id, () => this.request(`${this.cameraPath(id)}/actions/touch-cancel`, { method: 'POST' }, READ_TIMEOUT_MS));
+  }
+
   /**
    * Drive the camera's own zoom (power zoom, or Clear Image / Digital Zoom on the body): -10 (wide) .. 10 (tele), 0 stops.
    * The sidecar answers success:false when the body/lens cannot zoom; that is thrown so the caller can fall back.

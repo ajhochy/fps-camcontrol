@@ -524,6 +524,8 @@ async function main(): Promise<void> {
   checkEqual('c10: live frames use the 3 s budget', paths.timeouts[paths.timeouts.length - 1], 3000);
   await paths.manager.touch('AA:BB', { x: 0.5, y: 0.25 });
   check('c10: touch actions use /actions/touch', paths.calls.includes('POST http://127.0.0.1:8181/api/cameras/AA:BB/actions/touch'));
+  await paths.manager.touchCancel('AA:BB');
+  check('c10: clear focus uses /actions/touch-cancel', paths.calls.includes('POST http://127.0.0.1:8181/api/cameras/AA:BB/actions/touch-cancel'));
   checkThrows('c10: unnormalized touch coordinates are rejected', () => paths.manager.touch('AA:BB', { x: 2, y: 0 }), /normalized/);
   await paths.manager.stop();
 

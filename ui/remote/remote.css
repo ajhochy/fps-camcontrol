@@ -200,6 +200,7 @@ p { margin: 0; }
 /* ---- tracking controls in the big pane header */
 .track-bar { display: flex; align-items: center; gap: 6px; }
 .track-bar + .pane-menu { margin-left: 0; }
+.clear-focus[hidden] { display: none; }
 .track-bar[hidden], .track-bar [hidden] { display: none; }
 .track-btn { height: 44px; min-width: 44px; padding: 0 12px; font-size: 15px; font-weight: 700; }
 .track-btn.on { background: var(--ok); border-color: var(--ok); color: var(--ink); }

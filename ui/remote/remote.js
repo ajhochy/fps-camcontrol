@@ -350,6 +350,7 @@
     root.appendChild(pic); root.appendChild(head); root.appendChild(foot); root.appendChild(title);
     var n = { key: key, big: big, root: root, img: img, cross: cross, note: note, title: title, ind: ind, menu: menu, foot: foot, sig: '', crossTimer: null, url: '', pad: null, lock: null, track: null };
     if (big) buildTrackBar(n, pic, head);
+    if (big) buildClearFocus(n, head);
     menu.addEventListener('click', function (e) { e.stopPropagation(); var pane = paneFor(key); if (pane) openSheet(pane); });
     if (big) img.addEventListener('pointerup', function (e) { onBigTap(n, e); });
     else {
@@ -411,6 +412,7 @@
     n.ind.textContent = '';
     items.forEach(function (it) { n.ind.appendChild(indicatorEl(it)); });
     n.menu.disabled = !pane.sonyId;
+    if (n.clear) n.clear.hidden = !pane.sonyId || !!pane.programFeed;
     n.foot.textContent = pane.healthText;
     n.foot.className = 'pane-foot ' + (pane.healthLevel || '');
     // Small panes: the border says what the pane is (program red, preview green); preview is always the controlled one.
@@ -864,6 +866,28 @@
     fetch('/api/sony/cameras/' + encodeURIComponent(pane.sonyId) + '/touch', { method: 'POST', headers: REMOTE_JSON, body: JSON.stringify({ normalized: { x: pt.x, y: pt.y } }) })
       .then(function (r) { if (!r.ok) return apiError(r); })
       .catch(function (e) { showBanner('Touch focus failed: ' + (e && e.message ? e.message : 'unknown error'), true, 3500); });
+  }
+
+  // ---- clear focus: the cancel button on the camera's own screen (forget the touch point, back to the normal area)
+  function buildClearFocus(n, head) {
+    var b = document.createElement('button');
+    b.type = 'button'; b.className = 'track-btn clear-focus'; b.textContent = '\u2715 Focus';
+    b.setAttribute('aria-label', 'Clear focus point'); b.hidden = true;
+    b.addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (mapMode) return;
+      var pane = paneFor(n.key);
+      if (!pane || !pane.sonyId || pane.programFeed) return;
+      var block = M.sonyWriteBlock(enabled);
+      if (block) { showBanner(block, true, 3000); return; }
+      clearTimeout(n.crossTimer);
+      n.cross.classList.remove('on');
+      fetch('/api/sony/cameras/' + encodeURIComponent(pane.sonyId) + '/touch-cancel', { method: 'POST', headers: REMOTE_JSON })
+        .then(function (r) { if (!r.ok) return apiError(r); showBanner('Focus point cleared', false, 1500); })
+        .catch(function (err) { showBanner('Clear focus failed: ' + (err && err.message ? err.message : 'unknown error'), true, 3500); });
+    });
+    head.insertBefore(b, (n.track && n.track.bar) || n.lock || n.menu);
+    n.clear = b;
   }
 
   // ---- person tracking (docs/tracking.md): the desk page's Focus / Track choice on the big panes. In Track mode a
