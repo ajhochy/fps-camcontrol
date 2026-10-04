@@ -618,6 +618,21 @@ async function selfTest(): Promise<number> {
       // Touch focus and camera settings from the remote (X-Remote: 1) are refused while remote control is off; the desk page is not affected.
       const asRemote = (method: string, p: string, body: unknown) => api(p, { method, headers: { 'content-type': 'application/json', 'x-remote': '1' }, body: JSON.stringify(body) });
       check('touch focus from the remote is refused while remote control is off (403)', (await asRemote('POST', `/api/sony/cameras/${A}/touch`, { normalized: { x: 0.5, y: 0.5 } })).status === 403);
+      {
+        // Desk slides / lower-third toggle: flips the key when the ATEM is up, says so plainly when it is not.
+        const st0 = (await api('/api/status')).body;
+        const t1 = await api('/api/lower-thirds/toggle', { method: 'POST' });
+        if (st0.atemConnected) {
+          const on = (await api('/api/status')).body.lowerThirdsActive;
+          const t2 = await api('/api/lower-thirds/toggle', { method: 'POST' });
+          const off = (await api('/api/status')).body.lowerThirdsActive;
+          check('desk slides toggle turns the key on, then off again', t1.status === 200 && t2.status === 200 && on === !st0.lowerThirdsActive && off === st0.lowerThirdsActive);
+        } else {
+          check('desk slides toggle with the ATEM offline answers 503 ATEM is offline', t1.status === 503 && /ATEM is offline/.test(t1.body?.error ?? ''));
+        }
+        const page = String((await api('/')).body ?? '');
+        check('the desk page has the slides toggle button', page.includes('toggleSlides(this)') && page.includes('/api/lower-thirds/toggle'));
+      }
       check('clear focus from the remote is refused while remote control is off (403)', (await asRemote('POST', `/api/sony/cameras/${A}/touch-cancel`, {})).status === 403);
       const nothing = await api(`/api/sony/cameras/${A}/touch-cancel`, { method: 'POST' });
       check('clear focus with no point set says there is nothing to clear (409, plain words)', nothing.status === 409 && /Nothing to clear/.test(nothing.body?.error ?? ''), `status=${nothing.status}`);

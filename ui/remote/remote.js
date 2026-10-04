@@ -813,7 +813,7 @@
   drawMapTags();
 
   el.ltBtn.addEventListener('click', function () {
-    var block = M.selectBlock(enabled, owner);
+    var block = M.sonyWriteBlock(enabled); // remote control on is enough; slides do not need the camera seat
     if (block) { showBanner(block, true, 3000); return; }
     send({ t: 'lowerThirds' }); // toggles the DSK; the 1 Hz status says what it is now
     setTimeout(pollStatus, SELECT_POLL_MS);

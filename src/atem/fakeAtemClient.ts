@@ -26,8 +26,13 @@ export class FakeAtemClient extends AtemClient {
   async changePreviewInput(inputId: number): Promise<void> { this.preview = inputId; }
   async cut(): Promise<void> { const was = this.program; this.program = this.preview; this.preview = was; }
   async autoTransition(): Promise<void> { await this.cut(); }
-  async setDownstreamKeyOnAir(): Promise<void> { /* no picture to key over */ }
-  async setDownstreamKeyRate(): Promise<void> { /* no picture to key over */ }
-  async autoDownstreamKey(): Promise<void> { /* no picture to key over */ }
-  async setUpstreamKeyerOnAir(): Promise<void> { /* no picture to key over */ }
+  // No picture to key over, but the key's on-air state is kept and reported like the real switcher's.
+  private keyOnAir = false;
+  graphicsOnAir(): boolean | undefined { return this.connected ? this.keyOnAir : undefined; }
+  /** Test hook: someone takes the key on or off at the ATEM panel, outside this app. */
+  setKeyFromPanel(onAir: boolean): void { this.keyOnAir = onAir; this.emit('stateChanged'); }
+  async setDownstreamKeyOnAir(_index: number, onAir: boolean): Promise<void> { this.setKeyFromPanel(onAir); }
+  async setDownstreamKeyRate(): Promise<void> { /* no fade to time */ }
+  async autoDownstreamKey(_index: number, onAir?: boolean): Promise<void> { this.setKeyFromPanel(onAir ?? !this.keyOnAir); }
+  async setUpstreamKeyerOnAir(_me: number, _usk: number, onAir: boolean): Promise<void> { this.setKeyFromPanel(onAir); }
 }

@@ -31,6 +31,7 @@ import { logger } from '../index';
 import { SonyManager, SonyRetryableError, SonyUpstreamError } from '../sony/sonyManager';
 import { RemoteControlHub } from '../input/remoteControl';
 import { emergencyStopAll } from '../safety/emergencyStop';
+import { toggleLowerThirds } from '../atem/switcherActions';
 import { getResourcePath, getUserPath } from '../config/paths';
 import { sleepRefusal, SLEEP_OLD_BRIDGE_MESSAGE } from '../app/gimbalSleep';
 import { trackingFor, trackingRuntimeFor, TrackingHooks } from '../app/trackingHooks';
@@ -1106,6 +1107,16 @@ export function createStatusServer(
     const was = remoteHub.takeBack();
     res.json({ ok: true, wasRemote: was, remoteControl: state.remoteControl });
   });
+  // Slides / lower third on or off from the desk page: the same toggle as the controller's D-pad left (with its fade).
+  app.post('/api/lower-thirds/toggle', (_req, res) => {
+    if (!atem || !atem.connected) { res.status(503).json({ error: 'ATEM is offline' }); return; }
+    const turningOn = !state.lowerThirdsActive;
+    activityLog.setContext('Desk page', 'LOWER THIRD', `Lower Thirds ${turningOn ? 'ON' : 'OFF'}`);
+    toggleLowerThirds(atem, state, config)
+      .then(() => res.json({ ok: true, onAir: state.lowerThirdsActive }))
+      .catch((err) => { logger.error({ err }, 'lower thirds toggle (desk) error'); res.status(502).json({ error: 'The ATEM did not take the key change' }); });
+  });
+
   // Stop every camera, from anywhere (the iPad's STOP button uses the socket; this is the plain HTTP twin).
   app.post('/api/emergency-stop', (_req, res) => {
     remoteHub?.revokeForStop();
@@ -1480,6 +1491,9 @@ function statusHtml(): string {
   }
   .mode-chip--on    { background: var(--warn-bg); border-color: oklch(0.38 0.12 73); color: var(--warn-text); }
   .mode-chip--speed { background: var(--surface-2); border-color: var(--blue); color: var(--blue); }
+  .slides-btn { cursor: pointer; }
+  .slides-btn--on { background: var(--ok-bg, var(--surface-2)); border-color: var(--ok-text); color: var(--ok-text); }
+  .slides-btn:disabled { cursor: default; opacity: .5; }
 
   /* Section headers */
   .section-header {
@@ -2409,7 +2423,7 @@ function renderStatus(s, c) {
     '<span class="mode-chip mode-chip--speed">Speed: ' + esc(speed) + '</span>',
     s.precisionMode ? '<span class="mode-chip mode-chip--on">Precision</span>' : '',
     s.sprintMode    ? '<span class="mode-chip mode-chip--on">Sprint</span>' : '',
-    s.lowerThirdsActive ? '<span class="mode-chip mode-chip--on">Lower Thirds</span>' : '',
+    '<button type="button" class="mode-chip slides-btn' + (s.lowerThirdsActive ? ' slides-btn--on' : '') + '" onclick="toggleSlides(this)"' + (s.atemConnected ? '' : ' disabled title="ATEM offline"') + ' aria-pressed="' + (s.lowerThirdsActive ? 'true' : 'false') + '">Slides / Lower third: ' + (s.lowerThirdsActive ? 'On air' : 'Off') + '</button>',
     s.lastPresetNotification ? '<span class="mode-chip mode-chip--on">Preset: ' + esc(s.lastPresetNotification) + '</span>' : '',
   ].filter(Boolean).join('');
 
@@ -3069,6 +3083,15 @@ function applySonyTouchInputs(id) {
 async function sendSonyTouch(id, x, y) {
   try { var response=await fetch('/api/sony/cameras/'+id+'/touch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({normalized:{x:x,y:y}})}); if(!response.ok) throw new Error(); sonyStatus(id,'Touch point applied at '+x.toFixed(3)+', '+y.toFixed(3)+'.'); }
   catch (_) { sonyStatus(id,'Touch point failed.',true); }
+}
+// Slides / lower third: the same toggle as the controller's D-pad left. The status refresh shows the new state.
+async function toggleSlides(btn) {
+  if (btn) btn.disabled = true;
+  try {
+    var r = await fetch('/api/lower-thirds/toggle', { method: 'POST' });
+    if (!r.ok) { var b = await r.json().catch(function () { return {}; }); alert('Slides toggle failed: ' + (b.error || r.status)); }
+  } catch (_) { alert('Slides toggle failed: CamControl not reachable'); }
+  refresh();
 }
 // The cancel button on the camera's own screen: forget the touch point and go back to the normal focus area.
 async function clearSonyFocus(id) {

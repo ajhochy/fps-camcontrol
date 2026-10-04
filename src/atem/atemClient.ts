@@ -66,6 +66,10 @@ export class AtemClient extends EventEmitter {
       this.scheduleReconnect();
     });
 
+    // Anything the switcher reports (including a key taken on or off at the ATEM panel): listeners re-read what
+    // they mirror, e.g. whether the slides / lower-third key is on air.
+    this.atem.on('stateChanged', () => this.emit('stateChanged'));
+
     this.atem.on('error', (err: unknown) => {
       throttledLog.error('atem-error', 5000, { err, ip: this.ip }, 'ATEM error');
     });
@@ -139,6 +143,14 @@ export class AtemClient extends EventEmitter {
         this.scheduleReconnect();
       });
     }, delay);
+  }
+
+  /** Whether the slides / lower-third key is on air at the switcher, or undefined when it is not known yet. */
+  graphicsOnAir(gfx: { type: string; dskIndex: number; meIndex: number; uskIndex: number }): boolean | undefined {
+    const video = this.atem.state?.video;
+    if (!video) return undefined;
+    if (gfx.type === 'usk') return video.mixEffects?.[gfx.meIndex]?.upstreamKeyers?.[gfx.uskIndex]?.onAir;
+    return video.downstreamKeyers?.[gfx.dskIndex]?.onAir;
   }
 
   getProgramInput(meIndex = 0): number | undefined {
