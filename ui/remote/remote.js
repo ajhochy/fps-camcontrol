@@ -883,7 +883,12 @@
       clearTimeout(n.crossTimer);
       n.cross.classList.remove('on');
       fetch('/api/sony/cameras/' + encodeURIComponent(pane.sonyId) + '/touch-cancel', { method: 'POST', headers: REMOTE_JSON })
-        .then(function (r) { if (!r.ok) return apiError(r); showBanner('Focus point cleared', false, 1500); })
+        .then(function (r) {
+          // 409: the camera has nothing to clear (no point set, or manual focus). Not an error.
+          if (r.status === 409) return r.json().catch(function () { return {}; }).then(function (b) { showBanner(b.error || 'Nothing to clear', false, 3000); });
+          if (!r.ok) return apiError(r);
+          showBanner('Focus point cleared', false, 1500);
+        })
         .catch(function (err) { showBanner('Clear focus failed: ' + (err && err.message ? err.message : 'unknown error'), true, 3500); });
     });
     head.insertBefore(b, (n.track && n.track.bar) || n.lock || n.menu);

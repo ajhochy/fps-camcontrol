@@ -619,7 +619,8 @@ async function selfTest(): Promise<number> {
       const asRemote = (method: string, p: string, body: unknown) => api(p, { method, headers: { 'content-type': 'application/json', 'x-remote': '1' }, body: JSON.stringify(body) });
       check('touch focus from the remote is refused while remote control is off (403)', (await asRemote('POST', `/api/sony/cameras/${A}/touch`, { normalized: { x: 0.5, y: 0.5 } })).status === 403);
       check('clear focus from the remote is refused while remote control is off (403)', (await asRemote('POST', `/api/sony/cameras/${A}/touch-cancel`, {})).status === 403);
-      check('clear focus from the desk works (200)', (await api(`/api/sony/cameras/${A}/touch-cancel`, { method: 'POST' })).status === 200);
+      const nothing = await api(`/api/sony/cameras/${A}/touch-cancel`, { method: 'POST' });
+      check('clear focus with no point set says there is nothing to clear (409, plain words)', nothing.status === 409 && /Nothing to clear/.test(nothing.body?.error ?? ''), `status=${nothing.status}`);
       check('a camera setting from the remote is refused while remote control is off (403)', (await asRemote('PUT', `/api/sony/cameras/${A}/properties/iso`, { value: '0x1' })).status === 403);
       check('the desk page (no X-Remote header) can still touch while remote control is off', (await post(`/api/sony/cameras/${A}/touch`, { normalized: { x: 0.5, y: 0.5 } })).status !== 403);
       check('live view and reads from the remote are not gated', (await api(`/api/sony/cameras/${A}/properties`, { headers: { 'x-remote': '1' } })).status !== 403);
@@ -669,6 +670,7 @@ async function selfTest(): Promise<number> {
         const touchOn = await asRemote('POST', `/api/sony/cameras/${A}/touch`, { normalized: { x: 0.25, y: 0.75 } });
         check('touch focus from the remote is accepted while remote control is on', touchOn.status === 200, `status=${touchOn.status}`);
         check('clear focus from the remote is accepted while remote control is on', (await asRemote('POST', `/api/sony/cameras/${A}/touch-cancel`, {})).status === 200);
+        check('a second clear finds nothing left to clear (409)', (await asRemote('POST', `/api/sony/cameras/${A}/touch-cancel`, {})).status === 409);
         check('the touch route still validates its point (400 for 2, 0.5)', (await asRemote('POST', `/api/sony/cameras/${A}/touch`, { normalized: { x: 2, y: 0.5 } })).status === 400);
         const props = (await api(`/api/sony/cameras/${A}/properties`)).body;
         const iso = ((props.data && props.data.properties) || props.properties || {}).iso;

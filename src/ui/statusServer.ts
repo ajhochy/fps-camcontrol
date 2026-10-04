@@ -356,9 +356,14 @@ export function createStatusServer(
     }
     void manager.touch(id, { x, y }).then(body => res.json(body)).catch(error => sonyError(res, error));
   });
+  const NOTHING_TO_CLEAR = 'Nothing to clear: no focus point is set (or the camera is in manual focus)';
   app.post('/api/sony/cameras/:id/touch-cancel', (req, res) => {
     const manager = sony(res); const id = sonyId(req, res); if (!manager || !id) return;
-    void manager.touchCancel(id).then(body => res.json(body)).catch(error => sonyError(res, error));
+    // The service answers 400 when the camera reports nothing to cancel: no touch point set, or manual focus (MF).
+    void manager.touchCancel(id).then(body => res.json(body)).catch(error => {
+      if ((error as { statusCode?: number })?.statusCode === 400) { res.status(409).json({ error: NOTHING_TO_CLEAR }); return; }
+      sonyError(res, error);
+    });
   });
 
   // GET /api/status
@@ -3069,6 +3074,7 @@ async function sendSonyTouch(id, x, y) {
 async function clearSonyFocus(id) {
   try {
     var response = await fetch('/api/sony/cameras/' + id + '/touch-cancel', { method: 'POST' });
+    if (response.status === 409) { var why = await response.json().catch(function () { return {}; }); sonyStatus(id, why.error || 'Nothing to clear.'); return; }
     if (!response.ok) throw new Error();
     var crosshair = document.querySelector('#sony-preview-' + id.replace(/:/g, '-') + ' .sony-crosshair');
     if (crosshair) crosshair.style.display = 'none';
