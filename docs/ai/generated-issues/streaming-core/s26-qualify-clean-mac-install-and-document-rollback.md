@@ -1,5 +1,7 @@
 # S26 — qualify clean-Mac install and document rollback
 
+**GitHub:** [#89](https://github.com/ajhochy/fps-camcontrol/issues/89)
+
 ## Goal
 
 Validate both app variants and operator recovery outside the development environment.
@@ -11,7 +13,7 @@ This issue delivers one step; it does not authorize the entire streaming project
 
 ## Dependencies
 
-S23, S24
+[S23 / #86](https://github.com/ajhochy/fps-camcontrol/issues/86), [S24 / #87](https://github.com/ajhochy/fps-camcontrol/issues/87)
 
 ## Likely files
 
@@ -23,7 +25,7 @@ S23, S24
 
 - [ ] On a clean supported Mac without Homebrew, each signed variant starts with declared prerequisites, prompts for required permissions and can run the qualified capture/record/monitor workflow.
 - [ ] OS output changes, sleep/wake, quit and crash behave as documented: no orphan processes or automatic live restart, and interrupted originals can be recovered.
-- [ ] Publish exact installed artifact/source/runtime receipts and a concise setup/calibration/restore guide; preserve previous app/Wirecast and rig configuration until S25 and this gate pass.
+- [ ] Publish exact installed artifact/source/runtime receipts and a concise setup/calibration/restore guide; preserve previous app/Wirecast and rig configuration until [S25 / #88](https://github.com/ajhochy/fps-camcontrol/issues/88) and this gate pass.
 
 ## Required tests / evaluation
 

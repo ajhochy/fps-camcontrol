@@ -1,5 +1,7 @@
 # S09 — recover interrupted MP4 recordings without overwriting originals
 
+**GitHub:** [#72](https://github.com/ajhochy/fps-camcontrol/issues/72)
+
 ## Goal
 
 Expose the proven recovery operation for a chosen interrupted recording.
@@ -11,7 +13,7 @@ This issue delivers one step; it does not authorize the entire streaming project
 
 ## Dependencies
 
-S08
+[S08 / #71](https://github.com/ajhochy/fps-camcontrol/issues/71)
 
 ## Likely files
 
@@ -22,7 +24,7 @@ S08
 ## Acceptance criteria
 
 - [ ] Recovery writes a unique separate regular MP4 and leaves the original unchanged, including when remuxing fails or storage fills.
-- [ ] Validate recovered streams/duration/content using the S04 recipe before reporting success; report partial recovery explicitly.
+- [ ] Validate recovered streams/duration/content using the [S04 / #67](https://github.com/ajhochy/fps-camcontrol/issues/67) recipe before reporting success; report partial recovery explicitly.
 - [ ] Repeated recovery requests cannot overwrite an original or another recovered file; bounded child lifetime and sanitized errors are retained.
 
 ## Required tests / evaluation

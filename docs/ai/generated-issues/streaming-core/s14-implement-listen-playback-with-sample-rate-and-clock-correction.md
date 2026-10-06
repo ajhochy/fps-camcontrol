@@ -1,5 +1,7 @@
 # S14 — implement Listen playback with sample-rate and clock correction
 
+**GitHub:** [#77](https://github.com/ajhochy/fps-camcontrol/issues/77)
+
 ## Goal
 
 Render program audio through one Listen toggle and volume using the OS-selected device.
@@ -11,7 +13,7 @@ This issue delivers one step; it does not authorize the entire streaming project
 
 ## Dependencies
 
-S13
+[S13 / #76](https://github.com/ajhochy/fps-camcontrol/issues/76)
 
 ## Likely files
 

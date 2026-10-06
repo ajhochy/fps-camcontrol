@@ -1,5 +1,7 @@
 # S15 — apply and persist the proven video-delay recipe
 
+**GitHub:** [#78](https://github.com/ajhochy/fps-camcontrol/issues/78)
+
 ## Goal
 
 Connect the measured delay implementation to the qualified profile and production outputs.
@@ -11,7 +13,7 @@ This issue delivers one step; it does not authorize the entire streaming project
 
 ## Dependencies
 
-S05, S06, S07
+[S05 / #68](https://github.com/ajhochy/fps-camcontrol/issues/68), [S06 / #69](https://github.com/ajhochy/fps-camcontrol/issues/69), [S07 / #70](https://github.com/ajhochy/fps-camcontrol/issues/70)
 
 ## Likely files
 
@@ -21,13 +23,13 @@ S05, S06, S07
 
 ## Acceptance criteria
 
-- [ ] For accepted integers 0–15, apply the S05 recipe to production video and show the corresponding rational-rate milliseconds; zero introduces no extra configured offset.
+- [ ] For accepted integers 0–15, apply the [S05 / #68](https://github.com/ajhochy/fps-camcontrol/issues/68) recipe to production video and show the corresponding rational-rate milliseconds; zero introduces no extra configured offset.
 - [ ] Delay survives restart/profile reload and is rejected while outputs run, including legacy routes; headphone gain does not alter A/V timing.
 - [ ] MP4 and local receive preserve requested repeated-content offsets within one frame before and after publisher reconnect at the supported rig rate.
 
 ## Required tests / evaluation
 
-Boundary/fractional-rate arithmetic, persistence/lock cases and decoded flash/impulse comparison using S05 fixtures.
+Boundary/fractional-rate arithmetic, persistence/lock cases and decoded flash/impulse comparison using [S05 / #68](https://github.com/ajhochy/fps-camcontrol/issues/68) fixtures.
 
 Add focused contract checks before implementation; apply the repository gates appropriate to changed code. Record commands, source SHA and observed outcomes. Separate synthetic, physical, hosted and installed evidence; missing required evidence leaves the issue open.
 

@@ -1,5 +1,7 @@
 # S11 — coordinate coupled record-only and broadcast sessions
 
+**GitHub:** [#74](https://github.com/ajhochy/fps-camcontrol/issues/74)
+
 ## Goal
 
 Implement one serialized output-session state machine with the accepted failure policy.
@@ -11,7 +13,7 @@ This issue delivers one step; it does not authorize the entire streaming project
 
 ## Dependencies
 
-S08, S10
+[S08 / #71](https://github.com/ajhochy/fps-camcontrol/issues/71), [S10 / #73](https://github.com/ajhochy/fps-camcontrol/issues/73)
 
 ## Likely files
 

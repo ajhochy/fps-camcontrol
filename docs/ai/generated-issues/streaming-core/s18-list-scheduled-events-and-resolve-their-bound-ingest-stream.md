@@ -1,5 +1,7 @@
 # S18 — list scheduled events and resolve their bound ingest stream
 
+**GitHub:** [#81](https://github.com/ajhochy/fps-camcontrol/issues/81)
+
 ## Goal
 
 Select an existing event and resolve its current destination without modifying it.
@@ -11,7 +13,7 @@ This issue delivers one step; it does not authorize the entire streaming project
 
 ## Dependencies
 
-S17
+[S17 / #80](https://github.com/ajhochy/fps-camcontrol/issues/80)
 
 ## Likely files
 

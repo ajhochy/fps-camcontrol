@@ -1,5 +1,7 @@
 # S01 — qualify the actual UltraStudio program video and stereo audio
 
+**GitHub:** [#64](https://github.com/ajhochy/fps-camcontrol/issues/64)
+
 ## Goal
 
 Record the real capture contract before selecting the production profile.
@@ -11,7 +13,7 @@ This issue delivers one step; it does not authorize the entire streaming project
 
 ## Dependencies
 
-#63
+[#63](https://github.com/ajhochy/fps-camcontrol/issues/63)
 
 ## Likely files
 

@@ -14,9 +14,11 @@ Open integration PR #60 (`integration/combine-open-prs`), verified planning base
 
 ## In progress
 
-Six streaming milestones with 26 atomic new issues; existing #63 owns the DeckLink SDK/driver prerequisite. New output sessions use Record only or Stream + record, with shared start/stop; arbitrary output attachment and a Node TS relay are deferred. Existing CLI/iPad camera/preview operation remains; new broadcast administration is Electron-local.
+Six streaming milestones (#11–#16) with 26 atomic new issues (#64–#89); existing #63 is assigned to the first milestone and owns the DeckLink SDK/driver prerequisite. New output sessions use Record only or Stream + record, with shared start/stop; arbitrary output attachment and a Node TS relay are deferred. Existing CLI/iPad camera/preview operation remains; new broadcast administration is Electron-local.
 
 ## Risks / known issues
+
+- Existing iPad remote is CLI-only; Electron is authenticated loopback-only. This scope preserves that boundary, not simultaneous iPad access to Electron. If needed for rollout, address separately without competing capture owners.
 
 - #63 reports SDK 16 versus Desktop Video 14.2 incompatibility and preview-only FFmpeg; refresh versions before work. No driver change is authorized. Actual program format/audio and streaming-capable runtime remain unqualified.
 - Static tee/fifo must prove failure isolation and one-second application media-age bounds before selection; failed evidence requires a recorded architecture revision, not silent custom relay work.

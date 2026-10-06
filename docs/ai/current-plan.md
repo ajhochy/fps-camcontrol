@@ -1,6 +1,6 @@
 # Current plan — program streaming core
 
-The [revised implementation plan](plans/2026-10-06-program-streaming-core.md) applies the architecture and ponytail reviews authorized on 2026-10-06. The [atomic backlog](generated-issues/streaming-core/README.md) contains 26 single-deliverable issue drafts grouped into six milestones, plus existing #63 as the DeckLink prerequisite.
+The [revised implementation plan](plans/2026-10-06-program-streaming-core.md) applies the architecture and ponytail reviews authorized on 2026-10-06. The [atomic backlog](generated-issues/streaming-core/README.md) contains 26 published single-deliverable issues (#64–#89) grouped into six milestones (#11–#16), plus existing #63 as the DeckLink prerequisite.
 
 ## Intent and constraints
 
@@ -30,6 +30,8 @@ Reuse prior FFmpeg/YouTube/Web Audio research linked in the detailed plan. First
 Every step's likely files, acceptance, evaluation and dependencies are in the [issue index](generated-issues/streaming-core/README.md). Milestone ordering does not override the issue DAG; independent credential work may proceed early.
 
 ## Status and handoff
+
+Existing boundary: iPad remote currently works through CLI; Electron is loopback-only. Preserving those paths does not add simultaneous iPad access to Electron. Treat that as a separate rollout prerequisite if required; never launch two competing capture owners.
 
 Documentation and issue planning only. No streaming code, runtime tests, hardware capture, driver changes, OAuth login, broadcast, merge, deployment or release performed. Target is open PR #60, `integration/combine-open-prs`, based on verified head `dd224d0` for this revision. Keep all future implementation issues open until their own acceptance passes.
 

@@ -1,5 +1,7 @@
 # S16 — store YouTube credentials securely for Electron
 
+**GitHub:** [#79](https://github.com/ajhochy/fps-camcontrol/issues/79)
+
 ## Goal
 
 Provide the smallest Electron-owned macOS credential boundary for OAuth tokens.

@@ -1,5 +1,7 @@
 # S03 — prove static FFmpeg outputs and choose the minimal session architecture
 
+**GitHub:** [#66](https://github.com/ajhochy/fps-camcontrol/issues/66)
+
 ## Goal
 
 Decide whether tee/fifo can meet one-session stream-plus-record behavior without a custom media router.
@@ -11,7 +13,7 @@ This issue delivers one step; it does not authorize the entire streaming project
 
 ## Dependencies
 
-S01, S02
+[S01 / #64](https://github.com/ajhochy/fps-camcontrol/issues/64), [S02 / #65](https://github.com/ajhochy/fps-camcontrol/issues/65)
 
 ## Likely files
 

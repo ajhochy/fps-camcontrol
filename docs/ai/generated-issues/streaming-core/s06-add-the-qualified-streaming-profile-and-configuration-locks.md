@@ -1,5 +1,7 @@
 # S06 — add the qualified streaming profile and configuration locks
 
+**GitHub:** [#69](https://github.com/ajhochy/fps-camcontrol/issues/69)
+
 ## Goal
 
 Persist a narrow, validated profile without allowing active-session reconfiguration.
@@ -11,7 +13,7 @@ This issue delivers one step; it does not authorize the entire streaming project
 
 ## Dependencies
 
-S01, S03, S05
+[S01 / #64](https://github.com/ajhochy/fps-camcontrol/issues/64), [S03 / #66](https://github.com/ajhochy/fps-camcontrol/issues/66), [S05 / #68](https://github.com/ajhochy/fps-camcontrol/issues/68)
 
 ## Likely files
 

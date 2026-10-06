@@ -1,5 +1,7 @@
 # S20 — report YouTube health and end sessions reliably
 
+**GitHub:** [#83](https://github.com/ajhochy/fps-camcontrol/issues/83)
+
 ## Goal
 
 Handle status uncertainty and terminal session actions without false Live/Complete claims.
@@ -11,7 +13,7 @@ This issue delivers one step; it does not authorize the entire streaming project
 
 ## Dependencies
 
-S19
+[S19 / #82](https://github.com/ajhochy/fps-camcontrol/issues/82)
 
 ## Likely files
 

@@ -25,4 +25,4 @@ Network failure leaves recording running; recording failure leaves an existing p
 
 ## Consequences
 
-Normal Stop ends stream and recording together; a new recording cannot attach mid-session. The initial release supports the proven rig profile. Preview/Listen may briefly interrupt at session transitions. A failed gate requires updating the plan before implementation grows. Existing camera safety/authentication and required test evidence remain mandatory. See the detailed plan and atomic backlog for execution boundaries.
+Normal Stop ends stream and recording together; a new recording cannot attach mid-session. The initial release supports the proven rig profile. Existing iPad remote stays CLI-only; this decision does not add Electron LAN access, and simultaneous iPad operation is a separate rollout prerequisite if required. Preview/Listen may briefly interrupt at session transitions. A failed gate requires updating the plan before implementation grows. Existing camera safety/authentication and required test evidence remain mandatory. See the detailed plan and atomic backlog for execution boundaries.

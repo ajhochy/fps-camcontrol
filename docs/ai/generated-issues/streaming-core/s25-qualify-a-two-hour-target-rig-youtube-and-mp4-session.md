@@ -1,5 +1,7 @@
 # S25 — qualify a two-hour target-rig YouTube and MP4 session
 
+**GitHub:** [#88](https://github.com/ajhochy/fps-camcontrol/issues/88)
+
 ## Goal
 
 Demonstrate the Wirecast replacement on the intended hardware and scheduled-event workflow.
@@ -11,7 +13,7 @@ This issue delivers one step; it does not authorize the entire streaming project
 
 ## Dependencies
 
-S23, S24
+[S23 / #86](https://github.com/ajhochy/fps-camcontrol/issues/86), [S24 / #87](https://github.com/ajhochy/fps-camcontrol/issues/87)
 
 ## Likely files
 

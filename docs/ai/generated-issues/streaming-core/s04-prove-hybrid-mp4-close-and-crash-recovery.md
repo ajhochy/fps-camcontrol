@@ -1,5 +1,7 @@
 # S04 — prove hybrid MP4 close and crash recovery
 
+**GitHub:** [#67](https://github.com/ajhochy/fps-camcontrol/issues/67)
+
 ## Goal
 
 Establish an MP4 writer/recovery recipe and measured shutdown budget.
@@ -11,7 +13,7 @@ This issue delivers one step; it does not authorize the entire streaming project
 
 ## Dependencies
 
-S03
+[S03 / #66](https://github.com/ajhochy/fps-camcontrol/issues/66)
 
 ## Likely files
 

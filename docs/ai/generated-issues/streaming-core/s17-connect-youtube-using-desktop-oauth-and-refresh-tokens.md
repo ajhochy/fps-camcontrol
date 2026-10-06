@@ -1,5 +1,7 @@
 # S17 — connect YouTube using desktop OAuth and refresh tokens
 
+**GitHub:** [#80](https://github.com/ajhochy/fps-camcontrol/issues/80)
+
 ## Goal
 
 Implement one-account system-browser OAuth for scheduled-event access.
@@ -11,7 +13,7 @@ This issue delivers one step; it does not authorize the entire streaming project
 
 ## Dependencies
 
-S16
+[S16 / #79](https://github.com/ajhochy/fps-camcontrol/issues/79)
 
 ## Likely files
 
@@ -21,7 +23,7 @@ S16
 
 ## Acceptance criteria
 
-- [ ] Connect uses registered Desktop client, PKCE, a one-use state and temporary loopback callback; successful auth shows channel/account identity and stores only through S16.
+- [ ] Connect uses registered Desktop client, PKCE, a one-use state and temporary loopback callback; successful auth shows channel/account identity and stores only through [S16 / #79](https://github.com/ajhochy/fps-camcontrol/issues/79).
 - [ ] Reject wrong/replayed state, canceled/expired auth and invalid callback; close the temporary listener on every exit path.
 - [ ] Refresh works without interactive login; revoked access shows reconnect needed. Document client configuration and applicable public consent-verification gate without shipping assumed renderer secrets.
 

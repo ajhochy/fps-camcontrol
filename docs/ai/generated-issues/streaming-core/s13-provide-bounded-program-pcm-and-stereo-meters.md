@@ -1,5 +1,7 @@
 # S13 — provide bounded program PCM and stereo meters
 
+**GitHub:** [#76](https://github.com/ajhochy/fps-camcontrol/issues/76)
+
 ## Goal
 
 Deliver the capture owner’s stereo audio to a local monitoring consumer without production backpressure.
@@ -11,7 +13,7 @@ This issue delivers one step; it does not authorize the entire streaming project
 
 ## Dependencies
 
-S07
+[S07 / #70](https://github.com/ajhochy/fps-camcontrol/issues/70)
 
 ## Likely files
 

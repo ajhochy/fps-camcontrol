@@ -82,11 +82,13 @@ One device owner; camera motion safety stays responsive; bounded buffers; networ
 
 ## Known evidence gates
 
+Existing integration limitation: Electron binds authenticated loopback only; iPad remote/preview currently work in the CLI app. Preserve both existing paths, but this plan does not add simultaneous iPad access to Electron. Do not run competing CLI/Electron capture owners as a workaround. If the operator requires simultaneous iPad use for adoption, resolve that separate prerequisite before deployment.
+
 Rig mode/stereo mapping, supported binary delivery, tee/fifo failure isolation and freshness, exact timestamp options, monitor drift implementation and shutdown deadline are deliberately evidence-gated in the backlog. A failed gate updates the plan/decision before dependent implementation; a missing physical rig is not a synthetic pass. Google project/consent and actual rig access require the operator at execution time.
 
 ## Atomic delivery backlog
 
-See [streaming issue index](../generated-issues/streaming-core/README.md) for the ordered single-deliverable tasks, dependencies, likely files, evaluation and GitHub milestones/issues. Existing #63 is the capture prerequisite. No implementation issue is closed by this documentation PR.
+Published: 26 new issues #64–#89 under six milestones #11–#16. See [streaming issue index](../generated-issues/streaming-core/README.md) for the ordered single-deliverable tasks, dependencies, likely files, evaluation and GitHub links. Existing #63 is the capture prerequisite. No implementation issue is closed by this documentation PR.
 
 ## Planning checkpoint
 

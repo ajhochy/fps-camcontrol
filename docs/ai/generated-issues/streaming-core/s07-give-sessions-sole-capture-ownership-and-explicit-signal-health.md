@@ -1,5 +1,7 @@
 # S07 — give sessions sole capture ownership and explicit signal health
 
+**GitHub:** [#70](https://github.com/ajhochy/fps-camcontrol/issues/70)
+
 ## Goal
 
 Replace preview-owned capture with one app-owned source and a compatible preview adapter.
@@ -11,7 +13,7 @@ This issue delivers one step; it does not authorize the entire streaming project
 
 ## Dependencies
 
-S06
+[S06 / #69](https://github.com/ajhochy/fps-camcontrol/issues/69)
 
 ## Likely files
 
@@ -34,6 +36,6 @@ Add focused contract checks before implementation; apply the repository gates ap
 
 ## Out of scope / data safety
 
-No generic source plugin framework, automatic capture retry or multipart recording. Session transitions consume this owner in S11.
+No generic source plugin framework, automatic capture retry or multipart recording. Session transitions consume this owner in [S11 / #74](https://github.com/ajhochy/fps-camcontrol/issues/74).
 
 Preserve unrelated work and operator configs. Use isolated fixtures and disposable credentials; never commit tokens, stream keys, recordings or rig identifiers. Hardware/account use needs operator authorization at execution time. No production install, driver change, merge, release or public broadcast is authorized by issue creation.

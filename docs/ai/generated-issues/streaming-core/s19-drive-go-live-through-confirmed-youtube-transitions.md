@@ -1,5 +1,7 @@
 # S19 — drive Go Live through confirmed YouTube transitions
 
+**GitHub:** [#82](https://github.com/ajhochy/fps-camcontrol/issues/82)
+
 ## Goal
 
 Connect recorder-first startup to the selected scheduled broadcast.
@@ -11,7 +13,7 @@ This issue delivers one step; it does not authorize the entire streaming project
 
 ## Dependencies
 
-S11, S18
+[S11 / #74](https://github.com/ajhochy/fps-camcontrol/issues/74), [S18 / #81](https://github.com/ajhochy/fps-camcontrol/issues/81)
 
 ## Likely files
 

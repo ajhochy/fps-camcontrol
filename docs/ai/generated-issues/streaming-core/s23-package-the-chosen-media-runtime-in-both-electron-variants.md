@@ -1,5 +1,7 @@
 # S23 — package the chosen media runtime in both Electron variants
 
+**GitHub:** [#86](https://github.com/ajhochy/fps-camcontrol/issues/86)
+
 ## Goal
 
 Extend existing installer packaging for the selected runtime and credential integration.
@@ -11,7 +13,7 @@ This issue delivers one step; it does not authorize the entire streaming project
 
 ## Dependencies
 
-S02, S12, S16, S22
+[S02 / #65](https://github.com/ajhochy/fps-camcontrol/issues/65), [S12 / #75](https://github.com/ajhochy/fps-camcontrol/issues/75), [S16 / #79](https://github.com/ajhochy/fps-camcontrol/issues/79), [S22 / #85](https://github.com/ajhochy/fps-camcontrol/issues/85)
 
 ## Likely files
 

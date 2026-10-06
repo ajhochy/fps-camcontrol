@@ -1,5 +1,7 @@
 # S10 — implement bounded publishing and fresh reconnect
 
+**GitHub:** [#73](https://github.com/ajhochy/fps-camcontrol/issues/73)
+
 ## Goal
 
 Apply the selected static-output publishing design and measured failure policy.
@@ -11,7 +13,7 @@ This issue delivers one step; it does not authorize the entire streaming project
 
 ## Dependencies
 
-S03, S07
+[S03 / #66](https://github.com/ajhochy/fps-camcontrol/issues/66), [S07 / #70](https://github.com/ajhochy/fps-camcontrol/issues/70)
 
 ## Likely files
 
@@ -32,6 +34,6 @@ Add focused contract checks before implementation; apply the repository gates ap
 
 ## Out of scope / data safety
 
-No custom relay unless S03 first revises the plan; no YouTube credentials or lifecycle API yet.
+No custom relay unless [S03 / #66](https://github.com/ajhochy/fps-camcontrol/issues/66) first revises the plan; no YouTube credentials or lifecycle API yet.
 
 Preserve unrelated work and operator configs. Use isolated fixtures and disposable credentials; never commit tokens, stream keys, recordings or rig identifiers. Hardware/account use needs operator authorization at execution time. No production install, driver change, merge, release or public broadcast is authorized by issue creation.

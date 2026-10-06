@@ -1,5 +1,7 @@
 # S22 — build the core Streaming operator page
 
+**GitHub:** [#85](https://github.com/ajhochy/fps-camcontrol/issues/85)
+
 ## Goal
 
 Expose the accepted workflow on one page with useful progress and failure states.
@@ -11,7 +13,7 @@ This issue delivers one step; it does not authorize the entire streaming project
 
 ## Dependencies
 
-S21
+[S21 / #84](https://github.com/ajhochy/fps-camcontrol/issues/84)
 
 ## Likely files
 

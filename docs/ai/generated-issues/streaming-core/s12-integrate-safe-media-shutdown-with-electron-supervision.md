@@ -1,5 +1,7 @@
 # S12 — integrate safe media shutdown with Electron supervision
 
+**GitHub:** [#75](https://github.com/ajhochy/fps-camcontrol/issues/75)
+
 ## Goal
 
 Ensure camera motion stops promptly and media children terminate with the measured file-close policy.
@@ -11,7 +13,7 @@ This issue delivers one step; it does not authorize the entire streaming project
 
 ## Dependencies
 
-S11
+[S11 / #74](https://github.com/ajhochy/fps-camcontrol/issues/74)
 
 ## Likely files
 
@@ -22,8 +24,8 @@ S11
 
 ## Acceptance criteria
 
-- [ ] Quit/sleep first stop motion, then stop outputs and drain/finalize within the S04 measured policy; the Electron outer deadline allows that policy.
-- [ ] Backend/parent death and forced termination leave no owned capture/encoder/writer/publisher children; incomplete files are retained for S09 recovery.
+- [ ] Quit/sleep first stop motion, then stop outputs and drain/finalize within the [S04 / #67](https://github.com/ajhochy/fps-camcontrol/issues/67) measured policy; the Electron outer deadline allows that policy.
+- [ ] Backend/parent death and forced termination leave no owned capture/encoder/writer/publisher children; incomplete files are retained for [S09 / #72](https://github.com/ajhochy/fps-camcontrol/issues/72) recovery.
 - [ ] Cold startup/wake never restores recording or streaming intent; partial teardown and repeated Stop cannot hang the app or replay commands.
 
 ## Required tests / evaluation

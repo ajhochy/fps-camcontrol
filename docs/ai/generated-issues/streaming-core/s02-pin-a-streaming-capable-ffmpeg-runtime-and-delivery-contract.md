@@ -1,5 +1,7 @@
 # S02 — pin a streaming-capable FFmpeg runtime and delivery contract
 
+**GitHub:** [#65](https://github.com/ajhochy/fps-camcontrol/issues/65)
+
 ## Goal
 
 Select a reproducible runtime containing every required capture, encode, mux and TLS capability.
@@ -11,7 +13,7 @@ This issue delivers one step; it does not authorize the entire streaming project
 
 ## Dependencies
 
-#63
+[#63](https://github.com/ajhochy/fps-camcontrol/issues/63)
 
 ## Likely files
 
@@ -33,6 +35,6 @@ Add focused contract checks before implementation; apply the repository gates ap
 
 ## Out of scope / data safety
 
-Preview-only FFmpeg from #63 is insufficient. Packaging implementation belongs to S23.
+Preview-only FFmpeg from #63 is insufficient. Packaging implementation belongs to [S23 / #86](https://github.com/ajhochy/fps-camcontrol/issues/86).
 
 Preserve unrelated work and operator configs. Use isolated fixtures and disposable credentials; never commit tokens, stream keys, recordings or rig identifiers. Hardware/account use needs operator authorization at execution time. No production install, driver change, merge, release or public broadcast is authorized by issue creation.

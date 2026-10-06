@@ -1,5 +1,7 @@
 # S21 — expose Electron-only session status and actions
 
+**GitHub:** [#84](https://github.com/ajhochy/fps-camcontrol/issues/84)
+
 ## Goal
 
 Provide validated local adapters without creating a new CLI authentication system.
@@ -11,7 +13,7 @@ This issue delivers one step; it does not authorize the entire streaming project
 
 ## Dependencies
 
-S09, S12, S14, S15, S20
+[S09 / #72](https://github.com/ajhochy/fps-camcontrol/issues/72), [S12 / #75](https://github.com/ajhochy/fps-camcontrol/issues/75), [S14 / #77](https://github.com/ajhochy/fps-camcontrol/issues/77), [S15 / #78](https://github.com/ajhochy/fps-camcontrol/issues/78), [S20 / #83](https://github.com/ajhochy/fps-camcontrol/issues/83)
 
 ## Likely files
 

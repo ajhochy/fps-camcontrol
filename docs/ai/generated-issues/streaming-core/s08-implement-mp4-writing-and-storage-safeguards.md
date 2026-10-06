@@ -1,5 +1,7 @@
 # S08 — implement MP4 writing and storage safeguards
 
+**GitHub:** [#71](https://github.com/ajhochy/fps-camcontrol/issues/71)
+
 ## Goal
 
 Create and finalize a session recording with bounded writes and visible storage failures.
@@ -11,7 +13,7 @@ This issue delivers one step; it does not authorize the entire streaming project
 
 ## Dependencies
 
-S04, S07
+[S04 / #67](https://github.com/ajhochy/fps-camcontrol/issues/67), [S07 / #70](https://github.com/ajhochy/fps-camcontrol/issues/70)
 
 ## Likely files
 

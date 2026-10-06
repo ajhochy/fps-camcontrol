@@ -1,5 +1,7 @@
 # S05 — prove video content delay through MP4 and streaming
 
+**GitHub:** [#68](https://github.com/ajhochy/fps-camcontrol/issues/68)
+
 ## Goal
 
 Establish exact timestamp/filter options that preserve a requested positive video delay.
@@ -11,7 +13,7 @@ This issue delivers one step; it does not authorize the entire streaming project
 
 ## Dependencies
 
-S03
+[S03 / #66](https://github.com/ajhochy/fps-camcontrol/issues/66)
 
 ## Likely files
 
