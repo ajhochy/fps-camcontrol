@@ -1,39 +1,36 @@
 # Current plan — program streaming core
 
-The user selected core first on 2026-10-06. The complete implementation plan and ordered issue table are in
-[2026-10-06 — program streaming core](plans/2026-10-06-program-streaming-core.md).
+The [revised implementation plan](plans/2026-10-06-program-streaming-core.md) applies the architecture and ponytail reviews authorized on 2026-10-06. The [atomic backlog](generated-issues/streaming-core/README.md) contains 26 single-deliverable issue drafts grouped into six milestones, plus existing #63 as the DeckLink prerequisite.
 
 ## Intent and constraints
 
-Replace Wirecast's program-feed streaming/recording role with Cam Control's managed FFmpeg pipeline,
-YouTube scheduled-event selection, local audio monitoring and adjustable video sync delay. Preserve
-camera/ATEM control, capture ownership and output continuity. Core first; effects and new event creation deferred.
-MP4 is the default recording format per the user follow-up: hybrid fragmented MP4 during capture,
-regular MP4 after a successful normal stop, with recovery of completed fragments after interruption.
+Replace Wirecast's finished-program streaming/recording role with scheduled YouTube events, MP4 recording, local audio monitoring and measured video delay. New streaming functionality ships in Electron first; retain existing CLI/iPad camera controls and preview. One capture owner, responsive camera safety, bounded media, isolated network/storage failures and protected credentials are mandatory.
 
-## Ordered issues
+Select Record only or Stream + record before Start; normal Stop ends session outputs together. A running stream survives recording failure; a recording survives network failure. Initial recording failure prevents Go Live. Arbitrary output attachment, stream-only mode, CLI streaming, effects, event creation, manual-key UI, separate Test Stream and in-app audio-output selection are deferred. Use macOS output selection and one Listen toggle/volume.
 
-| Order | Goal | Likely areas | Required evidence | Dependencies |
-| --- | --- | --- | --- | --- |
-| 1 | Prove shared encode, independent output joins and frame sync | Program/media service and synthetic fixtures | Measured steady-state offsets and decodable output joins; bounded queues | None |
-| 2 | Own capture, stream and recorder lifecycles | Backend lifecycle and existing program adapter | Independent outputs, fault isolation and complete teardown | 1 |
-| 3 | Add local monitor, meters and calibration | Streaming page, audio socket/worklet and config | Audible stereo monitor; independent monitor mute/gain; saved frame delay | 2 |
-| 4 | Connect scheduled events securely | YouTube API/OAuth service and Keychain helper | Event list/bound stream; correct broadcast lifecycle; protected credentials | 2 |
-| 5 | Finish the operator workflow | Streaming page and status/action adapters | Existing event to confirmed YouTube Live plus concurrent recording | 3, 4 |
-| 6 | Package and qualify the target rig | Both Electron variants and operator docs | Clean installed-app proof, physical capture and two-hour YouTube/record soak | 5 |
+## Clarification interview
 
-## Planning status
+Prior answers established core-first scope and MP4 default. The user explicitly accepted both review passes on 2026-10-06; these revisions apply those decisions without reopening the interview. Actual input mode, runtime delivery, static-output failure behavior, clock options and teardown budget remain evidence gates documented in S01–S05, not presumed facts.
 
-- [x] Read project context and inspect the current capture/packaging path.
-- [x] Confirm core-first scope with the user and state implementation defaults.
-- [x] Research primary FFmpeg, Web Audio and YouTube API references.
-- [x] Write the detailed plan, output interfaces, ordered issues and acceptance gates.
-- [ ] Implement the synthetic end-to-end media proof before committing to the integrated pipeline.
-- [ ] Implement and independently qualify the full core workflow.
+## Prior art and cheapest proof
 
-No implementation or runtime tests were performed for this plan. Initial inspection used
-`feat/ipad-remote-touch-redesign` at `84efc9a`. PR #62 has since been confirmed merged; this plan is
-being added to open integration PR #60 from its current head `72a67c7`. Confirm the reviewed base again before implementation.
-The previous Electron release/packaging plan is preserved in
-[2026-10-01 — Electron release and packaging](plans/2026-10-01-electron-release-and-packaging.md).
-Existing PR/hardware gates in that archived plan remain separately relevant.
+Reuse prior FFmpeg/YouTube/Web Audio research linked in the detailed plan. First resolve existing #63 and prove actual UltraStudio video/stereo capture. Then use the pinned runtime to demonstrate static tee/fifo outputs, MP4 crash recovery and repeated-content sync. Record the selected architecture from results; a custom Node media relay is not pre-approved. Secure credential work can proceed independently.
+
+## Ordered milestones
+
+| Milestone | Steps | Exit evidence |
+| --- | --- | --- |
+| M1 — Rig and media proof | #63, S01–S05 | Real input contract, pinned runtime, minimal output architecture, MP4 recovery and timing |
+| M2 — Session and recording engine | S06–S12 | Sole capture owner, qualified config/locks, MP4, recovery, bounded publishing, coupled lifecycle and cleanup |
+| M3 — Audio monitoring and sync | S13–S15 | Bounded PCM, audible clock-corrected monitor, isolated volume and persisted measured delay |
+| M4 — Scheduled YouTube events | S16–S20 | Secure credentials, OAuth, bound-event resolution, confirmed Go Live/status/End |
+| M5 — Operator workflow | S21–S22 | Protected Electron adapters and the complete core Streaming page |
+| M6 — Packaging and qualification | S23–S26 | Both variants, camera-load regression, two-hour hosted rig session and clean-Mac evidence |
+
+Every step's likely files, acceptance, evaluation and dependencies are in the [issue index](generated-issues/streaming-core/README.md). Milestone ordering does not override the issue DAG; independent credential work may proceed early.
+
+## Status and handoff
+
+Documentation and issue planning only. No streaming code, runtime tests, hardware capture, driver changes, OAuth login, broadcast, merge, deployment or release performed. Target is open PR #60, `integration/combine-open-prs`, based on verified head `dd224d0` for this revision. Keep all future implementation issues open until their own acceptance passes.
+
+Before implementation, compact the conversation and start one issue from the saved backlog. The prior [Electron release/packaging plan](plans/2026-10-01-electron-release-and-packaging.md) retains its separate qualification gates.
