@@ -1,0 +1,50 @@
+{
+  "testedAt": "2026-10-01T20:25:38.555Z",
+  "scope": "packaged-runtime",
+  "app": "/var/folders/f0/kwf9lqtx57qgt3j4rbtvg1ym0000gn/T/fps tracking mounted runtime Q85cmq/Mounted DMG/FPS CamControl Tracking.app",
+  "model": {
+    "path": "/var/folders/f0/kwf9lqtx57qgt3j4rbtvg1ym0000gn/T/fps tracking mounted runtime Q85cmq/Mounted DMG/FPS CamControl Tracking.app/Contents/Resources/models/object_detection_yolox_2022nov.onnx",
+    "bytes": 35858002,
+    "sha256": "c5c2d13e59ae883e6af3b45daea64af4833a4951c92d116ec270d9ddbe998063"
+  },
+  "hostArchitecture": "arm64",
+  "cleanOS": "NOT_TESTED",
+  "physicalHID": "NOT_TESTED",
+  "inference": {
+    "modelSha256": "c5c2d13e59ae883e6af3b45daea64af4833a4951c92d116ec270d9ddbe998063",
+    "provider": "CoreMLExecutionProvider",
+    "inferenceCount": 2,
+    "shape": [
+      1,
+      8400,
+      85
+    ],
+    "finite": true,
+    "inputDependent": true,
+    "detectP50Ms": 17.325875349342823,
+    "detectP95Ms": 21.701208781450987,
+    "fps": 51.24646241305858,
+    "frameAgeMs": 21.701208781450987,
+    "personCounts": [
+      0,
+      0
+    ],
+    "fixture": "generated RGB only; not accuracy proof",
+    "timingScope": "inference only; not source transport or camera exposure latency"
+  },
+  "networkDeniedInference": "PASS",
+  "helper": {
+    "handshake": "PASS",
+    "selectTrackingCancelIdle": "PASS",
+    "heartbeat": "PASS",
+    "ownedStopAwaited": "PASS",
+    "shutdownMs": 11
+  },
+  "motionIntegration": {
+    "scope": "actual packaged Python + packaged TS control + virtual gimbal",
+    "motion": "PASS",
+    "manualOverrideResume": "PASS",
+    "helperCrashStopNoReplay": "PASS",
+    "physicalHardware": "NOT_TESTED"
+  }
+}

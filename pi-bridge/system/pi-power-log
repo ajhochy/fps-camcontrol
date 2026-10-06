@@ -1,0 +1,11 @@
+#!/bin/bash
+# fps-camcontrol: log the Pi power state every 30 s to the (persistent) journal, so a power loss leaves evidence.
+# Copied from bridge 1 (dji-bridge.local:/usr/local/bin/pi-power-log). Read it back with: journalctl -t pi-power
+while true; do
+  t=$(vcgencmd get_throttled | cut -d= -f2)
+  v=$(vcgencmd pmic_read_adc EXT5V_V | sed -E "s/.*=([0-9.]+)V/\1/")
+  a=$(vcgencmd pmic_read_adc VDD_CORE_A | sed -E "s/.*=([0-9.]+)A/\1/")
+  c=$(vcgencmd measure_temp | sed -E "s/temp=([0-9.]+).*/\1/")
+  logger -t pi-power "throttled=$t ext5v=${v}V core=${a}A temp=${c}C"
+  sleep 30
+done

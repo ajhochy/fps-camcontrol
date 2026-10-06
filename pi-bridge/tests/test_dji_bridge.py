@@ -199,3 +199,156 @@ class MaintainGimbalTests(unittest.IsolatedAsyncioTestCase):
             await task
         except asyncio.CancelledError:
             pass
+
+
+class BridgeInfoTests(unittest.TestCase):
+    """GET /info and hello say which Pi, port, instance and gimbal a bridge is (no session opened)."""
+
+    class BleDriver:
+        model = "RS3"
+        address = "48:1C:B9:54:C6:BC"
+        connected = True
+        capabilities = ("velocity",)
+
+    def test_info_names_the_pi_port_instance_and_gimbal(self):
+        import os
+        os.environ["BRIDGE_INSTANCE"] = "rs3pro-a"
+        try:
+            info = dji_bridge.bridge_info(self.BleDriver(), 7879, 1)
+        finally:
+            del os.environ["BRIDGE_INSTANCE"]
+        self.assertEqual(info["port"], 7879)
+        self.assertEqual(info["instance"], "rs3pro-a")
+        self.assertEqual(info["gimbalAddress"], "48:1C:B9:54:C6:BC")
+        self.assertTrue(info["hostname"])
+        self.assertEqual(info["clients"], 1)
+        self.assertIs(info["gimbalConnected"], True)
+        self.assertIsNone(info["link"])  # this driver measures no link health
+        self.assertIsNone(info["asleep"])  # nor reports sleep
+
+    def test_info_carries_link_health_when_the_driver_measures_it(self):
+        class Measured(self.BleDriver):
+            def link_health(self):
+                return {"drops10m": 2, "framesLastMin": 50, "corruptLastMin": 4, "linkedForS": 30}
+        self.assertEqual(dji_bridge.bridge_info(Measured(), 7879, 1)["link"]["drops10m"], 2)
+
+    def test_a_failing_health_measure_never_breaks_info(self):
+        class Broken(self.BleDriver):
+            def link_health(self):
+                raise RuntimeError("boom")
+        self.assertIsNone(dji_bridge.bridge_info(Broken(), 7879, 1)["link"])
+
+    def test_a_driver_without_an_address_reports_none(self):
+        info = dji_bridge.bridge_info(Driver(), 7878, 0)
+        self.assertIsNone(info["gimbalAddress"])
+        self.assertIsNone(info["instance"])
+
+    def test_legacy_api_answers_info_and_leaves_other_paths_to_websockets(self):
+        hook = dji_bridge.info_request_handler(self.BleDriver(), 7880, set())
+        self.assertIsNone(asyncio.run(hook("/", {})))
+        status, headers, body = asyncio.run(hook("/info", {}))
+        self.assertEqual(int(status), 200)
+        self.assertIn(("Content-Type", "application/json"), headers)
+        self.assertEqual(json.loads(body)["port"], 7880)
+
+    def test_new_api_answers_info_through_connection_respond(self):
+        class Headers(dict):
+            pass
+
+        class Response:
+            def __init__(self, status, text):
+                self.status, self.text = status, text
+                self.headers = Headers({"Content-Type": "text/plain"})
+
+        class Connection:
+            def respond(self, status, text):
+                return Response(status, text)
+
+        hook = dji_bridge.info_request_handler(self.BleDriver(), 7879, {object()})
+        self.assertIsNone(asyncio.run(hook(Connection(), types.SimpleNamespace(path="/"))))
+        response = asyncio.run(hook(Connection(), types.SimpleNamespace(path="/info")))
+        self.assertEqual(response.headers["Content-Type"], "application/json")
+        self.assertEqual(json.loads(response.text)["clients"], 1)
+
+    def test_hello_carries_the_identity(self):
+        session = Session(IdleSocket(), self.BleDriver(), 250, 7879)
+        result = asyncio.run(session._dispatch("hello", {"clientId": "t"}))
+        self.assertEqual(result["port"], 7879)
+        self.assertEqual(result["gimbalAddress"], "48:1C:B9:54:C6:BC")
+        self.assertNotIn("clients", result)
+        self.assertIn("capabilities", result)
+
+
+class WakeDispatchTests(unittest.TestCase):
+    class WakeDriver:
+        connected = True
+        mode = "follow"
+        model = "RS3"
+        name = "dji-rs3-ble"
+        address = "48:1C:B9:54:C6:BC"
+        capabilities = ("velocity", "wake")
+
+        def __init__(self):
+            self.wakes = 0
+
+        async def wake(self):
+            self.wakes += 1
+
+    class OldDriver:
+        connected = True
+        mode = "follow"
+        model = "RS3"
+        name = "dji-rs3-ble"
+        address = "48:1C:B9:54:C6:BC"
+        capabilities = ("velocity",)
+
+    def test_hello_advertises_wake_when_the_driver_has_it(self):
+        session = Session(IdleSocket(), self.WakeDriver(), 250, 7879)
+        result = asyncio.run(session._dispatch("hello", {"clientId": "app"}))
+        self.assertIn("wake", result["capabilities"])
+        self.assertEqual(result["bridgeVersion"], dji_bridge.BRIDGE_VERSION)
+
+    def test_wake_dispatches_to_the_driver_and_logs_who_asked(self):
+        driver = self.WakeDriver()
+        session = Session(IdleSocket(), driver, 250, 7879)
+        asyncio.run(session._dispatch("hello", {"clientId": "app-1"}))
+        with self.assertLogs(dji_bridge.log, level="WARNING") as logs:
+            result = asyncio.run(session._dispatch("wake", {}))
+        self.assertEqual(result, {})
+        self.assertEqual(driver.wakes, 1)
+        self.assertTrue(any("WAKE" in line and "app-1" in line for line in logs.output))
+
+    def test_wake_is_not_supported_without_the_capability(self):
+        session = Session(IdleSocket(), self.OldDriver(), 250, 7879)
+        with self.assertRaises(dji_bridge.NotSupported):
+            asyncio.run(session._dispatch("wake", {}))
+
+    def test_sleep_dispatches_to_the_driver_and_logs_who_asked(self):
+        from drivers.mock_driver import MockDriver
+
+        driver = MockDriver()
+        session = Session(IdleSocket(), driver, 250, 7879)
+        result = asyncio.run(session._dispatch("hello", {"clientId": "app-2"}))
+        self.assertIn("sleep", result["capabilities"])
+        with self.assertLogs(dji_bridge.log, level="WARNING") as logs:
+            asyncio.run(session._dispatch("sleep", {}))
+        self.assertEqual(driver.sleeps, 1)
+        self.assertIs(driver.asleep, True)
+        self.assertTrue(any("SLEEP" in line and "app-2" in line for line in logs.output))
+
+    def test_sleep_is_not_supported_without_the_capability(self):
+        session = Session(IdleSocket(), self.OldDriver(), 250, 7879)
+        result = asyncio.run(session._dispatch("hello", {"clientId": "app"}))
+        self.assertNotIn("sleep", result["capabilities"])
+        with self.assertRaises(dji_bridge.NotSupported):
+            asyncio.run(session._dispatch("sleep", {}))
+
+    def test_mock_driver_wakes(self):
+        from drivers.mock_driver import MockDriver
+
+        driver = MockDriver()
+        self.assertIn("wake", driver.capabilities)
+        driver.asleep = True
+        asyncio.run(driver.wake())
+        self.assertIs(driver.asleep, False)
+        self.assertEqual(driver.wakes, 1)

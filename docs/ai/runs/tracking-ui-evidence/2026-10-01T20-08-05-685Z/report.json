@@ -1,0 +1,22 @@
+{
+  "criteria": {
+    "issue-32-c1": "PASS",
+    "issue-32-c2": "PASS",
+    "issue-32-c3": "PASS",
+    "issue-32-c4": "PASS",
+    "issue-32-c6": "PASS",
+    "issue-32-c5": "PASS",
+    "issue-32-c7": "PASS",
+    "issue-32-c8": "PASS",
+    "issue-32-c9": "PASS"
+  },
+  "screenshots": [
+    "/Users/ajhochhalter/.local/share/opencode/worktree/ec2e0fe3fdd54c2e9ab53bfa4cc75c91e40568ed/fps-electron-two-pr-plan/docs/ai/runs/tracking-ui-evidence/2026-10-01T20-08-05-685Z/desktop-light.png",
+    "/Users/ajhochhalter/.local/share/opencode/worktree/ec2e0fe3fdd54c2e9ab53bfa4cc75c91e40568ed/fps-electron-two-pr-plan/docs/ai/runs/tracking-ui-evidence/2026-10-01T20-08-05-685Z/desktop-dark.png",
+    "/Users/ajhochhalter/.local/share/opencode/worktree/ec2e0fe3fdd54c2e9ab53bfa4cc75c91e40568ed/fps-electron-two-pr-plan/docs/ai/runs/tracking-ui-evidence/2026-10-01T20-08-05-685Z/tablet-light.png",
+    "/Users/ajhochhalter/.local/share/opencode/worktree/ec2e0fe3fdd54c2e9ab53bfa4cc75c91e40568ed/fps-electron-two-pr-plan/docs/ai/runs/tracking-ui-evidence/2026-10-01T20-08-05-685Z/tablet-dark.png",
+    "/Users/ajhochhalter/.local/share/opencode/worktree/ec2e0fe3fdd54c2e9ab53bfa4cc75c91e40568ed/fps-electron-two-pr-plan/docs/ai/runs/tracking-ui-evidence/2026-10-01T20-08-05-685Z/mobile-light.png",
+    "/Users/ajhochhalter/.local/share/opencode/worktree/ec2e0fe3fdd54c2e9ab53bfa4cc75c91e40568ed/fps-electron-two-pr-plan/docs/ai/runs/tracking-ui-evidence/2026-10-01T20-08-05-685Z/mobile-dark.png"
+  ],
+  "pageErrors": []
+}

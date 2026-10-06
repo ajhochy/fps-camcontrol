@@ -12,7 +12,7 @@ A macOS Node.js/TypeScript app that turns a game controller (Xbox / Wii U Pro) i
 ## Stack
 | Layer | Tech |
 |---|---|
-| Runtime | Node.js + TypeScript |
+| Runtime | TypeScript backend; CLI Node.js or bundled Electron utility-process Node |
 | Package mgr | pnpm |
 | ATEM | `atem-connection` |
 | VISCA-IP | Custom UDP client (Node.js `dgram`) on port 52381 |
@@ -20,10 +20,23 @@ A macOS Node.js/TypeScript app that turns a game controller (Xbox / Wii U Pro) i
 | Gamepad | `node-hid` (Xbox + Wii U Pro profiles) |
 | Config | YAML + Zod validation |
 | Logging | Pino (stdout + daily `logs/service-YYYY-MM-DD.log`) |
-| Status UI | Express + HTML on port 8080 (bound `0.0.0.0` for LAN) |
-| Testing | Custom virtual hardware + smoke suite (36 assertions) |
+| Status UI | Express + HTML on loopback; CLI port 8080, packaged port 0 with actual ready-port IPC |
+| Testing | Serial virtual hardware smoke/sandbox, focused tests, actual packaged-app runtime tests |
 
 ## Components
+
+The Electron shell (`electron/main.cjs`) and explicit backend lifecycle
+(`src/embed.ts`, `src/index.ts`) share one production startup path. The sandboxed
+renderer has no Node integration; HTTP and WebSocket requests require the
+private session, expected host, and appropriate origin. App defaults are generic
+and immutable; mutable settings live in Electron userData. `CAMCONTROL_HOME`
+and `CAMCONTROL_RESOURCES` separate operator data from bundled resources.
+An OS-owned loopback lock prevents concurrent manual/tracking hardware owners;
+the normal Electron singleton handles repeated launches of one identity.
+Shutdown stops control before transports. Parent heartbeat loss stops the
+backend; crash/sleep recovery requires explicit operator restart and never
+replays motion. Sony SDK/CameraWebApp is user-supplied, not redistributed.
+
 | Component | Path | Responsibility |
 |---|---|---|
 | Controller loop | `src/app/controllerLoop.ts` | 60 Hz tick: read gamepad → drive state machine → emit device commands |
@@ -35,15 +48,42 @@ A macOS Node.js/TypeScript app that turns a game controller (Xbox / Wii U Pro) i
 | ATEM | `src/atem/atemClient.ts`, `switcherActions.ts` | atem-connection wrapper; cut / auto-transition / DSK·USK·graphics; forwards `stateChanged` |
 | Safety | `src/safety/emergencyStop.ts`, `watchdog.ts` | Stop-all on disconnect; VISCA reconnect + 30s probe loop |
 | Status / config UI | `src/ui/statusServer.ts` | Express status page + fully editable web config (ATEM, cameras, graphics) |
+| Input arbiter | `src/input/inputArbiter.ts` | Who is driving: desk controller or an iPad. Desk always wins; every handover calls `machine.switchSource()` (stop + seed edge state) |
+| iPad remote | `src/input/remoteControl.ts`, `remoteFrame.ts`, `browserGamepad.ts`, `ui/remote/` | `/ws/remote-controller` hub (sessions, dead-man, ping, PIN, Origin check), frame validation, browser-gamepad to `NormalizedInput`; the page is static (`/remote`) |
 | Pi bridge | `pi-bridge/dji_bridge.py` + `drivers/` | Async websockets server translating app commands to RS3 Bluetooth LE; 250ms safety watchdog; pluggable driver |
+| Gimbal selection | `pi-bridge/gimbal_select.py` | Which Bluetooth gimbal a bridge drives: saved gimbal.json, AUTO strongest-then-saved, GET /gimbals, POST /gimbal (one Pi per gimbal: docs/pi-per-gimbal.md) |
 
 ## Key flow
+
+Tracking is optional and disabled by default. `src/tracking/` owns the strict
+protocol/client, pure controller, manager and shared `MotionLedger` keyed by
+physical device. The tracking-only Electron entry launches `tracker-sidecar/`
+with bundled isolated Python and an allowlisted environment. Private WS and
+frame-only credentials are separate from the operator API session. Frames flow
+Sony → backend receipt timestamp → authorized memory-only frame pull → pinned
+ONNX detector → conservative identity association → WS observation → manager →
+capped/paced MotionDevice commands. No frames or appearance data are persisted.
+Source rebinding clears targets before device mutation. Same-camera manual
+motion/recenter/preset takes ownership first; all motion stops are enqueued before
+awaiting helper teardown. Calibration uses the same backend-owned device/ledger,
+never a competing CLI hardware connection. See `docs/tracking.md` for limits.
+
 ```
 Gamepad ──node-hid──▶ controllerLoop ──▶ controlStateMachine ──▶ Map<CameraId, MotionDevice>
                                               │                         ├─ ViscaDevice ──UDP/VISCA-IP──▶ BirdDog / V-BOT
                                                │                         └─ DjiBridgeDevice ──WS/JSON──▶ Pi bridge ──BLE──▶ DJI RS3
                                               └─ ATEM cut / transition ──▶ atemClient ──▶ Blackmagic ATEM
 ```
+
+### iPad remote (see `docs/ipad-remote.md`)
+```
+iPad Safari ─Gamepad API─▶ /remote page ──WS /ws/remote-controller──▶ RemoteControlHub ─┐
+                                                                                       ├▶ InputArbiter ──▶ controlStateMachine (unchanged)
+Desk controller ──node-hid──▶ supervisor 'data' ───────────────────────────────────────┘
+```
+One owner at a time; the desk controller always takes the seat back. The machine's 250 ms stale-input stop is the
+dead-man for the remote; the arbiter releases the seat after 1 s of silence and on close/idle/release/STOP/disable.
+Machine hooks: `setSourceConnected()`, `switchSource(seed)`, `updateInput(input, sourceLabel)`.
 
 ## Control model (the "app is the brain")
 - `controlledCamera` is the camera receiving PTZ right now. It changes only on left-stick flick or startup init.

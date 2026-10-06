@@ -1,0 +1,297 @@
+{
+  "testedAt": "2026-10-01T20:47:24.070Z",
+  "status": "PASS",
+  "dmg": {
+    "path": "/Users/ajhochhalter/.local/share/opencode/worktree/ec2e0fe3fdd54c2e9ab53bfa4cc75c91e40568ed/fps-electron-two-pr-plan/release/tracking-delivery-3711a9e/2026-10-01-final/FPS CamControl Tracking-0.1.0-arm64-notarized.dmg",
+    "bytes": 288543586,
+    "sha256": "5c021b66d2433df630677c4cab95fc3019e5617e134afc5dd094f967e4c81652"
+  },
+  "criteria": {
+    "defaultDisabledNoHelper": "PASS",
+    "packagedNetworkDeniedModelAndProtocol": "PASS",
+    "packagedClickToTrack": "PASS",
+    "configuredLiveFrameIdleSafe": "PASS",
+    "helperCrashNoReplay": "PASS",
+    "backendCrashStopsHelperPausedRecovery": "PASS",
+    "sleepStopsHelperWakeInert": "PASS",
+    "parentCrashNoOrphans": "PASS",
+    "normalQuitStopsOwnedHelper": "PASS",
+    "uiErrorChecks": "PASS: no JS or unexpected HTTP/console/transport errors; identified Sony busy retries and injected disconnects recover"
+  },
+  "screenshots": [
+    {
+      "path": "/Users/ajhochhalter/.local/share/opencode/worktree/ec2e0fe3fdd54c2e9ab53bfa4cc75c91e40568ed/fps-electron-two-pr-plan/docs/ai/runs/electron-tracking-evidence/runtime-2026-10-01T20-47-24-065Z/mounted-tracking-dashboard.png",
+      "sha256": "95406e5577469b04f8a3bd6f4a4bb6bc7e42575d5963439e14307686ecb92f9e"
+    }
+  ],
+  "appErrors": [],
+  "consoleErrors": [
+    "Failed to load resource: net::ERR_CONNECTION_REFUSED",
+    "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+  ],
+  "consoleErrorDetails": [
+    {
+      "phase": "injected-backend-crash",
+      "text": "Failed to load resource: net::ERR_CONNECTION_REFUSED",
+      "location": {
+        "url": "http://127.0.0.1:60153/api/sony/cameras/AA:BB/live-view/frame",
+        "lineNumber": 0,
+        "columnNumber": 0
+      }
+    },
+    {
+      "phase": "restart-after-backend-crash",
+      "text": "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+      "location": {
+        "url": "http://127.0.0.1:60178/api/sony/cameras/AA:BB/properties",
+        "lineNumber": 0,
+        "columnNumber": 0
+      }
+    }
+  ],
+  "httpErrors": [
+    {
+      "phase": "restart-after-backend-crash",
+      "status": 503,
+      "url": "http://127.0.0.1:60178/api/sony/cameras/AA:BB/properties",
+      "retryAfter": "1",
+      "error": "Sony camera is busy; retry shortly"
+    }
+  ],
+  "networkErrors": [
+    {
+      "phase": "injected-backend-crash",
+      "method": "GET",
+      "url": "http://127.0.0.1:60153/api/sony/cameras/AA:BB/live-view/frame",
+      "error": "net::ERR_CONNECTION_REFUSED"
+    }
+  ],
+  "boundary": "Exact mounted DMG on developer host, fresh HOME/minimal PATH, real packaged live helper and generated image loopback fixtures. Not clean OS/TCC, camera accuracy, physical hardware or soak acceptance.",
+  "appAsarSha256": "12d6fbb8c529c39a1ddf7c8f87f85c45fb3bd01b5c82e5990ebcb444d47fe6b9",
+  "startupMs": 4018,
+  "runtime": {
+    "versions": {
+      "node": "24.21.0",
+      "acorn": "8.18.0",
+      "ada": "4.0.0",
+      "amaro": "1.1.11",
+      "ares": "1.34.8",
+      "brotli": "1.2.0",
+      "cldr": "48.0",
+      "icu": "78.2",
+      "llhttp": "9.4.3",
+      "merve": "1.2.2",
+      "modules": "149",
+      "napi": "10",
+      "nbytes": "0.1.4",
+      "ncrypto": "0.0.1",
+      "nghttp2": "1.70.0",
+      "nghttp3": "",
+      "ngtcp2": "",
+      "openssl": "0.0.0",
+      "simdjson": "4.6.7",
+      "simdutf": "7.7.0",
+      "sqlite": "3.53.4",
+      "tz": "2025c",
+      "undici": "7.29.1",
+      "unicode": "17.0",
+      "uv": "1.52.1",
+      "uvwasi": "0.0.23",
+      "v8": "15.2.124.28-electron.0",
+      "zlib": "1.3.2.1-motley",
+      "zstd": "1.6.0",
+      "electron": "44.5.1",
+      "chrome": "152.0.7977.130"
+    },
+    "separateUserData": true,
+    "sandbox": true,
+    "contextIsolation": true,
+    "nodeIntegration": false
+  },
+  "packagedPython": {
+    "testedAt": "2026-10-01T20:47:30.917Z",
+    "scope": "packaged-runtime",
+    "app": "/var/folders/f0/kwf9lqtx57qgt3j4rbtvg1ym0000gn/T/fps tracking mounted runtime nStR9Q/Mounted DMG/FPS CamControl Tracking.app",
+    "model": {
+      "path": "/var/folders/f0/kwf9lqtx57qgt3j4rbtvg1ym0000gn/T/fps tracking mounted runtime nStR9Q/Mounted DMG/FPS CamControl Tracking.app/Contents/Resources/models/object_detection_yolox_2022nov.onnx",
+      "bytes": 35858002,
+      "sha256": "c5c2d13e59ae883e6af3b45daea64af4833a4951c92d116ec270d9ddbe998063"
+    },
+    "hostArchitecture": "arm64",
+    "cleanOS": "NOT_TESTED",
+    "physicalHID": "NOT_TESTED",
+    "inference": {
+      "modelSha256": "c5c2d13e59ae883e6af3b45daea64af4833a4951c92d116ec270d9ddbe998063",
+      "provider": "CoreMLExecutionProvider",
+      "inferenceCount": 2,
+      "shape": [
+        1,
+        8400,
+        85
+      ],
+      "finite": true,
+      "inputDependent": true,
+      "detectP50Ms": 23.74370815232396,
+      "detectP95Ms": 26.31391678005457,
+      "fps": 39.95395312306057,
+      "frameAgeMs": 26.31391678005457,
+      "personCounts": [
+        0,
+        0
+      ],
+      "fixture": "generated RGB only; not accuracy proof",
+      "timingScope": "inference only; not source transport or camera exposure latency"
+    },
+    "networkDeniedInference": "PASS",
+    "helper": {
+      "handshake": "PASS",
+      "selectTrackingCancelIdle": "PASS",
+      "heartbeat": "PASS",
+      "ownedStopAwaited": "PASS",
+      "shutdownMs": 10
+    },
+    "liveFrame": {
+      "scope": "actual packaged live Python and model",
+      "anonymousWebSocketStatus": 401,
+      "anonymousFrameStatus": 403,
+      "deniedFrames": 1,
+      "frames": [
+        {
+          "capturedAt": 1790887657581,
+          "bytes": 6860,
+          "jpegAccepted": true
+        }
+      ],
+      "invalidMessages": 0,
+      "hello": {
+        "protocol": 1,
+        "type": "hello",
+        "version": "1.0.0",
+        "capabilities": [
+          "person"
+        ],
+        "detector": "yolox-s-opencv-zoo-2022nov",
+        "provider": "CoreMLExecutionProvider",
+        "degradedTiming": true
+      },
+      "metrics": [
+        {
+          "protocol": 1,
+          "type": "status",
+          "sourceId": "fixture",
+          "fps": 1,
+          "dropped": 0,
+          "busy": 0,
+          "detectP50Ms": 24.970207829028368,
+          "detectP95Ms": 24.970207829028368,
+          "frameAgeMs": 56,
+          "degradedTiming": false
+        }
+      ],
+      "tracks": [
+        {
+          "protocol": 1,
+          "type": "track",
+          "sourceId": "fixture",
+          "sessionId": "9a7d2d69-76a5-4c92-8265-643643f8b671",
+          "seq": 0,
+          "state": "locking",
+          "cx": 0,
+          "cy": 0,
+          "w": 0,
+          "h": 0,
+          "conf": 0,
+          "frameTs": 0,
+          "processedAt": 1790887657438
+        },
+        {
+          "protocol": 1,
+          "type": "track",
+          "sourceId": "fixture",
+          "sessionId": "9a7d2d69-76a5-4c92-8265-643643f8b671",
+          "seq": 1,
+          "state": "idle",
+          "cx": 0,
+          "cy": 0,
+          "w": 0,
+          "h": 0,
+          "conf": 0,
+          "frameTs": 0,
+          "processedAt": 1790887657637
+        }
+      ],
+      "errors": [
+        {
+          "code": "no_target",
+          "sourceId": "fixture",
+          "sessionId": "9a7d2d69-76a5-4c92-8265-643643f8b671"
+        }
+      ],
+      "imageRetention": "generated geometric JPEG only, memory-only; no identifiable footage or persisted frame"
+    },
+    "motionIntegration": {
+      "scope": "actual packaged Python + packaged TS control + virtual gimbal",
+      "motion": "PASS",
+      "manualOverrideResume": "PASS",
+      "helperCrashStopNoReplay": "PASS",
+      "manualStop": {
+        "explicitStopReceived": true,
+        "stopMs": 0.31479100000069593,
+        "watchdogMs": 250,
+        "handledStopCommands": 1,
+        "watchdogFired": false
+      },
+      "crashStop": {
+        "explicitStopReceived": true,
+        "stopMs": 1.9559160000007978,
+        "watchdogMs": 250,
+        "handledStopCommands": 1,
+        "watchdogFired": false
+      },
+      "physicalHardware": "NOT_TESTED"
+    }
+  },
+  "syntheticFrameRequests": 6,
+  "injectedFaultObservations": {
+    "appErrors": [],
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_REFUSED",
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ],
+    "networkErrors": [
+      {
+        "phase": "injected-backend-crash",
+        "method": "GET",
+        "url": "http://127.0.0.1:60153/api/sony/cameras/AA:BB/live-view/frame",
+        "error": "net::ERR_CONNECTION_REFUSED"
+      }
+    ]
+  },
+  "expectedRecoveryResponses": [
+    {
+      "phase": "restart-after-backend-crash",
+      "status": 503,
+      "url": "http://127.0.0.1:60178/api/sony/cameras/AA:BB/properties",
+      "retryAfter": "1",
+      "error": "Sony camera is busy; retry shortly"
+    }
+  ],
+  "expectedDisconnectOrigins": [
+    "normal-quit http://127.0.0.1:59959",
+    "normal-quit http://127.0.0.1:60105",
+    "injected-backend-crash http://127.0.0.1:60153",
+    "injected-sleep http://127.0.0.1:60178",
+    "injected-parent-crash http://127.0.0.1:60202",
+    "normal-quit http://127.0.0.1:60223"
+  ],
+  "expectedInjectedDisconnects": [
+    {
+      "phase": "injected-backend-crash",
+      "method": "GET",
+      "url": "http://127.0.0.1:60153/api/sony/cameras/AA:BB/live-view/frame",
+      "error": "net::ERR_CONNECTION_REFUSED"
+    }
+  ],
+  "unexpectedNetworkErrors": [],
+  "unexpectedConsoleErrors": []
+}

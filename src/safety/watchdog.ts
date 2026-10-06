@@ -2,6 +2,7 @@ import { AppState, CameraId, applyDeviceLinkState } from '../app/state';
 import { AtemClient } from '../atem/atemClient';
 import { MotionDevice } from '../devices/motionDevice';
 import { ViscaDevice } from '../devices/viscaDevice';
+import { viscaTransportInfo } from '../visca/viscaClient';
 import { throttledLog } from '../app/logThrottle';
 import { logger } from '../index';
 
@@ -18,19 +19,23 @@ export function startWatchdog(
     state.atemConnected = atem.connected;
 
     tick++;
-    if (tick % PROBE_EVERY_TICKS === 0) {
+    // First sweep 2 s after start so the tiles say something real quickly, then every 30 s.
+    if (tick === 2 || tick % PROBE_EVERY_TICKS === 0) {
+      const transport = viscaTransportInfo();
+      state.viscaRepliesHeard = transport.localPort === null ? null : transport.onStandardPort;
       for (const [id, device] of devices) {
         if (device instanceof ViscaDevice) {
           const client = device.client;
-        // Use the socket-level connected flag as the source of truth.
-        // The VISCA probe (CAM_PowerInq) is just a soft health check — some
-        // cameras (e.g. V-BOT) don't reply to that specific inquiry even when
-        // they're perfectly responsive to control commands, so a probe miss
-        // must NOT force the camera into a disconnected state.
+        // `connected` only says the app's VISCA socket is open (UDP has no link to lose). Whether the camera is
+        // actually there is told by its replies: the probe asks power status, then pan/tilt position, and any
+        // reply counts. A miss does not mark the camera disconnected (commands may still work), it marks it as
+        // not answering, which the Status page shows.
         applyDeviceLinkState(state, id, { connected: client.connected });
         client.probe().then(reachable => {
+          state.cameraAnswering[id] = reachable;
+          if (client.lastReplyAt !== null) state.cameraLastReplyAt[id] = client.lastReplyAt;
           if (!reachable && client.connected) {
-            throttledLog.warn(`probe-${id}`, 300000, { cameraId: id }, 'camera probe returned no reply (camera may still be controllable)');
+            throttledLog.warn(`probe-${id}`, 300000, { cameraId: id }, 'camera did not answer VISCA inquiries');
           }
         }).catch(() => { /* ignore */ });
           continue;
@@ -39,13 +44,14 @@ export function startWatchdog(
         // gimbal attached — so it measures the bridge, not the camera. Pair it
         // with the device's own gimbal verdict, or this 30s sweep would keep
         // resurrecting a dead gimbal as "connected".
+        const details = device as MotionDevice & { reportedGimbalModel?: string | null; motionResponsive?: boolean; linkHealth?: import('../app/state').GimbalLinkHealth | null; reportedAsleep?: boolean | null; bluetoothGimbal?: import('../app/state').GimbalBluetoothView | null; battery?: import('../app/state').GimbalBattery | null };
         device.probe().then(reachable => {
-          applyDeviceLinkState(state, id, { connected: reachable, gimbalAttached: device.gimbalAttached });
+          applyDeviceLinkState(state, id, { connected: reachable, gimbalAttached: device.gimbalAttached, reportedGimbalModel: details.reportedGimbalModel, motionResponsive: details.motionResponsive, linkHealth: details.linkHealth, reportedAsleep: details.reportedAsleep, capabilities: device.capabilities, bluetoothGimbal: details.bluetoothGimbal, battery: details.battery });
           if (!reachable) {
             logger.warn({ cameraId: id }, 'camera probe failed — not reachable');
           }
         }).catch(() => {
-          applyDeviceLinkState(state, id, { connected: false, gimbalAttached: device.gimbalAttached });
+          applyDeviceLinkState(state, id, { connected: false, gimbalAttached: device.gimbalAttached, reportedGimbalModel: details.reportedGimbalModel, motionResponsive: details.motionResponsive, linkHealth: details.linkHealth, reportedAsleep: details.reportedAsleep, capabilities: device.capabilities, bluetoothGimbal: details.bluetoothGimbal, battery: details.battery });
         });
       }
     }

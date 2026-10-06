@@ -4,6 +4,7 @@ import {
   panTilt as viscaPanTilt,
   zoom as viscaZoom,
   stopPTZ,
+  stopPanTilt as viscaStopPanTilt,
   gotoAbsolutePosition,
   queryPosition,
 } from '../visca/ptzActions';
@@ -48,6 +49,10 @@ export class ViscaDevice implements MotionDevice {
 
   stop(): void {
     stopPTZ(this.client);
+  }
+
+  stopPanTilt(): void {
+    viscaStopPanTilt(this.client);
   }
 
   async getPosition(): Promise<DevicePosition> {

@@ -1,0 +1,15 @@
+{
+  "criteria": {},
+  "screenshots": [
+    {
+      "path": "/Users/ajhochhalter/.local/share/opencode/worktree/ec2e0fe3fdd54c2e9ab53bfa4cc75c91e40568ed/fps-electron-two-pr-plan/docs/ai/runs/electron-manual-evidence/mounted-dmg-startup-failure.png",
+      "sha256": "9107eb309dd493885c8626121af4f7550701fa35d9fff493203b45af7c8d6cf1",
+      "state": "FAILED startup, not dashboard evidence"
+    }
+  ],
+  "consoleErrors": [],
+  "networkErrors": [],
+  "appErrors": [],
+  "evidenceBoundary": "Developer host fresh HOME/minimal PATH, not clean OS/TCC/hardware/Gatekeeper/notarization.",
+  "failure": "page.waitForURL: Timeout 20000ms exceeded.\n=========================== logs ===========================\nwaiting for navigation until \"load\"\n  navigated to \"data:text/html;charset=utf-8,%3Chtml%20lang%3D%22en%22%3E%3Ctitle%3EFPS%20CamControl%3C%2Ftitle%3E%3Cbody%3E%3Ch1%3EFPS%20CamControl%3C%2Fh1%3E%3Cp%20role%3D%22alert%22%3EBackend%20stopped%20unexpectedly.%20Motion%20is%20not%20replayed.%20Quit%20and%20restart%20to%20reconnect.%3C%2Fp%3E%3C%2Fbody%3E%3C%2Fhtml%3E\"\n============================================================"
+}

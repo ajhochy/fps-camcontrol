@@ -1,0 +1,15 @@
+{
+  "issue": 39,
+  "date": "2026-10-01",
+  "test_command": "node scripts/test-electron-probe-telemetry.cjs dist/electron-probe/diagnostic-evidence-1790873006114.json",
+  "waiver": null,
+  "criteria": [
+    {"criterion_id":"telemetry-c1","text":"boundedrecording of timerOUTLIERS >=150ms (including >=250), wall+monotonic timestamps","mode":"unit","test":"scripts/test-electron-probe-telemetry.cjs","status":"pass"},
+    {"criterion_id":"telemetry-c2","text":"runtimeCPU/GC/eventlooputilization whenavailable/sourceversions/protocolrecordv1, correlatewithoutclaimingcausation","mode":"unit","test":"scripts/test-electron-probe-telemetry.cjs","status":"pass"},
+    {"criterion_id":"telemetry-c3","text":"boundretainedsamples/output/memory, noHIDidentifiers/frames/paths/token/envdumps","mode":"unit","test":"scripts/test-electron-probe-telemetry.cjs","status":"pass"},
+    {"criterion_id":"telemetry-c4","text":"safecompleteorpartialwrite/crash handling","mode":"integration","test":"scripts/test-electron-probe-telemetry.cjs dist/electron-probe/diagnostic-evidence-1790873006114.json","status":"pass"},
+    {"criterion_id":"telemetry-c5","text":"Retainexistingthresholds/duration/zero-misscriterionunchanged; rawfailedfiles mustreplayFAIL. Diagnostic PASS only instrumentworks, nottiminggatePASS.","mode":"integration","test":"scripts/test-electron-probe-telemetry.cjs (replays both preserved failed soaks and requires their original assertion failure)","status":"pass"},
+    {"criterion_id":"telemetry-c6","text":"OneSHORT (say60smax) actualpackaged diagnosticrun permitted using existingownpackage script","mode":"integration","test":"scripts/test-electron-probe-telemetry.cjs dist/electron-probe/diagnostic-evidence-1790873006114.json (consumes retained single actual run; do not repeat launch)","status":"pass"}
+  ],
+  "not_tested": []
+}
