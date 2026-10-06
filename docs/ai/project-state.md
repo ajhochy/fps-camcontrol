@@ -5,6 +5,16 @@ type: project
 # Project State — fps-camcontrol
 
 ## Current focus
+Next feature is planned, not implemented: replace Wirecast's program-feed streaming/recording role with
+managed FFmpeg, scheduled YouTube event selection, local audio monitoring/meters and video sync delay.
+The user selected **core first** on 2026-10-06; effects and event creation are deferred. Detailed plan and
+ordered acceptance gates: [program streaming core](plans/2026-10-06-program-streaming-core.md).
+The user also selected MP4 as the default recording format; the plan specifies hybrid fragmentation and recovery.
+Initial planning inspection used `feat/ipad-remote-touch-redesign` @ `84efc9a`; PR #62 is now confirmed
+merged. This documentation is added to open integration PR #60 from head `72a67c7`. No source/runtime
+changes or media/YouTube tests were made. Next step is the isolated synthetic media proof in plan issue 1.
+Prior release/packaging plan is archived in `plans/2026-10-01-electron-release-and-packaging.md`.
+
 Integration branch `integration/combine-open-prs` combines the open PRs #36 (Sony fixes, rigs Device Config,
 health, gimbal/Pi bridge), #59 (iPad gamepad remote), #57 (Electron foundation installer) and #58 (opt-in
 Electron tracking) into one draft PR against main for review. The original PRs stay open and unchanged.
@@ -21,10 +31,14 @@ readiness = head answering). Tests: `dist/testing/trackingViscaTest.js` (in `pnp
 direction/gain/killed-app-stops-head checks are MANUAL_PENDING. Calibration stays DJI-only. See docs/tracking.md.
 
 ## Active branch / PR
+Current target: `integration/combine-open-prs`, open draft PR #60 (GitHub refreshed for this documentation push).
+PR #62 was merged into that branch. No streaming implementation PR was created; this change is the plan only.
+The detailed historical implementation evidence below is retained as recorded context.
+
 `integration/combine-open-prs` (draft, not to be merged without review and the manual hardware checks of each
 source PR). Merge order: #36, #59, #57, #58 (`git merge --no-ff`).
 
-## iPad remote page redesign (2026-10-02/03, branch `feat/ipad-remote-touch-redesign` off `integration/combine-open-prs` @ ac17a1e — draft PR #62)
+## iPad remote page redesign (2026-10-02/03, branch `feat/ipad-remote-touch-redesign` off `integration/combine-open-prs` @ ac17a1e — merged PR #62)
 Hardware-panel look (bevelled backlit keys, LED status cluster, tally-strip multiview with centred labels and head /
 battery icons, knob joystick, panel-face drawers). Controls: joystick or arrows (☰), zoom keys or spring-back lever (☰),
 TRANSITION / LOWER THIRD (green on air) / STOP, speed keys, Ableton-style controller button mapping (Bluetooth drawer),
