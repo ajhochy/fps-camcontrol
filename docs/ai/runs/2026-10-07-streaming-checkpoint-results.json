@@ -1,0 +1,89 @@
+{
+  "date": "2026-10-07",
+  "evidence_kind": "recordeddeveloperreceipt",
+  "independently_executed_by_reconciler": false,
+  "branch": "feat/streaming-s1-media-proof",
+  "recorded_head": "aea1f13319246fef4ab0f716f19023f242b765f8",
+  "publication": "TEXT_ONLY_WIP; UNVERIFIED pending manager checks and independent review",
+  "full_s1": "NOT_READY",
+  "raw_evidence": "Local only: docs/ai/runs/artifacts/s1-mp4-repair-20261007-a/; references below are provenance, not published files",
+  "validation": {
+    "receipt": "docs/ai/runs/artifacts/s1-mp4-repair-20261007-a/validation-job.json",
+    "owner_pid": 49301,
+    "aggregate_status": "FAIL",
+    "finished": "2026-10-07T21:20:55.781Z",
+    "matrix": {"pid":49304,"status":"PASS","exit_code":0,"started":"2026-10-07T20:11:34.081Z","finished":"2026-10-07T20:18:21.562Z","cases":20},
+    "issue_checks": {
+      "pid":57171,"status":"FAIL","exit_code":null,"signal":"SIGKILL","finished":"2026-10-07T20:28:24.808Z",
+      "context":"Stopped after broad Node checks hung; later checks not reached. Mandatory runtime/repeated matrix, page JS and nine focused suites recorded PASS, not a passing broad gate.",
+      "missing_prerequisite":"Four tracking-sidecar checks report missing verified pinned runtime cache/staging.",
+      "unclassified_failures":["issue-23-c4: Missing expected exception","tracking integration/calibration/issue26: undefined rig-one","calibration CLI assertion"],
+      "baseline_provenance":"Not established; do not classify all broad failures as pre-existing. No waiver or guard weakening."
+    },
+    "soak": {
+      "pid":57172,"status":"PASS","exit_code":0,"started":"2026-10-07T20:18:21.564Z","finished":"2026-10-07T21:20:55.780Z",
+      "receipt":"docs/ai/runs/artifacts/s1-mp4-repair-20261007-a/soak/evidence.json",
+      "seconds":3600,"resolution":"1280x720","fps":"30000/1001","delay_frames":3,"rtmp_port":19359,
+      "regular_mp4_offsets_seconds":{"expected":0.1001,"begin":0.101646,"middle":0.131213,"end":0.127413},
+      "endpoint_drift_ms":25.767,"one_frame_ms":33.367,
+      "rss_growth_bytes":-172457984,"peak_relay_queued_bytes":16450376,
+      "rss_scope":"Steady-window endpoint difference after slicing startup10/end5 samples, aggregate Node + owned FFmpeg; not universal stable memory or internal FFmpeg queue proof.",
+      "interrupted_sha256_unchanged":"ac6a38e6cc783fa6f0985709c5a99784856aafdccee28cea13c02db1f9f1855c",
+      "contract_c8":"UNVERIFIED pending actual coverage review; automated developer receipt is not full criterion certification"
+    }
+  },
+  "decoded_comparisons": {
+    "receipt":"docs/ai/runs/artifacts/s1-mp4-repair-20261007-a/independent-byte-audit.json",
+    "status":"PASS","stream_pairs":44,"scope":"22 recoveries x video/audio: retained fixture, focused pipeline, 20 matrix cases; every decoded framemd5 hash identical. Separate consumption audit, not independent specialist/full-gate verification; does not include soak.",
+    "retained_counts":{"video":100,"audio":189},"focused_counts":{"video":250,"audio":470},
+    "interrupted_input_flags":["-advanced_editlist","0"],
+    "recorded_final_sha256": {
+      "src/broadcast/ffmpegArgs.ts":"fae7f372cb32c989c235d108e4f345d52f14b1cbbabbb4fdd7f115129ff17db6",
+      "src/testing/broadcastPipelineTest.ts":"08cb4ad04987942c9a6e843ff56242428f883345d850183f942bbbfea1a41542",
+      "dist/broadcast/ffmpegArgs.js":"88cc4881d616716ca50d9f809915afc31b42eb4a5e2c49eae2217bc7dbd41a1f",
+      "dist/testing/broadcastPipelineTest.js":"d95025d258e96b5b2f7885d101b94cfcf90b8b6a56f7ce0b68de3b3f0230a37e"
+    }
+  },
+  "matrix_case_table": {
+    "receipts":["docs/ai/runs/artifacts/s1-mp4-repair-20261007-a/matrix/evidence.json","docs/ai/runs/artifacts/s1-mp4-repair-20261007-a/independent-byte-audit.json"],
+    "columns":["fps","delay_frames","seconds","decoded_video_count","decoded_audio_count","interrupted_sha256_unchanged"],
+    "all_rows_recorded_status":"PASS",
+    "common_scope":"Regular/late/fresh-added/received outputs: codec/key/cadence/decode/channel0 content checks; initialized interrupted recovery counts/cadence/relative origin/content, unchanged SHA and regular EOF. Fresh-added output is not actual publisher reconnect. Real stalled 16MiB subscriber check only in 45s case.",
+    "rows":[
+      ["25/1",0,45,250,470,"3d6681346b2ffb01ae9dae4894d1202552d2b7a222b57a846fe553bdea1803d2"],
+      ["25/1",1,16,250,472,"0ce4711360e7cf4f4afe0745fac810630e6161fe391079f66878d8f181239651"],
+      ["25/1",3,16,250,476,"b4545995eb11b53ebddfc8887896b5a0815886bf3e8482005ba1ac75f5879804"],
+      ["25/1",15,16,250,481,"c557c9d66476213cade0edf73bd38dbabb519a5e526ec192488d714254a64393"],
+      ["30000/1001",0,16,300,471,"3313ad9890366509a56ef417051b536104e808f93d2a5ea7f8db18db44ea3822"],
+      ["30000/1001",1,16,300,472,"6fec792b79f7660062bf3c869e5555f9b0072eb5d10cd214f263a5e140fd1789"],
+      ["30000/1001",3,16,300,475,"a8329a33f52c5b964ecaf6bf7718abd53db8fb47ff9682322b5ebfdb0df794e5"],
+      ["30000/1001",15,16,300,477,"88e010d9b7dde160202ee62ce163d4dd6dd8ba261dcb635dcda1dae3e7bb7c3b"],
+      ["30/1",0,16,300,470,"3519010eb6e8a3d814760f1f0eb2c276b1b94c52754bbd770b541116bb36451c"],
+      ["30/1",1,16,300,472,"dab0f6d46c4254abfdee43ca82ca94408a88040590cee3343673d41ce6c5576f"],
+      ["30/1",3,16,300,475,"a0292ff7609ce05dd5a61543277d83221d7df87974cebda156a4c767c4bfdd39"],
+      ["30/1",15,16,300,477,"dc79ed1385842fdd484fb93a9bdb6a5921f3c917cd864dba31108ad732629fca"],
+      ["60000/1001",0,16,600,471,"b479a4c31671294904fb3280c01485cfb4c7e910e8662e6bab7224ce2b68bd9c"],
+      ["60000/1001",1,16,600,472,"1453db8422698c08e95607cf0a3ffe3dd9e6aedf47f4e65511e3276d9ed2c89e"],
+      ["60000/1001",3,16,600,473,"078dcfe9a33aa60c54c73f85184a411b3f876d7b993786c3c423b26a3561a82c"],
+      ["60000/1001",15,16,600,482,"035aff0aea2a477af2e13a6f3aa22555346d9b114e8cee2f221775cfbabdd833"],
+      ["60/1",0,16,600,470,"9aa872564628a00a2019d7b5891e9d1d43294dcc387ea04030ec048f80e48060"],
+      ["60/1",1,16,600,471,"9fee90ca08ba50da371ed0baf66fde7027d8759bd2d13e9e7d5c82108878747c"],
+      ["60/1",3,16,600,473,"2626ea61ef04a631e84c72e57099ff771364247c01cb5e4773e918b15def5d55"],
+      ["60/1",15,16,600,482,"ee08f0f36e124324b2ddcf2f740541053045392ab575c25567423aacea012a51"]
+    ]
+  },
+  "fresh_checkout": {
+    "recovery_contract":"NEEDS LOCAL UNPUBLISHED FIXTURES; NOT SELF-CONTAINED",
+    "source":"src/testing/broadcastPipelineTest.ts:189-195",
+    "fixtures":[
+      {"path":"docs/ai/runs/artifacts/s1-mp4-triage-20261007-a/flush-completed-fragment.mp4","sha256":"eeaa806832e0a016d9aa65a1e1bdc517e24266f2fd2c84b50653bf47bd2f4e49","video":100,"audio":189},
+      {"path":"docs/ai/runs/artifacts/s1-mp4-repair-20261007-a/pre-repair-dist/pipeline/25-1-0-45/interrupted.mp4","sha256":"a0a7a96330b3440e3bc4fddf5250dcd5f3da48e1d3c9c14563b70f0a85f530ed","bytes":88,"classification":"NO_RECOVERABLE_MEDIA"}
+    ],
+    "standard_matrix":"Source lines200-208 generate fresh capability/matrix media; --repair and --soak also generate media. Source-confirmed distinction only, not independently executed from fresh checkout; capable FFmpeg/dependencies still required.",
+    "decision":"Manager chose text-only preservation; no media fixtures published and no product reproducibility fix performed."
+  },
+  "remaining":["actual publisher disconnect/reconnect","channel1 content proof","network-failure isolation and internal FFmpeg queues","c8 actual criterion coverage review","independent full-gate verification","pinned/packaged runtime and physical qualification","canonical architecture reconciliation"],
+  "architecture":"Oct7 manager dispatch recorded in S1 run authorized independent remux/Node relay for S1 only; not AJ-specific product architecture approval. Approved canonical tee/coupled/Electron-only plan remains separate and unresolved.",
+  "issues":{"related":[65,66,67,68],"closes":[],"pending":"69-89"},
+  "sanitization":"Included proof uses relative paths; <worktree>/<temp> replace private paths in notes. Hashes, flags and result numbers preserved; raw local logs unchanged."
+}
