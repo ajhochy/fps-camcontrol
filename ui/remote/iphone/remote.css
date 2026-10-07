@@ -67,6 +67,9 @@ p { margin: 0; }
 }
 /* The how-to sentence is for first use only and costs a column of the top bar: the banner says what matters. */
 #hint { display: none; }
+#phoneControlBar { display: flex; align-items: center; }
+.wake-hint-anchor { display: contents; }
+#phoneViewSwitch { display: none; }
 /* Status cluster: square LEDs with a legend beneath, on the bar's own surface; hairlines between groups, no boxes.
    Every cell has a fixed size: state changes colour only, so the bar never reflows. */
 .status-chip, .pill {
@@ -78,7 +81,7 @@ p { margin: 0; }
 .status-chip::after, #ownerPill::after { grid-row: 2; grid-column: 1; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; line-height: 1; color: var(--muted); }
 .status-chip::after { content: 'LINK'; }
 #ownerPill::after { content: 'SEAT'; }
-.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.sr-only, .status-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 /* The seat LED: amber you, grey desk, hollow amber another iPad (a warning), red off, unlit waiting. */
 .seat-dot { background: currentColor; }
 .pill-wait .seat-dot { background: var(--led-off); }
@@ -194,19 +197,19 @@ p { margin: 0; }
 .crosshair::after { top: 50%; left: -6px; right: -6px; height: 2px; margin-top: -1px; }
 .crosshair.on { opacity: 1; transition: none; }
 
-/* The stick, speed buttons and the big buttons never scroll, select or pop a callout. */
-.stick, .zoom-btn, .seg, .seg-btn, .btn-transition, .btn-stop, .track-btn { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+/* Only held motion targets suppress page panning. Action keys, speed keys, panes and drawer controls keep normal
+   page/drawer scrolling so a phone remote has one predictable scroll surface. */
+.stick, .dpad, .arrow, .zoom-btn { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 
 /* ---- tracking controls in the big pane header */
-.track-bar { display: flex; flex-wrap: wrap; flex: 1 1 280px; min-width: 0; align-items: center; gap: 6px; }
+.track-bar { display: flex; align-items: center; gap: 6px; }
 .track-bar + .pane-menu { margin-left: 0; }
 .clear-focus[hidden] { display: none; }
 .track-bar[hidden], .track-bar [hidden] { display: none; }
-.track-btn { flex: none; min-height: 44px; min-width: 44px; padding: 0 12px; font-size: 15px; font-weight: 700; }
+.track-btn { height: 44px; min-width: 44px; padding: 0 12px; font-size: 15px; font-weight: 700; }
 .track-btn.on { background: var(--ok); border-color: var(--ok); color: var(--ink); }
 .track-stop { color: var(--bad); }
-.track-state { flex: 1 0 100%; box-sizing: border-box; padding: 6px 10px; font-size: 13px; font-weight: 600; white-space: normal; overflow-wrap: anywhere; }
-.pane-head { flex-wrap: wrap; }
+.track-state { padding: 6px 10px; font-size: 13px; font-weight: 600; white-space: nowrap; }
 .track-state:empty { display: none; }
 .track-state.tracking { color: var(--ok); }
 .track-state.operator_override, .track-state.lost, .track-state.stale, .track-state.sidecar_offline { color: var(--accent); }
@@ -254,11 +257,19 @@ p { margin: 0; }
 .stick-label { letter-spacing: 0; color: var(--muted); white-space: nowrap; max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
 #menuSheet .seg { flex: 1; display: grid; grid-template-columns: 1fr 1fr; }
 #menuSheet .seg-btn { min-height: 48px; }
-.dpad { display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); grid-template-areas: '. up .' 'left . right' '. down .'; gap: 6px; height: calc(100% - 26px); max-height: 220px; min-height: 120px; aspect-ratio: 1; }
-.arrow { min-height: 0; padding: 0; font-size: 20px; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.dpad { display: grid; grid-template-columns: repeat(3, minmax(44px, 1fr)); grid-template-rows: repeat(3, minmax(44px, 1fr)); grid-template-areas: '. up .' 'left . right' '. down .'; gap: 6px; height: calc(100% - 26px); max-height: 220px; min-width: 156px; min-height: 156px; aspect-ratio: 1; }
+.arrow { min-width: 44px; min-height: 44px; padding: 0; font-size: 20px; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 .arrow-up { grid-area: up; } .arrow-down { grid-area: down; } .arrow-left { grid-area: left; } .arrow-right { grid-area: right; }
 .dpad.dim .arrow { color: var(--legend-dim); }
 #hint, #wakeHint { font-size: 13px; line-height: 1.3; max-width: 340px; }
+#menuSheet .device-wake-hint {
+  max-width: none;
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  background: var(--well);
+  overflow-wrap: anywhere;
+}
 
 /* ---- keys: every button in the top bar and the control bar is a bevelled cap with a white legend.
    Unlit = cap; pressed / held = cap darkens and the bevel inverts; lit = a saturated fill with a dark legend. */
@@ -316,14 +327,14 @@ p { margin: 0; }
 .prop-value { flex: 0 0 72px; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; font-size: 15px; }
 .opt-row { display: flex; flex-wrap: wrap; gap: 6px; }
 /* The same key as .btn, smaller. */
-.opt-btn { min-height: 40px; padding: 0 14px; border: 1px solid var(--cap-edge); border-radius: var(--key-r); background: var(--cap); color: var(--text); box-shadow: var(--bevel); font-size: 14px; font-weight: 700; transition: filter 0.08s; }
+.opt-btn { min-height: 44px; padding: 0 14px; border: 1px solid var(--cap-edge); border-radius: var(--key-r); background: var(--cap); color: var(--text); box-shadow: var(--bevel); font-size: 14px; font-weight: 700; transition: filter 0.08s; }
 .opt-btn:active { box-shadow: var(--bevel-in); filter: brightness(0.78); }
 .opt-btn.on { background: var(--lit); color: var(--ink); }
 .opt-btn.auto { letter-spacing: 0.04em; }
 .prop.busy { opacity: 0.55; pointer-events: none; }
 /* Faders: a 4 px recessed slot and a round off-white cap. Custom pseudo-elements because accent-color alone keeps
    WebKit's own track on iPad. */
-.prop-slider input, .speed-slider { flex: 1; height: 44px; margin: 0; background: transparent; accent-color: var(--lit); touch-action: none; -webkit-appearance: none; appearance: none; }
+.prop-slider input, .speed-slider { flex: 1; height: 44px; margin: 0; background: transparent; accent-color: var(--lit); touch-action: manipulation; -webkit-appearance: none; appearance: none; }
 .prop-slider input::-webkit-slider-runnable-track, .speed-slider::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--panel-2); box-shadow: inset 0 0 0 1px var(--cap-edge); }
 .prop-slider input::-moz-range-track, .speed-slider::-moz-range-track { height: 4px; border-radius: 2px; background: var(--panel-2); box-shadow: inset 0 0 0 1px var(--cap-edge); }
 .prop-slider input::-webkit-slider-thumb, .speed-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 28px; height: 28px; margin-top: -12px; border-radius: 50%; border: 1px solid var(--cap-edge); background: var(--lit); }
@@ -416,3 +427,623 @@ body:not(.mapping) .map-tag { opacity: 0.85; }
 .lever-knob::after { content: ''; position: absolute; left: 25%; right: 25%; top: 50%; height: 2px; margin-top: -1px; background: oklch(0% 0 0 / 0.45); box-shadow: 0 1px 0 oklch(100% 0 0 / 0.12); }
 .lever.held .lever-knob { background: var(--lit); }
 .lever.dim .lever-knob { opacity: 0.45; }
+
+/* ---- phone remotes
+   `remoteViewport` is assigned from the real visual viewport in remote.js rather than from a user agent. On a phone
+   the document is the one page scroll surface (a modal drawer intentionally scrolls itself); the tall multiview no
+   longer becomes a second, hidden scroll region behind a fixed action rail. */
+html[data-remote-viewport^="phone"], html[data-remote-viewport^="phone"] body {
+  height: auto;
+  min-height: 100%;
+  overflow-x: hidden;
+  overscroll-behavior-y: auto;
+}
+html[data-remote-viewport^="phone"] #app {
+  height: auto;
+  min-height: var(--remote-vh, 100dvh);
+}
+html[data-remote-viewport^="phone"] #topbar {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr) var(--bar-h) var(--bar-h);
+  grid-template-areas:
+    "link seat pad menu"
+    "controls controls controls controls";
+  align-items: center;
+  gap: 6px;
+  min-height: 0;
+  padding: 6px var(--gap);
+}
+html[data-remote-viewport^="phone"] .status-chip,
+html[data-remote-viewport^="phone"] .pill {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-width: 0;
+  min-height: var(--bar-h);
+  height: auto;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+}
+/* The controller button opens its status/pairing screen; do not let this desktop-only status cell create an
+   implicit third header row on a phone. */
+html[data-remote-viewport^="phone"] #padPill { display: none; }
+html[data-remote-viewport^="phone"] .status-chip { grid-area: link; }
+html[data-remote-viewport^="phone"] #ownerPill { grid-area: seat; }
+html[data-remote-viewport^="phone"] .status-chip::after,
+html[data-remote-viewport^="phone"] #ownerPill::after { display: none; }
+html[data-remote-viewport^="phone"] #rtt { display: none; }
+html[data-remote-viewport^="phone"] .status-text {
+  position: static;
+  width: auto;
+  min-width: 0;
+  height: auto;
+  overflow: visible;
+  clip: auto;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+html[data-remote-viewport^="phone"] #padBtn,
+html[data-remote-viewport^="phone"] #menuBtn {
+  width: var(--bar-h);
+  min-width: var(--bar-h);
+  height: var(--bar-h);
+  min-height: var(--bar-h);
+  margin-left: 0;
+}
+html[data-remote-viewport^="phone"] #padBtn { grid-area: pad; }
+html[data-remote-viewport^="phone"] #menuBtn { grid-area: menu; }
+html[data-remote-viewport^="phone"] #phoneControlBar {
+  grid-area: controls;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 6px;
+  min-height: 48px;
+}
+html[data-remote-viewport^="phone"] #claimBtn,
+html[data-remote-viewport^="phone"] #releaseBtn {
+  grid-column: 2;
+  grid-row: 1;
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  height: 48px;
+}
+html[data-remote-viewport^="phone"] #phoneViewSwitch {
+  grid-column: 1;
+  grid-row: 1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  height: 48px;
+}
+html[data-remote-viewport^="phone"] #phoneViewSwitch .seg-btn {
+  min-width: 0;
+  min-height: 48px;
+  height: 48px;
+  padding: 0 4px;
+  font-size: 11px;
+  line-height: 1.1;
+}
+html[data-remote-viewport^="phone"] .banner {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  min-height: var(--bar-h);
+  height: auto;
+  margin: 0;
+  padding: 8px 12px;
+  line-height: 1.35;
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+}
+html[data-remote-viewport^="phone"] #mapBar {
+  grid-column: 1 / -1;
+  display: flex;
+  width: 100%;
+  gap: 8px;
+}
+html[data-remote-viewport^="phone"] #mapBar .btn-sm {
+  flex: 1;
+  min-height: 48px;
+  height: 48px;
+}
+html[data-remote-viewport^="phone"] .pin-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  padding: 12px var(--gap);
+}
+html[data-remote-viewport^="phone"] .pin-row label { grid-column: 1 / -1; }
+html[data-remote-viewport^="phone"] .pin-row input {
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  font-size: 22px;
+}
+html[data-remote-viewport^="phone"] .pin-row .btn { min-height: 48px; padding: 0 16px; }
+html[data-remote-viewport^="phone"] #stage,
+html[data-remote-viewport^="phone"] #viewCol,
+html[data-remote-viewport^="phone"] #actions {
+  flex: 0 0 auto;
+  max-height: none;
+}
+html[data-remote-viewport^="phone"] #main[data-layout="tall"] {
+  height: auto;
+  overflow: visible;
+}
+html[data-remote-viewport^="phone"] #infoBar {
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  min-height: 0;
+}
+
+/* Controls is the phone's driving view: one active preview, then the same action rail. All cameras is a separate
+   presentation of the existing rig panes, so neither view clones controls or changes the selection path. */
+html[data-remote-viewport^="phone"][data-phone-view="controls"] #main {
+  flex: 0 0 auto;
+  height: auto;
+  min-height: 0;
+  overflow: visible;
+  padding: 8px var(--gap) 0;
+}
+html[data-remote-viewport^="phone"][data-phone-view="controls"] #multiview {
+  display: block;
+  min-height: 0;
+}
+html[data-remote-viewport^="phone"][data-phone-view="controls"] #pane-pvw {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+}
+html[data-remote-viewport^="phone"][data-phone-view="controls"] #pane-pgm,
+html[data-remote-viewport^="phone"][data-phone-view="controls"] #smallPanes { display: none; }
+html[data-remote-viewport^="phone"][data-phone-view="controls"] #infoBar {
+  min-height: 24px;
+  padding: 3px var(--gap);
+  font-size: 11px;
+}
+
+/* All cameras is the compact camera wall: reuse the four existing rig panes instead of repeating the Preview and
+   Program panes. Their existing click/keyboard handlers and aria-labels still select the same camera, then return
+   to Controls through the original preview command. */
+html[data-remote-viewport^="phone"][data-phone-view="cameras"] #main {
+  flex: 0 0 auto;
+  height: auto;
+  min-height: 0;
+  overflow: visible;
+  padding: 8px var(--gap) 0;
+}
+html[data-remote-viewport^="phone"][data-phone-view="cameras"] #main #multiview {
+  display: block;
+  min-height: 0;
+}
+html[data-remote-viewport^="phone"][data-phone-view="cameras"] #pane-pvw,
+html[data-remote-viewport^="phone"][data-phone-view="cameras"] #pane-pgm { display: none; }
+html[data-remote-viewport^="phone"][data-phone-view="cameras"] #smallPanes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+html[data-remote-viewport^="phone"][data-phone-view="cameras"] #smallPanes .pane-small {
+  display: block;
+  grid-column: auto;
+  min-width: 0;
+  aspect-ratio: 4 / 3;
+}
+
+/* Regular phone landscapes have enough safe-content width for all four existing cameras in one scan row.
+   The 760 px threshold matches the Controls fallback below: portrait and narrower/keyboard-reduced landscapes keep
+   the two-column wall instead of shrinking pane menus, status, or identity strips. */
+@media (min-width: 761px) {
+  html[data-remote-viewport="phone-landscape"][data-phone-view="cameras"] #smallPanes {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* Phone panes reserve their bottom row for the rig name. The link and battery indicators
+   sit in a separate wrapping strip above it, so status never masks the selectable camera
+   identity in a narrow thumbnail (or in a large pane with a long name). */
+html[data-remote-viewport^="phone"] .pane-title {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 0 8px;
+}
+html[data-remote-viewport^="phone"] .pane-ind {
+  left: 0;
+  right: 0;
+  bottom: 24px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-content: center;
+  column-gap: 6px;
+  row-gap: 0;
+  height: auto;
+  min-height: 24px;
+  padding: 2px 8px;
+}
+html[data-remote-viewport^="phone"] .pane-ind .ind {
+  min-height: 20px;
+  height: 20px;
+}
+html[data-remote-viewport^="phone"] .pane-small .pane-title {
+  height: 22px;
+  line-height: 22px;
+  padding: 0 7px;
+}
+html[data-remote-viewport^="phone"] .pane-small .pane-ind {
+  bottom: 22px;
+  min-height: 20px;
+  padding: 2px 6px;
+  column-gap: 4px;
+}
+html[data-remote-viewport^="phone"] .pane-small .pane-ind .ind {
+  min-height: 18px;
+  height: 18px;
+}
+
+/* In the phone camera wall, Program is green and Preview is red as requested. The text tally is visible in addition
+   to color; the existing small-pane aria-label retains the same PGM/PVW words for keyboard and VoiceOver selection.
+   A dual-status camera gets both labels and a split tally rather than losing either identity. */
+html[data-remote-viewport^="phone"][data-phone-view="cameras"] .pane-small.is-pgm:not(.is-pvw)::before { background: var(--ok); }
+html[data-remote-viewport^="phone"][data-phone-view="cameras"] .pane-small.is-pvw:not(.is-pgm)::before { background: var(--bad); }
+html[data-remote-viewport^="phone"][data-phone-view="cameras"] .pane-small.is-pgm.is-pvw::before {
+  background: linear-gradient(90deg, var(--ok) 0 50%, var(--bad) 50% 100%);
+}
+html[data-remote-viewport^="phone"][data-phone-view="cameras"] .pane-small.is-pgm::after,
+html[data-remote-viewport^="phone"][data-phone-view="cameras"] .pane-small.is-pvw::after {
+  position: absolute;
+  top: 7px;
+  left: 7px;
+  z-index: 6;
+  min-height: 20px;
+  padding: 2px 6px;
+  border-radius: 2px;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 16px;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+}
+html[data-remote-viewport^="phone"][data-phone-view="cameras"] .pane-small.is-pgm:not(.is-pvw)::after {
+  content: 'PGM';
+  background: var(--ok);
+  color: var(--ink);
+}
+html[data-remote-viewport^="phone"][data-phone-view="cameras"] .pane-small.is-pvw:not(.is-pgm)::after {
+  content: 'PVW';
+  background: var(--bad);
+  color: var(--text);
+}
+html[data-remote-viewport^="phone"][data-phone-view="cameras"] .pane-small.is-pgm.is-pvw::after {
+  content: 'PGM · PVW';
+  background: var(--plate);
+  color: var(--text);
+  box-shadow: inset 3px 0 0 var(--ok), inset -3px 0 0 var(--bad);
+}
+
+/* On a phone picture, tracking controls have a dedicated left rail and the camera
+   menu keeps its own 44 px column. The state sits below the action keys rather than forcing
+   the whole flex row off the pane's left edge. */
+html[data-remote-viewport^="phone"] .pane-big .pane-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  grid-template-areas:
+    "track menu"
+    "clear .";
+  align-items: start;
+  justify-content: stretch;
+  gap: 6px;
+  padding: 6px;
+}
+html[data-remote-viewport^="phone"] .pane-big .track-bar:not([hidden]) {
+  grid-area: track;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(44px, 1fr));
+  grid-template-areas:
+    "toggle stop resume"
+    "state state state";
+  align-items: start;
+  gap: 6px;
+  min-width: 0;
+}
+html[data-remote-viewport^="phone"] .pane-big .track-toggle { grid-area: toggle; }
+html[data-remote-viewport^="phone"] .pane-big .track-stop { grid-area: stop; }
+html[data-remote-viewport^="phone"] .pane-big .track-resume { grid-area: resume; }
+html[data-remote-viewport^="phone"] .pane-big .track-state {
+  grid-area: state;
+  min-width: 0;
+  min-height: 0;
+  padding: 4px 7px;
+  font-size: 11px;
+  line-height: 1.25;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+html[data-remote-viewport^="phone"] .pane-big .track-btn {
+  min-width: 44px;
+  height: 44px;
+  padding: 0 6px;
+  font-size: 13px;
+}
+html[data-remote-viewport^="phone"] .pane-big .pane-menu {
+  grid-area: menu;
+  width: 44px;
+  height: 44px;
+}
+html[data-remote-viewport^="phone"] .pane-big .clear-focus {
+  grid-area: clear;
+  justify-self: start;
+  min-width: 44px;
+  min-height: 44px;
+  height: 44px;
+}
+
+/* At the 812 px landscape safe-width, the Controls preview is deliberately narrow beside the full driving rail.
+   Keep all three 44 px tracking keys inside its header by reclaiming only header spacing and compacting their legends;
+   panel/iPad and wider phone panes retain the regular tracking typography. */
+@media (min-width: 761px) and (max-width: 820px) {
+  html[data-remote-viewport="phone-landscape"][data-phone-view="controls"] .pane-big .pane-head {
+    column-gap: 4px;
+    padding-inline: 4px;
+  }
+  html[data-remote-viewport="phone-landscape"][data-phone-view="controls"] .pane-big .track-btn {
+    padding-inline: 0;
+    font-size: 11px;
+    letter-spacing: 0;
+  }
+}
+
+/* Portrait phones keep each live action named in a single row, then put speed and the held motion controls below.
+   No control is removed to make the rail fit. */
+html[data-remote-viewport="phone-portrait"] #actions {
+  display: grid;
+  grid-template-columns: minmax(96px, 0.7fr) minmax(0, 1fr);
+  grid-template-areas:
+    "live live"
+    "speed speed"
+    "zoom motion";
+  align-items: stretch;
+  gap: 8px;
+  min-height: 0;
+  padding: 10px var(--gap);
+}
+html[data-remote-viewport="phone-portrait"] .rail-left {
+  grid-area: live;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: 56px;
+  gap: 6px;
+  min-width: 0;
+}
+html[data-remote-viewport="phone-portrait"] .rail-left > .btn {
+  min-width: 0;
+  min-height: 56px;
+  padding: 0 4px;
+  white-space: normal;
+}
+html[data-remote-viewport="phone-portrait"] .btn-transition { font-size: 12px; }
+html[data-remote-viewport="phone-portrait"] .btn-transition small { display: none; }
+html[data-remote-viewport="phone-portrait"] .btn-lt {
+  flex-wrap: wrap;
+  gap: 1px 4px;
+  font-size: 11px;
+  line-height: 1.05;
+}
+html[data-remote-viewport="phone-portrait"] .btn-lt small { flex-basis: 100%; font-size: 10px; }
+html[data-remote-viewport="phone-portrait"] .btn-stop { font-size: 16px; }
+html[data-remote-viewport="phone-portrait"] .rail-mid {
+  grid-area: speed;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+html[data-remote-viewport="phone-portrait"] .rail-mid .label { text-align: left; }
+html[data-remote-viewport="phone-portrait"] .rail-mid .seg {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 100%;
+  max-width: none;
+}
+html[data-remote-viewport="phone-portrait"] .rail-mid .seg-btn {
+  min-width: 0;
+  min-height: 48px;
+  padding: 0 3px;
+  border-right: 1px solid var(--cap-edge);
+  border-bottom: 0;
+  font-size: 11px;
+}
+html[data-remote-viewport="phone-portrait"] .rail-mid .seg-btn:last-child { border-right: 0; }
+html[data-remote-viewport="phone-portrait"] .rail-zoom {
+  grid-area: zoom;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(44px, 1fr));
+  grid-template-rows: 1fr;
+  position: relative;
+  width: auto;
+  min-height: 156px;
+  padding-top: 18px;
+  gap: 8px;
+}
+html[data-remote-viewport="phone-portrait"] .rail-zoom::before,
+html[data-remote-viewport="phone-landscape"] .rail-zoom::before {
+  content: 'ZOOM';
+  position: absolute;
+  top: 2px;
+  left: 0;
+  right: 0;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-align: center;
+}
+html[data-remote-viewport="phone-portrait"] .rail-zoom .lever { grid-column: 1 / -1; }
+html[data-remote-viewport="phone-portrait"] .zoom-btn { min-height: 48px; }
+html[data-remote-viewport="phone-portrait"] .rail-right {
+  grid-area: motion;
+  min-width: 0;
+  min-height: 182px;
+}
+html[data-remote-viewport="phone-portrait"] .stick,
+html[data-remote-viewport="phone-portrait"] .dpad {
+  width: min(100%, 180px);
+  height: auto;
+  max-height: none;
+  min-height: 156px;
+}
+html[data-remote-viewport="phone-portrait"] .stick-label { max-width: 100%; text-align: center; }
+html[data-remote-viewport^="phone"] .stick-label::before { content: 'MOTION · '; color: var(--muted); font-size: 10px; }
+html[data-remote-viewport="phone-portrait"] .sheet {
+  top: auto;
+  left: 0;
+  width: 100%;
+  max-height: calc(var(--remote-vh, 100dvh) - env(safe-area-inset-top));
+  padding: 16px max(16px, env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  border-top: 1px solid var(--line);
+  border-left: 0;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+html[data-remote-viewport="phone-portrait"] .sheet-row { flex-direction: column; gap: 6px; }
+html[data-remote-viewport="phone-portrait"] .sheet-row label { flex: 0 0 auto; padding-top: 0; }
+html[data-remote-viewport="phone-portrait"] .sheet-row > :not(label) { width: 100%; }
+html[data-remote-viewport="phone-portrait"] #menuSheet .seg { width: 100%; }
+html[data-remote-viewport="phone-portrait"] #menuSheet .seg-btn { min-height: 48px; }
+html[data-remote-viewport="phone-portrait"] .sheet-status,
+html[data-remote-viewport="phone-portrait"] #programNote { overflow-wrap: anywhere; }
+
+/* Short phone landscapes keep the same action order while using the width for side-by-side zoom and motion. */
+html[data-remote-viewport="phone-landscape"] #actions {
+  display: grid;
+  grid-template-columns: 56px minmax(250px, 1fr) 156px;
+  grid-template-areas:
+    "zoom live motion"
+    "zoom speed motion";
+  align-items: stretch;
+  gap: 8px;
+  min-height: 156px;
+  padding: 8px var(--gap);
+}
+html[data-remote-viewport="phone-landscape"] .rail-zoom {
+  grid-area: zoom;
+  position: relative;
+  width: auto;
+  min-height: 156px;
+  padding-top: 18px;
+}
+html[data-remote-viewport="phone-landscape"] .rail-zoom .lever { grid-column: 1 / -1; }
+html[data-remote-viewport="phone-landscape"] .rail-left {
+  grid-area: live;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: minmax(52px, 1fr);
+  gap: 6px;
+  min-width: 0;
+}
+html[data-remote-viewport="phone-landscape"] .rail-left > .btn {
+  min-width: 0;
+  min-height: 52px;
+  padding: 0 2px;
+  white-space: normal;
+}
+html[data-remote-viewport="phone-landscape"] .btn-transition { font-size: 11px; letter-spacing: 0.02em; overflow-wrap: anywhere; }
+html[data-remote-viewport="phone-landscape"] .btn-transition small { display: none; }
+html[data-remote-viewport="phone-landscape"] .btn-lt { flex-wrap: wrap; gap: 1px 3px; font-size: 11px; line-height: 1.05; }
+html[data-remote-viewport="phone-landscape"] .btn-lt small { display: none; }
+html[data-remote-viewport="phone-landscape"] .btn-stop { font-size: 16px; }
+html[data-remote-viewport="phone-landscape"] .rail-mid {
+  grid-area: speed;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+html[data-remote-viewport="phone-landscape"] .rail-mid .label { text-align: left; }
+html[data-remote-viewport="phone-landscape"] .rail-mid .seg {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 100%;
+  max-width: none;
+}
+html[data-remote-viewport="phone-landscape"] .rail-mid .seg-btn {
+  min-width: 0;
+  min-height: 48px;
+  padding: 0 2px;
+  border-right: 1px solid var(--cap-edge);
+  border-bottom: 0;
+  font-size: 11px;
+  letter-spacing: 0.01em;
+  overflow-wrap: anywhere;
+}
+html[data-remote-viewport="phone-landscape"] .rail-mid .seg-btn:last-child { border-right: 0; }
+html[data-remote-viewport="phone-landscape"] .rail-right {
+  grid-area: motion;
+  min-width: 156px;
+  min-height: 182px;
+}
+html[data-remote-viewport="phone-landscape"] .stick,
+html[data-remote-viewport="phone-landscape"] .dpad {
+  width: 156px;
+  height: auto;
+  max-height: none;
+  min-height: 156px;
+}
+html[data-remote-viewport="phone-landscape"] .stick-label { max-width: 156px; text-align: center; }
+
+/* A short phone landscape has enough width for a live preview beside the full-size driving rail. */
+html[data-remote-viewport="phone-landscape"][data-phone-view="controls"] #stage {
+  display: grid;
+  grid-template-columns: minmax(170px, 1fr) minmax(500px, 1.8fr);
+  align-items: start;
+  gap: 8px;
+  padding: 8px 0 0;
+}
+html[data-remote-viewport="phone-landscape"][data-phone-view="controls"] #viewCol,
+html[data-remote-viewport="phone-landscape"][data-phone-view="controls"] #actions { min-width: 0; }
+html[data-remote-viewport="phone-landscape"][data-phone-view="controls"] #main { padding: 0; }
+/* The tracking/status row plus Clear focus need room above the two bottom identity strips even when a transient
+   banner shortens the visible viewport. Portrait's natural 16:9 preview is already taller; iPad is unaffected. */
+html[data-remote-viewport="phone-landscape"][data-phone-view="controls"] #pane-pvw { min-height: 184px; }
+html[data-remote-viewport="phone-landscape"][data-phone-view="controls"] #infoBar { padding: 3px 0; }
+html[data-remote-viewport="phone-landscape"][data-phone-view="controls"] #actions {
+  border-top: 0;
+  border-left: 1px solid var(--line);
+}
+
+/* The visual viewport can be much narrower than an iPhone landscape's CSS width after safe areas or a keyboard.
+   Below this width, keep the complete driving rail inside the safe content column and put the preview after it rather
+   than squeezing its labels or pushing the motion target under an edge. */
+@media (max-width: 760px) {
+  html[data-remote-viewport="phone-landscape"][data-phone-view="controls"] #stage {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    padding: 0;
+  }
+  html[data-remote-viewport="phone-landscape"][data-phone-view="controls"] #actions {
+    order: 1;
+    width: 100%;
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+  html[data-remote-viewport="phone-landscape"][data-phone-view="controls"] #viewCol {
+    order: 2;
+    width: 100%;
+  }
+}

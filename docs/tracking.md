@@ -132,6 +132,25 @@ with a genuinely fresh observation; manual override always requires Resume.
 Target loss stops immediately and holds briefly for conservative reacquisition,
 then clears the target. Ambiguous crossing prefers loss over switching identity.
 
+### Hold this framing
+
+Select a person, then manually compose the shot using the existing stick/touch
+override. Release manual motion and choose **Hold this framing** on the desktop
+preview or iPad tracking bar. The backend captures the current fresh target box
+center (horizontal and vertical) and resumes following about that placement,
+without retaining old smoothing/derivative history. It does not adjust zoom.
+
+The button is unavailable until tracking is paused by manual override and the
+same session has a healthy target less than 500 ms old, with its device/sidecar
+ready and manual motion released. The iPad also requires remote control enabled.
+Rejections leave tracking paused; refresh the target/release motion before retrying.
+**Framing held** confirms backend status, not a saved preference. Ordinary
+**Resume** (including RS) preserves the anchor; a new subject, Stop/cancel,
+invalidation, emergency stop, disconnect or rebind clears it to the default
+image center. Nothing is persisted or inferred, and controller mappings are unchanged.
+Real-person placement, gain/stability, override/dead-man soak and actual iPad
+Safari/touch checks remain **MANUAL_PENDING**.
+
 ## Calibration
 
 `pnpm tracking:calibrate --dry-run --trials 5` exercises virtual motion and

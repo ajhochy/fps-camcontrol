@@ -21,11 +21,11 @@
 
   function $(id) { return document.getElementById(id); }
   var el = {
-    conn: $('conn'), connText: $('connText'), rtt: $('rtt'), ownerPill: $('ownerPill'), padPill: $('padPill'),
-    nameBtn: $('nameBtn'), padBtn: $('padBtn'), padDot: $('padDot'), menuBtn: $('menuBtn'), menuSheet: $('menuSheet'), menuSheetClose: $('menuSheetClose'), padSheet: $('padSheet'), padSheetClose: $('padSheetClose'), padStatus: $('padStatus'), banner: $('banner'), main: $('main'), paneEls: { pvw: $('pane-pvw'), pgm: $('pane-pgm') }, smallPanes: $('smallPanes'),
+    conn: $('conn'), connText: $('connText'), rtt: $('rtt'), ownerPill: $('ownerPill'), ownerText: $('ownerText'), padPill: $('padPill'),
+    nameBtn: $('nameBtn'), padBtn: $('padBtn'), padDot: $('padDot'), menuBtn: $('menuBtn'), menuSheet: $('menuSheet'), menuSheetClose: $('menuSheetClose'), padSheet: $('padSheet'), padSheetClose: $('padSheetClose'), padStatus: $('padStatus'), banner: $('banner'), phoneViewSwitch: $('phoneViewSwitch'), phoneControlsBtn: $('phoneControlsBtn'), phoneCamerasBtn: $('phoneCamerasBtn'), main: $('main'), paneEls: { pvw: $('pane-pvw'), pgm: $('pane-pgm') }, smallPanes: $('smallPanes'),
     controlInfo: $('controlInfo'), speedLine: $('speedLine'), claimBtn: $('claimBtn'),
     sheet: $('sheet'), sheetBack: $('sheetBack'), sheetTitle: $('sheetTitle'), sheetBattery: $('sheetBattery'), sheetRows: $('sheetRows'), sheetStatus: $('sheetStatus'), sheetClose: $('sheetClose'),
-    releaseBtn: $('releaseBtn'), stopBtn: $('stopBtn'), hint: $('hint'), wakeHint: $('wakeHint'),
+    releaseBtn: $('releaseBtn'), stopBtn: $('stopBtn'), hint: $('hint'), wakeHint: $('wakeHint'), wakeHintTopbarAnchor: $('wakeHintTopbarAnchor'), wakeHintDrawerAnchor: $('wakeHintDrawerAnchor'),
     pinRow: $('pinRow'), pinInput: $('pinInput'), pinBtn: $('pinBtn'),
     transitionBtn: $('transitionBtn'), speedBtns: $('speedBtns'), stick: $('stick'), stickKnob: $('stickKnob'), stickLabel: $('stickLabel'), dpad: $('dpad'), driveMode: $('driveMode'), zoomIn: $('zoomIn'), zoomOut: $('zoomOut'), zoomLever: $('zoomLever'), zoomLeverKnob: $('zoomLeverKnob'), zoomMode: $('zoomMode'), ltBtn: $('ltBtn'), ltState: $('ltState'),
     mapBar: $('mapBar'), mapClear: $('mapClear'), mapDone: $('mapDone'), mapBtn: $('mapBtn'), mapList: $('mapList'),
@@ -62,8 +62,31 @@
   // ---- small helpers
   function store(key, value) { try { if (value === undefined) return localStorage.getItem(key); localStorage.setItem(key, value); } catch (_) { /* private mode */ } return null; }
   function session(key, value) { try { if (value === undefined) return sessionStorage.getItem(key); sessionStorage.setItem(key, value); } catch (_) { /* private mode */ } return null; }
-  var name = store('fps-remote-name') || 'iPad';
+  // Existing local names stay exactly as the operator saved them. New devices get a neutral desk-facing name.
+  var name = store('fps-remote-name') || 'Remote';
   el.nameBtn.textContent = name;
+
+  // A new phone opens on the driving surface. The same panes stay mounted for the camera wall; a saved local view
+  // preference only changes their phone presentation and never changes the selected camera or any command path.
+  var phoneView = store('fps-remote-phone-view') === 'cameras' ? 'cameras' : 'controls';
+  function renderPhoneView() {
+    document.documentElement.dataset.phoneView = phoneView;
+    [el.phoneControlsBtn, el.phoneCamerasBtn].forEach(function (b) {
+      var on = b.dataset.phoneView === phoneView;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  }
+  function setPhoneView(view) {
+    phoneView = view === 'cameras' ? 'cameras' : 'controls';
+    store('fps-remote-phone-view', phoneView);
+    renderPhoneView();
+  }
+  el.phoneViewSwitch.addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('[data-phone-view]') : null;
+    if (b) setPhoneView(b.dataset.phoneView);
+  });
+  renderPhoneView();
 
   function isVisible() { return !document.hidden && focused; }
   function haveOwnership() { return !!(owner && owner.owner === 'remote' && owner.you); }
@@ -163,6 +186,13 @@
     render();
   }
 
+  // Release and STOP must first neutralize this page's active touch target. The server remains the safety authority,
+  // but this gives it a stop frame before the ownership-changing message is processed.
+  function neutralizeTouch() {
+    endPress();
+    if (connected && welcomed && haveOwnership()) sendFrame(M.neutralFrame());
+  }
+
   // The pad going away: a touch user who holds the seat keeps it (the neutral heartbeat continues); otherwise idle.
   function padLost() {
     if (haveOwnership() && !document.hidden) { sendFrame(M.neutralFrame()); render(); }
@@ -233,9 +263,10 @@
 
   // ---- buttons
   el.claimBtn.addEventListener('click', function () { lastClaimAt = Date.now(); send({ t: 'claim' }); });
-  el.releaseBtn.addEventListener('click', function () { send({ t: 'release' }); });
+  el.releaseBtn.addEventListener('click', function () { neutralizeTouch(); send({ t: 'release' }); });
   el.stopBtn.addEventListener('click', function () {
     // Both paths: the socket (instant, also releases the seat) and plain HTTP (works if the socket is down).
+    neutralizeTouch();
     send({ t: 'stop' });
     try { fetch('/api/emergency-stop', { method: 'POST', keepalive: true }); } catch (_) { /* best effort */ }
     showBanner('STOP sent: all cameras stopped.', true, 4000);
@@ -267,6 +298,7 @@
     var pill = M.ownerPill(owner, connected, enabled);
     el.ownerPill.className = 'pill ' + pill.cls;
     el.ownerPill.title = pill.text; el.ownerPill.setAttribute('aria-label', pill.text);
+    el.ownerText.textContent = pill.text;
     el.padPill.className = 'pill ' + (padInfo.kind === 'ok' ? 'pill-you' : (padInfo.kind === 'unsupported' ? 'pill-off' : 'pill-wait'));
     el.padPill.textContent = padInfo.text;
     el.padStatus.textContent = padInfo.text;
@@ -283,7 +315,7 @@
     el.hint.textContent = mine
       ? 'You are driving. Sticks and buttons work like the desk controller; the arrows on PVW and PGM move that camera.'
       : 'Tap Take control to drive with touch, or wake the controller and hold Menu for 1 s.';
-    el.controlInfo.textContent = mine ? 'Driving ' + controlledLabel() : (owner && owner.owner === 'remote' ? (owner.ownerName || 'Another iPad') + ' is driving' : '');
+    el.controlInfo.textContent = mine ? 'Driving ' + controlledLabel() : (owner && owner.owner === 'remote' ? (owner.ownerName || 'Another remote') + ' is driving' : '');
     el.speedLine.textContent = M.speedLine(speeds, status, mine ? pushed : null);
     updateTouchUi();
     updateBanner();
@@ -348,11 +380,28 @@
     head.appendChild(ind); head.appendChild(menu);
     var foot = div('pane-foot');
     root.appendChild(pic); root.appendChild(head); root.appendChild(foot); root.appendChild(title);
-    var n = { key: key, big: big, root: root, img: img, cross: cross, note: note, title: title, ind: ind, menu: menu, foot: foot, sig: '', crossTimer: null, url: '', pad: null, lock: null, track: null };
+    var n = { key: key, big: big, root: root, img: img, cross: cross, note: note, title: title, ind: ind, menu: menu, foot: foot, sig: '', crossTimer: null, url: '', pad: null, lock: null, track: null, tap: null };
     if (big) buildTrackBar(n, pic, head);
     if (big) buildClearFocus(n, head);
     menu.addEventListener('click', function (e) { e.stopPropagation(); var pane = paneFor(key); if (pane) openSheet(pane); });
-    if (big) img.addEventListener('pointerup', function (e) { onBigTap(n, e); });
+    if (big) {
+      // A video pane is also part of the page's normal scroll surface on a phone. Treat only a short, stationary
+      // pointer sequence as touch focus / tracking; dragging the picture must scroll rather than focus the camera.
+      img.addEventListener('pointerdown', function (e) {
+        if (e.button !== undefined && e.button > 0) return;
+        n.tap = { pointerId: e.pointerId, x: e.clientX, y: e.clientY };
+      });
+      img.addEventListener('pointermove', function (e) {
+        var tap = n.tap;
+        if (tap && tap.pointerId === e.pointerId && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > 12) n.tap = null;
+      });
+      img.addEventListener('pointercancel', function (e) { if (n.tap && n.tap.pointerId === e.pointerId) n.tap = null; });
+      img.addEventListener('pointerup', function (e) {
+        var tap = n.tap;
+        n.tap = null;
+        if (tap && tap.pointerId === e.pointerId && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) <= 12) onBigTap(n, e);
+      });
+    }
     else {
       // A small pane is a button: tap, or focus it and press Enter / Space (iPad with a keyboard, VoiceOver).
       root.tabIndex = 0; root.setAttribute('role', 'button');
@@ -783,8 +832,9 @@
       if (!mapMode) return;
       if (e.target.closest && e.target.closest('#mapBar')) return;
       var t = e.target.closest ? e.target.closest('[data-map]') : null;
+      if (!t) return; // Outside a mappable control, leave page and drawer scrolling alone.
       e.preventDefault(); e.stopPropagation();
-      if (t && ev === 'click') setArmed(t.dataset.map);
+      if (ev === 'click') setArmed(t.dataset.map);
     }, true);
   });
   // Pad buttons, every tick: in map mode a rising edge binds the armed control; otherwise mapped edges drive controls.
@@ -813,7 +863,7 @@
   drawMapTags();
 
   el.ltBtn.addEventListener('click', function () {
-    var block = M.sonyWriteBlock(enabled); // remote control on is enough; slides do not need the camera seat
+    var block = M.selectBlock(enabled, owner);
     if (block) { showBanner(block, true, 3000); return; }
     send({ t: 'lowerThirds' }); // toggles the DSK; the 1 Hz status says what it is now
     setTimeout(pollStatus, SELECT_POLL_MS);
@@ -833,9 +883,22 @@
   // Nothing may start a long-press menu or callout (inputs excepted).
   document.addEventListener('contextmenu', function (e) { if (!(e.target && e.target.tagName === 'INPUT')) e.preventDefault(); });
 
-  function layout() { el.main.dataset.layout = M.layoutFor(window.innerWidth, window.innerHeight); }
+  function layout() {
+    var viewport = window.visualViewport;
+    var width = viewport && viewport.width ? viewport.width : window.innerWidth;
+    var height = viewport && viewport.height ? viewport.height : window.innerHeight;
+    var viewportClass = M.viewportClass(width, height);
+    el.main.dataset.layout = M.layoutFor(width, height);
+    document.documentElement.dataset.remoteViewport = viewportClass;
+    document.documentElement.style.setProperty('--remote-vh', Math.max(1, Math.round(height)) + 'px');
+    // Keep the one dynamic wake-lock message in the compact phone drawer, but return that same DOM node to the
+    // original panel header whenever the viewport is iPad/desktop. Stable anchors avoid cloned state or IDs.
+    var wakeTarget = viewportClass.indexOf('phone') === 0 ? el.wakeHintDrawerAnchor : el.wakeHintTopbarAnchor;
+    if (el.wakeHint.parentNode !== wakeTarget) wakeTarget.appendChild(el.wakeHint);
+  }
   window.addEventListener('resize', layout);
   window.addEventListener('orientationchange', layout);
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', layout);
   layout();
 
   // ---- tap a camera: small pane = select it for control (needs the seat), big picture = touch focus
@@ -843,6 +906,7 @@
     var block = M.selectBlock(enabled, owner);
     if (block) { showBanner(block, true, 3000); return; }
     send({ t: 'preview', camera: pane.rigId }); // ATEM preview (and the controlled camera), not program
+    if (String(document.documentElement.dataset.remoteViewport || '').indexOf('phone') === 0) setPhoneView('controls');
     setTimeout(pollStatus, SELECT_POLL_MS);
   }
 
@@ -928,18 +992,13 @@
     });
     var stop = trackButton('Stop', 'track-stop', function () { var pane = paneFor(n.key); trackCommand(n, pane, 'cancel'); });
     var resume = trackButton('Resume', 'track-resume', function () { var pane = paneFor(n.key); trackCommand(n, pane, 'resume'); });
-    var hold = trackButton('Hold this framing', 'track-hold', function () { var pane = paneFor(n.key); trackCommand(n, pane, 'hold-framing'); });
     var state = div('track-state');
-    state.id = 'track-status-' + n.key;
-    bar.setAttribute('role', 'group');bar.setAttribute('aria-label', n.key === 'pvw' ? 'Preview tracking' : 'Program tracking');
-    hold.setAttribute('aria-describedby', state.id);resume.setAttribute('aria-describedby', state.id);
-    state.setAttribute('role', 'status'); state.setAttribute('aria-live', 'polite');
-    bar.appendChild(toggle); bar.appendChild(stop); bar.appendChild(resume); bar.appendChild(hold); bar.appendChild(state);
+    bar.appendChild(toggle); bar.appendChild(stop); bar.appendChild(resume); bar.appendChild(state);
     var box = div('track-box');
     pic.appendChild(box);
     head.insertBefore(bar, n.lock || n.menu);
     if (n.key === 'pvw') toggle.dataset.map = 'track';
-    n.track = { bar: bar, toggle: toggle, stop: stop, resume: resume, hold: hold, state: state, box: box, said: '' };
+    n.track = { bar: bar, toggle: toggle, stop: stop, resume: resume, state: state, box: box, said: '' };
   }
 
   function trackSelect(n, pane, pt) {
@@ -957,10 +1016,6 @@
   function trackCommand(n, pane, action, point) {
     var src = pane && trackSource(pane.sonyId);
     if (!src) return;
-    if (action === 'hold-framing' || action === 'resume') {
-      var block = M.sonyWriteBlock(enabled);
-      if (block) { showBanner(block, true, 3000); return; }
-    }
     var body = { sourceId: src.sourceId };
     if (point) { body.x = point.x; body.y = point.y; }
     // Stopping is never gated (like the emergency stop); picking and resuming need remote control on.
@@ -989,7 +1044,6 @@
   }
 
   function updateTrackUi() {
-    var announced = new Set();
     ['pvw', 'pgm'].forEach(function (k) {
       var n = nodes[k];
       if (!n || !n.track) return;
@@ -1005,20 +1059,9 @@
       t.toggle.disabled = !ready;
       t.stop.hidden = !src.sessionId;
       t.resume.hidden = src.state !== 'operator_override';
-      t.hold.disabled = !ready || !src.canHoldFraming || !!M.sonyWriteBlock(enabled);
-      t.hold.title = M.sonyWriteBlock(enabled) || src.holdFramingReason || 'Capture the current placement and resume tracking';
-       t.resume.disabled = !ready || src.canHoldFraming === false || !!M.sonyWriteBlock(enabled);
       var state = !trackSnap.enabled ? 'disabled' : trackSnap.sidecar.state !== 'connected' ? 'sidecar_offline' : src.state;
       var showState = on || !!src.sessionId;
-       var text = TRACK_LABELS[state] || 'Tracking unavailable';
-       if (state === 'idle') text = 'Choose a person in Track mode';
-      if (showState && src.framingHeld) text += ' — Framing held';
-       if (state === 'operator_override' && src.holdFramingReason) text += ' — ' + src.holdFramingReason;
-       if (M.sonyWriteBlock(enabled)) text += ' — ' + M.sonyWriteBlock(enabled);
-       else if (state === 'operator_override' && !t.hold.disabled) text += ' — Hold this framing captures placement and resumes; Resume preserves placement.';
-       if (on) text += ' — Select a person: tap the preview.';
-       var duplicate = announced.has(src.sourceId);announced.add(src.sourceId);
-       t.state.setAttribute('aria-live', duplicate ? 'off' : 'polite');t.state.setAttribute('role', duplicate ? 'note' : 'status');
+      var text = showState ? (TRACK_LABELS[state] || 'Tracking unavailable') : '';
       if (t.said !== text) { t.said = text; t.state.textContent = text; }
       t.state.className = 'track-state ' + state;
       n.root.classList.toggle('tracking-mode', on);
@@ -1034,7 +1077,7 @@
       trackSnap = t;
       // Poll fast only while a session is running here; slow when nothing is tracked.
       trackDelay = t.sources.some(function (src) { return src.sessionId; }) ? 250 : 1000;
-    }).catch(function () { trackSnap.sidecar = { state: 'offline' };trackSnap.sources = trackSnap.sources.map(function (src) { return Object.assign({}, src, { canHoldFraming: false, target: null, framingHeld: false }); });trackDelay = 4000; })
+    }).catch(function () { trackSnap = { enabled: false, sidecar: { state: 'offline' }, sources: [] }; trackDelay = 4000; })
       .then(updateTrackUi);
   }
   (function trackLoop() { pollTracking(); setTimeout(trackLoop, trackDelay); })();
@@ -1100,7 +1143,7 @@
   }
   el.menuBtn.addEventListener('click', function () { closeSheet(); el.menuSheet.hidden = false; el.sheetBack.hidden = false; loadProgramRow(); });
 
-  // Program feed row (This iPad sheet): Camera = the PGM pane shows the program camera; Live = the capture card.
+  // Program feed row (This device sheet): Camera = the PGM pane shows the program camera; Live = the capture card.
   var programEls = { mode: $('programMode'), row: $('programDeviceRow'), select: $('programDevice'), note: $('programNote') };
   var programWantLive = false;
   function programSay(text, bad) { programEls.note.textContent = text; programEls.note.className = 'muted small' + (bad ? ' bad' : ''); }

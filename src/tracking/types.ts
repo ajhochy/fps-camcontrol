@@ -5,6 +5,8 @@ export interface ResolvedTrackingSource {
 export type TrackingState = 'disabled'|'unavailable'|'idle'|'locking'|'tracking'|'holding'|'lost'|'stale'|'sidecar_offline'|'operator_override';
 export interface TrackingSourceStatus extends ResolvedTrackingSource {
   sessionId: string | null; state: TrackingState; reason: string | null; observation: TrackMessage | null; pan: number; tilt: number;
+  framing: { cx: number; cy: number }; framingHeld: boolean;
+  canHoldFraming: boolean; holdFramingReason: string | null;
 }
 export interface TrackingControlConfig {
   maxSpeed: number; deadzone: number; lostHoldMs: number; kp: number; kd: number; pipelineDelayMs: number;
