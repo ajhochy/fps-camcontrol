@@ -19,14 +19,17 @@
       if(!widget) {
         const controls=document.createElement('div');controls.className='tracking-controls';controls.setAttribute('aria-label','Person tracking controls');
         const preview=article.querySelector('.sony-preview');preview.tabIndex=0;
-        const status=document.createElement('div');status.className='tracking-state';status.setAttribute('aria-live','polite');status.setAttribute('role','status');
+         const status=document.createElement('div');status.className='tracking-state';status.setAttribute('aria-live','polite');status.setAttribute('role','status');
+         status.id='tracking-status-'+id.replace(/:/g,'-');preview.setAttribute('aria-describedby',status.id);
         const box=document.createElement('span');box.className='tracking-box';box.hidden=true;box.setAttribute('aria-hidden','true');preview.append(box);
         widget={article,preview,controls,status,box,source};
         widget.focus=button('Focus (touch)',()=>{modes.set(id,'focus');update(widget);});
         widget.track=button('Track',()=>{modes.set(id,'track');update(widget);preview.focus();});
         widget.stop=button('Stop tracking',()=>command(widget,'cancel'),'tracking-stop');
         widget.resume=button('Resume',()=>command(widget,'resume'));
-        controls.append(widget.focus,widget.track,widget.stop,widget.resume,status);preview.after(controls);widgets.set(id,widget);
+         widget.hold=button('Hold this framing',()=>command(widget,'hold-framing'));
+         widget.hold.setAttribute('aria-describedby',status.id);widget.resume.setAttribute('aria-describedby',status.id);
+        controls.append(widget.focus,widget.track,widget.stop,widget.resume,widget.hold,status);preview.after(controls);widgets.set(id,widget);
         preview.addEventListener('keydown',event=>{if(event.key==='Escape'&&widget.source.sessionId){event.preventDefault();command(widget,'cancel');}});
         preview.querySelector('img').addEventListener('load',()=>position(widget));
       }
@@ -38,10 +41,24 @@
     widget.focus.setAttribute('aria-pressed',String(mode==='focus'));widget.track.setAttribute('aria-pressed',String(mode==='track'));
     widget.track.disabled=!snapshot.enabled || snapshot.sidecar.state!=='connected';
     widget.stop.hidden=!source.sessionId;widget.resume.hidden=source.state!=='operator_override';
+    widget.hold.disabled=!source.canHoldFraming || !snapshot.enabled || snapshot.sidecar.state!=='connected';
+    widget.hold.title=source.holdFramingReason||'Capture the current placement and resume tracking';
+    widget.resume.disabled=source.canHoldFraming===false || !snapshot.enabled || snapshot.sidecar.state!=='connected';
     let state=source.state;
     if(!snapshot.enabled)state='disabled';else if(snapshot.sidecar.state!=='connected')state='sidecar_offline';
     widget.controls.dataset.state=state;
-    const reason=state==='sidecar_offline'&&typeof snapshot.sidecar.reason==='string'?snapshot.sidecar.reason:'';const message=(labels[state]||'Tracking unavailable')+(reason?' — '+reason:'');if(widget.status.textContent!==message)widget.status.textContent=message;
+    const reason=state==='sidecar_offline'&&typeof snapshot.sidecar.reason==='string'?snapshot.sidecar.reason:'';
+    if(!source.sessionId||!snapshot.enabled||snapshot.sidecar.state!=='connected')widget.feedbackUntil=0;
+    const instructions=mode==='track'?' — Select a person in the preview. Escape stops tracking.':'';
+    const message=(widget.feedbackUntil>Date.now()?widget.feedback:(labels[state]||'Tracking unavailable')+(reason?' — '+reason:'')+
+      (source.framingHeld?' — Framing held':'')+(state==='operator_override'?(source.holdFramingReason?' — '+source.holdFramingReason:' — Hold this framing captures placement and resumes; Resume preserves placement.') :''))+instructions;
+    if(widget.status.textContent!==message) {
+      const label=labels[state]||'Tracking unavailable';
+      if(message.startsWith(label)) {
+        const summary=document.createElement('span');summary.textContent=label;
+        widget.status.replaceChildren(summary,document.createTextNode(message.slice(label.length)));
+      } else widget.status.textContent=message;
+    }
     position(widget);
   }
   function position(widget) {
@@ -55,11 +72,12 @@
   async function command(widget, action, point) {
     try {
       const response=await fetch('/api/tracking/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({sourceId:widget.source.sourceId},point||{}))});
-      if(!response.ok)throw new Error();
+      if(!response.ok){const body=await response.json();throw new Error(typeof body.error==='string'?body.error:'Action unavailable');}
+      widget.feedbackUntil=0;
       if(action==='select'){widget.status.textContent='Locking…';widget.controls.dataset.state='locking';}
       else if(action==='cancel'){widget.status.textContent='Tracking stopped';widget.box.hidden=true;}
       // Resume never locally changes state: only the manager can re-arm motion.
-    } catch (_) {widget.status.textContent='Action unavailable. Check the gimbal and select a fresh target.';}
+    } catch (error) {widget.feedback=(error.message||'Action unavailable')+'. Check the gimbal and select a fresh target.';widget.feedbackUntil=Date.now()+3500;widget.status.textContent=widget.feedback;}
   }
   document.getElementById('sony-cameras').addEventListener('pointerup',event=>{
     if(event.target.tagName!=='IMG')return;
@@ -77,7 +95,7 @@
       const response=await fetch('/api/tracking/status',{cache:'no-store'});if(!response.ok)throw new Error();
       const next=await response.json();if(!Array.isArray(next.sources)||!next.sidecar)throw new Error();
       snapshot=next;delay=250;
-    } catch (_) {snapshot.sidecar={state:'offline'};delay=Math.min(delay*2,4000);}
+    } catch (_) {snapshot.sidecar={state:'offline'};snapshot.sources=snapshot.sources.map(source=>({...source,canHoldFraming:false,target:null,framingHeld:false}));delay=Math.min(delay*2,4000);}
     renderWidgets();timer=setTimeout(poll,delay);
   }
   window.addEventListener('resize',()=>widgets.forEach(position));

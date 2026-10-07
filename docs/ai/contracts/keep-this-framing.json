@@ -1,0 +1,90 @@
+{
+  "issue": "keep-this-framing",
+  "date": "2026-10-07",
+  "test_command": "CAMCONTROL_NO_CONTROLLER=1 node --test -r ts-node/register/transpile-only tests/tracking/keep-this-framing.test.cjs",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "task-keep-this-framing-c1",
+      "text": "capture authoritative current fresh healthy observation for same source/session; do not accept stale/lost/offline/unavailable target or while manual input still owns motion; retain all existing readiness/manual override/deadman safeguards",
+      "mode": "integration",
+      "test": "tests/tracking/keep-this-framing.test.cjs",
+      "status": "pass",
+      "reason": "Independent bounded combined draft gate PASS, verifier9817ea23; 24 tests, build/syntax, fresh provenance/diff checks. Physical/full-suite qualification remains not_tested."
+    },
+    {
+      "criterion_id": "task-keep-this-framing-c2",
+      "text": "desired cx/cy replace fixed .5 targets and reset smoothing/derivative appropriately to avoid jumps",
+      "mode": "unit",
+      "test": "tests/tracking/keep-this-framing.test.cjs",
+      "status": "pass",
+      "reason": "Independent bounded combined draft gate PASS, verifier9817ea23; 24 tests, build/syntax, fresh provenance/diff checks. Physical/full-suite qualification remains not_tested."
+    },
+    {
+      "criterion_id": "task-keep-this-framing-c3",
+      "text": "selected subject placement remains at captured anchor as tracking follows",
+      "mode": "unit",
+      "test": "tests/tracking/keep-this-framing.test.cjs",
+      "status": "pass",
+      "reason": "Independent bounded combined draft gate PASS, verifier9817ea23; 24 tests, build/syntax, fresh provenance/diff checks. Physical/full-suite qualification remains not_tested."
+    },
+    {
+      "criterion_id": "task-keep-this-framing-c4",
+      "text": "new selection, cancel, invalidation, rebind clear session framing",
+      "mode": "integration",
+      "test": "tests/tracking/keep-this-framing.test.cjs",
+      "status": "pass",
+      "reason": "Independent bounded combined draft gate PASS, verifier9817ea23; 24 tests, build/syntax, fresh provenance/diff checks. Physical/full-suite qualification remains not_tested."
+    },
+    {
+      "criterion_id": "task-keep-this-framing-c5",
+      "text": "accessible Keep this framing control on desk and iPad remote tracking UI with valid enabled/disabled/visible state, clear feedback and normal Resume behavior",
+      "mode": "ui",
+      "test": "tests/tracking/keep-this-framing.test.cjs",
+      "status": "pass",
+      "reason": "Independent bounded combined draft gate PASS, verifier9817ea23; 24 tests, build/syntax, fresh provenance/diff checks. Physical/full-suite qualification remains not_tested."
+    },
+    {
+      "criterion_id": "task-keep-this-framing-c6",
+      "text": "no changes to zoom control or inference model",
+      "mode": "manual",
+      "test": null,
+      "status": "pass",
+      "reason": "Independent bounded combined draft gate PASS, verifier9817ea23; 24 tests, build/syntax, fresh provenance/diff checks. Physical/full-suite qualification remains not_tested."
+    },
+    {
+      "criterion_id": "task-keep-this-framing-c7",
+      "text": "focused runnable controller/manager/API/UI tests covering off-center capture, safe resume, rejected stale observations and reset",
+      "mode": "integration",
+      "test": "tests/tracking/keep-this-framing.test.cjs",
+      "status": "pass",
+      "reason": "Independent bounded combined draft gate PASS, verifier9817ea23; 24 tests, build/syntax, fresh provenance/diff checks. Physical/full-suite qualification remains not_tested."
+    },
+    {
+      "criterion_id": "task-keep-this-framing-c8",
+      "text": "updated short docs/tracking.md description",
+      "mode": "manual",
+      "test": null,
+      "status": "pass",
+      "reason": "Independent bounded combined draft gate PASS, verifier9817ea23; 24 tests, build/syntax, fresh provenance/diff checks. Physical/full-suite qualification remains not_tested."
+    }
+  ],
+  "not_tested": [
+    "task-keep-this-framing-c6",
+    "task-keep-this-framing-c8"
+  ],
+  "excluded": [
+    "Inherited keyboard person selection excluded by AJ; native Hold/Resume Tab, focus and Enter checks retained"
+  ],
+  "physical_not_tested": [
+    "Real-person placement, gain/stability, manual override/deadman, idle/active soaks, actual iPad/iPhone Safari and touch"
+  ],
+  "source_provenance": {
+    "root": "/Users/ajhochhalter/.local/share/opencode/worktree/ec2e0fe3fdd54c2e9ab53bfa4cc75c91e40568ed/keep-this-framing",
+    "patch": "docs/ai/runs/combined-framing-input.patch",
+    "historical_evidence": "Source 2026-10-07T21-32-02-259Z manager 46-test PASS and static review PASS supplied in handoff; not combined validation and not copied as new evidence",
+    "combined_run": "docs/ai/runs/2026-10-07-combined-studio-framing.md"
+  },
+  "evidence": "docs/ai/runs/keep-this-framing-evidence/2026-10-07T23-53-38-625Z/report.json",
+  "verification_session": "9817ea23-7861-40b2-af37-c418c1b76f2a"
+}

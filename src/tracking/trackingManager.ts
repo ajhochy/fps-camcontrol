@@ -62,7 +62,8 @@ export class TrackingManager extends EventEmitter {
       const visca = device?.protocol === 'visca';
       // VISCA gain differs from a gimbal's and its speed steps are coarse: the effective cap is the lower of the two.
       const maxSpeed = this.config.speeds[source.device] ?? (visca ? Math.min(this.config.maxSpeed, this.config.viscaMaxSpeed) : this.config.maxSpeed);
-      const session: Session = { status: { ...source, sessionId: null, state: !this.config.enabled ? 'disabled' : device ? 'idle' : 'unavailable', reason: null, observation: null, pan: 0, tilt: 0 },
+      const session: Session = { status: { ...source, sessionId: null, state: !this.config.enabled ? 'disabled' : device ? 'idle' : 'unavailable', reason: null, observation: null, pan: 0, tilt: 0,
+          framing: { cx: .5, cy: .5 }, framingHeld: false, canHoldFraming: false, holdFramingReason: 'Select a person and manually compose first' },
         controller: new TrackingController({ ...this.config, ...source, maxSpeed }), device, halted: true, seq: -1, lostAt: null, maxSpeed };
       if (device && visca) {
         session.visca = new ViscaTrackingDriver(device, this.ledger, { now: this.now, setInterval: this.interval, clearInterval: this.clear }, maxSpeed, () => {
@@ -146,11 +147,27 @@ export class TrackingManager extends EventEmitter {
     this.invalidate(session, 'cancelled', { forceStop: true });
   }
   resume(sourceId: string): void {
-    const session = this.get(sourceId), obs = session.status.observation;
-    if (session.status.state !== 'operator_override' || !session.status.sessionId || !this.client.connected || !this.ready(session) || !obs || obs.state !== 'tracking' || this.now() - obs.frameTs >= 500) {
-      throw new TrackingError(409, 'resume_unavailable', 'A fresh healthy target is required to resume');
-    }
-    session.controller.reset(); this.transition(session, 'tracking');
+    const session = this.get(sourceId), reason = this.resumeReason(session);
+    if (reason) throw new TrackingError(409, 'resume_unavailable', reason);
+    session.lostAt = null; session.controller.reset(); this.transition(session, 'tracking');
+  }
+  /** Both explicit resume actions must pass the same safety gate at mutation time. */
+  private resumeReason(session: Session): string | null {
+    if (!this.started || !this.config.enabled || this.calibration) return 'Tracking is unavailable';
+    if (!session.status.sessionId || session.status.state !== 'operator_override') return 'Select a person and manually compose first';
+    if (!this.client.connected || !this.ready(session)) return 'Tracking source is offline or unavailable';
+    if (session.device && this.ledger.isMoving(session.device)) return 'Release manual motion before resuming';
+    const obs = session.status.observation, now = this.now();
+    if (!obs || obs.sourceId !== session.status.sourceId || obs.sessionId !== session.status.sessionId || obs.state !== 'tracking' || now - obs.frameTs >= 500 || obs.frameTs > now + 50) return 'A fresh healthy target is required to resume';
+    return null;
+  }
+  holdFraming(sourceId: string): void {
+    const session = this.get(sourceId), reason = this.resumeReason(session);
+    if (reason) throw new TrackingError(409, 'framing_unavailable', reason);
+    const { cx, cy } = session.status.observation!;
+    session.controller.setFraming(cx, cy);
+    session.status.framing = { cx, cy }; session.status.framingHeld = true;
+    session.lostAt = null; this.transition(session, 'tracking');
   }
   operatorOverride(cameraId: string): void {
     if (this.calibration?.cameraId === cameraId) this.stopCalibration();
@@ -163,7 +180,8 @@ export class TrackingManager extends EventEmitter {
     const sessionId = session.status.sessionId;
     // Clear before invoking a device or transport: a synchronous device event
     // must not re-enter tick with a still-armed target during emergency stop.
-    session.status.sessionId = null; session.status.observation = null; session.seq = -1; session.lostAt = null; session.controller.reset();
+    session.status.sessionId = null; session.status.observation = null; session.seq = -1; session.lostAt = null;
+    session.status.framing = { cx: .5, cy: .5 }; session.status.framingHeld = false; session.controller.setFraming(.5, .5);
     this.halt(session, forceStop || !!sessionId, stopDevices);
     if (sessionId) this.client.cancel(session.status.sourceId, sessionId);
     this.transition(session, !this.config.enabled ? 'disabled' : !session.device ? 'unavailable' : reason === 'sidecar_disconnected' ? 'sidecar_offline' : 'idle', reason);
@@ -235,7 +253,9 @@ export class TrackingManager extends EventEmitter {
   }
   getStatus(): Record<string, TrackingSourceStatus> {
     return Object.fromEntries([...this.sessions].map(([key, session]) => {
-      const status = { ...session.status, observation: session.status.observation ? { ...session.status.observation } : null };
+      const holdFramingReason = this.resumeReason(session);
+      const status = { ...session.status, framing: { ...session.status.framing }, canHoldFraming: holdFramingReason === null, holdFramingReason,
+        observation: session.status.observation ? { ...session.status.observation } : null };
       // A VISCA head that is not answering is shown unavailable, with the reason, rather than idle.
       if (session.visca && !session.status.sessionId && status.state === 'idle') {
         const reason = this.unavailableReason(session);

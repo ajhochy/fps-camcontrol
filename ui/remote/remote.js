@@ -937,13 +937,18 @@
     });
     var stop = trackButton('Stop', 'track-stop', function () { var pane = paneFor(n.key); trackCommand(n, pane, 'cancel'); });
     var resume = trackButton('Resume', 'track-resume', function () { var pane = paneFor(n.key); trackCommand(n, pane, 'resume'); });
+    var hold = trackButton('Hold this framing', 'track-hold', function () { var pane = paneFor(n.key); trackCommand(n, pane, 'hold-framing'); });
     var state = div('track-state');
-    bar.appendChild(toggle); bar.appendChild(stop); bar.appendChild(resume); bar.appendChild(state);
+    state.id = 'track-status-' + n.key;
+    bar.setAttribute('role', 'group');bar.setAttribute('aria-label', n.key === 'pvw' ? 'Preview tracking' : 'Program tracking');
+    hold.setAttribute('aria-describedby', state.id);resume.setAttribute('aria-describedby', state.id);
+    state.setAttribute('role', 'status'); state.setAttribute('aria-live', 'polite');
+    bar.appendChild(toggle); bar.appendChild(stop); bar.appendChild(resume); bar.appendChild(hold); bar.appendChild(state);
     var box = div('track-box');
     pic.appendChild(box);
     head.insertBefore(bar, n.lock || n.menu);
     if (n.key === 'pvw') toggle.dataset.map = 'track';
-    n.track = { bar: bar, toggle: toggle, stop: stop, resume: resume, state: state, box: box, said: '' };
+    n.track = { bar: bar, toggle: toggle, stop: stop, resume: resume, hold: hold, state: state, box: box, said: '' };
   }
 
   function trackSelect(n, pane, pt) {
@@ -961,6 +966,10 @@
   function trackCommand(n, pane, action, point) {
     var src = pane && trackSource(pane.sonyId);
     if (!src) return;
+    if (action === 'hold-framing' || action === 'resume') {
+      var block = M.sonyWriteBlock(enabled);
+      if (block) { showBanner(block, true, 3000); return; }
+    }
     var body = { sourceId: src.sourceId };
     if (point) { body.x = point.x; body.y = point.y; }
     // Stopping is never gated (like the emergency stop); picking and resuming need remote control on.
@@ -989,6 +998,7 @@
   }
 
   function updateTrackUi() {
+    var announced = new Set();
     ['pvw', 'pgm'].forEach(function (k) {
       var n = nodes[k];
       if (!n || !n.track) return;
@@ -1004,9 +1014,20 @@
       t.toggle.disabled = !ready;
       t.stop.hidden = !src.sessionId;
       t.resume.hidden = src.state !== 'operator_override';
+      t.hold.disabled = !ready || !src.canHoldFraming || !!M.sonyWriteBlock(enabled);
+      t.hold.title = M.sonyWriteBlock(enabled) || src.holdFramingReason || 'Capture the current placement and resume tracking';
+       t.resume.disabled = !ready || src.canHoldFraming === false || !!M.sonyWriteBlock(enabled);
       var state = !trackSnap.enabled ? 'disabled' : trackSnap.sidecar.state !== 'connected' ? 'sidecar_offline' : src.state;
       var showState = on || !!src.sessionId;
-      var text = showState ? (TRACK_LABELS[state] || 'Tracking unavailable') : '';
+       var text = TRACK_LABELS[state] || 'Tracking unavailable';
+       if (state === 'idle') text = 'Choose a person in Track mode';
+      if (showState && src.framingHeld) text += ' — Framing held';
+       if (state === 'operator_override' && src.holdFramingReason) text += ' — ' + src.holdFramingReason;
+       if (M.sonyWriteBlock(enabled)) text += ' — ' + M.sonyWriteBlock(enabled);
+       else if (state === 'operator_override' && !t.hold.disabled) text += ' — Hold this framing captures placement and resumes; Resume preserves placement.';
+       if (on) text += ' — Select a person: tap the preview.';
+       var duplicate = announced.has(src.sourceId);announced.add(src.sourceId);
+       t.state.setAttribute('aria-live', duplicate ? 'off' : 'polite');t.state.setAttribute('role', duplicate ? 'note' : 'status');
       if (t.said !== text) { t.said = text; t.state.textContent = text; }
       t.state.className = 'track-state ' + state;
       n.root.classList.toggle('tracking-mode', on);
@@ -1022,7 +1043,7 @@
       trackSnap = t;
       // Poll fast only while a session is running here; slow when nothing is tracked.
       trackDelay = t.sources.some(function (src) { return src.sessionId; }) ? 250 : 1000;
-    }).catch(function () { trackSnap = { enabled: false, sidecar: { state: 'offline' }, sources: [] }; trackDelay = 4000; })
+    }).catch(function () { trackSnap.sidecar = { state: 'offline' };trackSnap.sources = trackSnap.sources.map(function (src) { return Object.assign({}, src, { canHoldFraming: false, target: null, framingHeld: false }); });trackDelay = 4000; })
       .then(updateTrackUi);
   }
   (function trackLoop() { pollTracking(); setTimeout(trackLoop, trackDelay); })();
