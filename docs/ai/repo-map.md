@@ -47,8 +47,23 @@ fps-camcontrol/
 - Packaging/runtime: `scripts/package-electron-manual.cjs`,
   `scripts/test-electron-manual-package.cjs`, `scripts/test-electron-manual-runtime.cjs`.
 - Workflow/checks: `scripts/run_ai_workflow.py`, `scripts/checks.cjs`.
+- GitHub testing releases: `.github/workflows/electron_release.yml`, exact app
+  sources in `.github/electron-release-sources.json`, public receipt validation
+  in `scripts/electron-release.cjs`; operator instructions: `docs/releasing.md`.
 
 ## Dependencies
+
+Tracking: `src/tracking/` owns config/protocol/control/manager/client,
+`MotionLedger`, helper supervision and calibration. `src/app/trackingRuntime.ts`
+and `trackingHooks.ts` provide lifecycle/non-serialized capabilities;
+`src/ui/trackingRoutes.ts` and `trackingCalibrationRoutes.ts` are authenticated
+adapters; `ui/tracking/` extends existing Sony previews. `tracker-sidecar/` holds
+the Python service, frame puller, ONNX detector and identity association.
+`src/testing/trackingSim.ts` and `trackingIntegrationTest.ts` test synthetic
+control and actual TS/Python/virtual bridge. The exact redistributable payload
+is pinned in `scripts/tracking-runtime-manifest.json`. Staging/tracking packaging
+are independent of manual packaging. Operator guide: `docs/tracking.md`.
+
 **Runtime:** `atem-connection`, `node-hid`, `express`, `js-yaml`, `zod`, `pino`, `pino-pretty`, `ws`
 **Dev:** `@types/express`, `@types/js-yaml`, `@types/node`, `@types/node-hid`, `@types/ws`, `ts-node`, `typescript`
 **Pi bridge:** Python `websockets`, `bleak` (for the RS3 BLE driver)

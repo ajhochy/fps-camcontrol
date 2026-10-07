@@ -1,8 +1,16 @@
 # Existing-app Electron manual package
 
-The full manual app has passed actual mounted-DMG automation on the developer Mac. Final committed-source packaging and Apple notarization are separate delivery gates; current receipts, hashes and remaining limits are recorded in the integration run and release evidence. The original failed candidate and screenshots are retained as historical evidence, not current acceptance.
+The final manual app from foundation commit `133ae8d` is signed, Apple Accepted,
+stapled and Gatekeeper-assessed. Its exact final DMG passed mounted automation on
+the developer Mac. A genuinely clean macOS/TCC/physical-hardware test remains
+pending. Historical failed candidates and screenshots remain preserved.
 
 ## Commands
+
+These manual-only build commands apply to `feat/electron-foundation`. The stacked
+`codex/electron-tracking` branch uses `pnpm electron:package:tracking` and the
+tracking-specific checks in [tracking.md](tracking.md). Do not build a manual-only
+artifact from tracking sources; use the frozen foundation commit/branch.
 
 ```sh
 pnpm electron:package                    # isolated native rebuild, full app, Developer ID sign-only and DMG

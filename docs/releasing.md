@@ -1,3 +1,29 @@
+# Electron testing releases
+
+This workflow publishes one GitHub prerelease with two separately identified Apple Silicon DMGs: manual CamControl and CamControl Tracking. The release label (for example `testing-2026.10.01`) is separate from the embedded app version, which remains `0.1.0`. It does not merge either draft PR or make a stable/latest release.
+
+## Source and prerequisites
+
+`.github/electron-release-sources.json` pins the exact source commit for each variant. The workflow checks out each commit independently from this repository and refuses a different HEAD or dirty source. Updating either source requires changing this manifest in the tracking PR and reviewing the resulting release diff. The manual app requires macOS 13 or newer; tracking requires macOS 14 or newer. The hosted job runs on GitHub's ARM64 `macos-15` runner, with Node 22.23.0, pnpm 11.1.2 and Python 3.11.
+
+Configure these repository Actions secrets before a hosted release: `APPLE_CERTIFICATE_BASE64` (Developer ID Application `.p12`, base64), `APPLE_CERTIFICATE_PASSWORD`, `APPLE_TEAM_ID`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, and `APPLE_APP_SPECIFIC_PASSWORD`. The team must be `56Q69NYP9H`; `APPLE_SIGNING_IDENTITY` must be the full SHA-1 fingerprint of the imported Developer ID certificate. Certificate rotation can update that fingerprint without changing the workflow. Credentials are checked in the plan job before either macOS build starts. Certificate and notary values are exposed only to their dedicated steps. The public certificate fingerprint also reaches the packaging script's embedded sign-only step. Dependency installation and source tests receive no Apple secrets. The certificate is imported into a temporary runner keychain; its previous search list is restored and the owned keychain deleted on success or failure. No local keychain or credential export is part of this workflow.
+
+The tracking build stages the checksum-pinned Python/model runtime and installs the test browser before running source checks. Both variants run `node scripts/checks.cjs pr`, package with the pinned source's own script, and invoke the existing signer for a *new* final app and DMG. Apple's app and DMG submissions must both report `Accepted`; the signer must pass strict codesign, staple and Gatekeeper checks. The final mounted DMG must pass the variant's packaged runtime script. Only then is the DMG copied into an upload artifact with a public receipt. The tracking source's generated UI screenshots are locally excluded from its Git status check; no source file is changed or cleaned.
+
+## Start a run
+
+The workflow has a read-only `pull_request` validation job. No PR event builds, signs or publishes. To register the unmerged workflow, push a testing tag pointing at the tracking PR commit containing this workflow, such as `electron-testing-2026.10.01`. Tag pushes run the full release and publish when both builds pass. Once registered, `workflow_dispatch` accepts `version: testing-YYYY.MM.DD[.N]` and `qualification_only`. Qualification-only defaults to true and uploads the two validated GitHub Actions artifacts without creating a GitHub Release. Use a fresh label for every publication; existing tags, releases and assets are never overwritten. A failed tag-triggered attempt can be rerun after fixing its cause if no release was created.
+
+The single publisher waits for both ARM64 build jobs, verifies their exact bytes and shared run provenance, creates one *draft* prerelease, uploads both DMGs plus `release-manifest.json` and `SHA256SUMS`, downloads those release assets and compares their hashes and sizes, then makes the prerelease visible with `--latest=false`. If any step fails before publication, inspect the draft release and resolve it explicitly before retrying. The manifest contains source commits, embedded version, minimum OS, public Apple acceptance IDs, checksums, byte sizes, and workflow/run provenance. It contains no local paths or credentials.
+
+For an initial testing release made from the already signed local DMGs, record `local-build` provenance and the existing Apple delivery receipts explicitly; do not call it a hosted workflow build. Verify the downloaded public DMGs against published checksums after upload. A local publication does not demonstrate that this workflow runs successfully on GitHub.
+
+## Remaining acceptance
+
+Developer-host mounted-DMG runtime evidence is not a clean macOS or TCC check. Physical HID, Sony/ATEM/DJI rigs, real-person tracking accuracy, and separate 30-minute idle/active tracking soaks remain `NOT TESTED` until witnessed. Keep both PRs open for their own review and merge decisions.
+
+---
+
 # Local macOS installer delivery
 
 The manual app is `com.ajhochhalter.fpscamcontrol`; the tracking app is

@@ -1,0 +1,143 @@
+{
+  "testedAt": "2026-10-01T22:46:48.122Z",
+  "scope": "packaged-runtime",
+  "app": "/var/folders/f0/kwf9lqtx57qgt3j4rbtvg1ym0000gn/T/fps tracking mounted runtime 6W8GIy/Mounted DMG/FPS CamControl Tracking.app",
+  "model": {
+    "path": "/var/folders/f0/kwf9lqtx57qgt3j4rbtvg1ym0000gn/T/fps tracking mounted runtime 6W8GIy/Mounted DMG/FPS CamControl Tracking.app/Contents/Resources/models/object_detection_yolox_2022nov.onnx",
+    "bytes": 35858002,
+    "sha256": "c5c2d13e59ae883e6af3b45daea64af4833a4951c92d116ec270d9ddbe998063"
+  },
+  "hostArchitecture": "arm64",
+  "cleanOS": "NOT_TESTED",
+  "physicalHID": "NOT_TESTED",
+  "inference": {
+    "modelSha256": "c5c2d13e59ae883e6af3b45daea64af4833a4951c92d116ec270d9ddbe998063",
+    "provider": "CoreMLExecutionProvider",
+    "inferenceCount": 2,
+    "shape": [
+      1,
+      8400,
+      85
+    ],
+    "finite": true,
+    "inputDependent": true,
+    "detectP50Ms": 16.84233406558633,
+    "detectP95Ms": 19.186582881957293,
+    "fps": 55.510966452638705,
+    "frameAgeMs": 19.186582881957293,
+    "personCounts": [
+      0,
+      0
+    ],
+    "fixture": "generated RGB only; not accuracy proof",
+    "timingScope": "inference only; not source transport or camera exposure latency"
+  },
+  "networkDeniedInference": "PASS",
+  "helper": {
+    "handshake": "PASS",
+    "selectTrackingCancelIdle": "PASS",
+    "heartbeat": "PASS",
+    "ownedStopAwaited": "PASS",
+    "shutdownMs": 46
+  },
+  "liveFrame": {
+    "scope": "actual packaged live Python and model",
+    "anonymousWebSocketStatus": 401,
+    "anonymousFrameStatus": 403,
+    "deniedFrames": 1,
+    "frames": [
+      {
+        "capturedAt": 1790894814941,
+        "bytes": 6860,
+        "jpegAccepted": true
+      }
+    ],
+    "invalidMessages": 0,
+    "hello": {
+      "protocol": 1,
+      "type": "hello",
+      "version": "1.0.0",
+      "capabilities": [
+        "person"
+      ],
+      "detector": "yolox-s-opencv-zoo-2022nov",
+      "provider": "CoreMLExecutionProvider",
+      "degradedTiming": true
+    },
+    "metrics": [
+      {
+        "protocol": 1,
+        "type": "status",
+        "sourceId": "fixture",
+        "fps": 1,
+        "dropped": 0,
+        "busy": 0,
+        "detectP50Ms": 24.298458825796843,
+        "detectP95Ms": 24.298458825796843,
+        "frameAgeMs": 55,
+        "degradedTiming": false
+      }
+    ],
+    "tracks": [
+      {
+        "protocol": 1,
+        "type": "track",
+        "sourceId": "fixture",
+        "sessionId": "43d16815-3738-471f-8747-2d1c7969cb3f",
+        "seq": 0,
+        "state": "locking",
+        "cx": 0,
+        "cy": 0,
+        "w": 0,
+        "h": 0,
+        "conf": 0,
+        "frameTs": 0,
+        "processedAt": 1790894814797
+      },
+      {
+        "protocol": 1,
+        "type": "track",
+        "sourceId": "fixture",
+        "sessionId": "43d16815-3738-471f-8747-2d1c7969cb3f",
+        "seq": 1,
+        "state": "idle",
+        "cx": 0,
+        "cy": 0,
+        "w": 0,
+        "h": 0,
+        "conf": 0,
+        "frameTs": 0,
+        "processedAt": 1790894814996
+      }
+    ],
+    "errors": [
+      {
+        "code": "no_target",
+        "sourceId": "fixture",
+        "sessionId": "43d16815-3738-471f-8747-2d1c7969cb3f"
+      }
+    ],
+    "imageRetention": "generated geometric JPEG only, memory-only; no identifiable footage or persisted frame"
+  },
+  "motionIntegration": {
+    "scope": "actual packaged Python + packaged TS control + virtual gimbal",
+    "motion": "PASS",
+    "manualOverrideResume": "PASS",
+    "helperCrashStopNoReplay": "PASS",
+    "manualStop": {
+      "explicitStopReceived": true,
+      "stopMs": 0.6393750000006548,
+      "watchdogMs": 250,
+      "handledStopCommands": 1,
+      "watchdogFired": false
+    },
+    "crashStop": {
+      "explicitStopReceived": true,
+      "stopMs": 3.5581660000007105,
+      "watchdogMs": 250,
+      "handledStopCommands": 1,
+      "watchdogFired": false
+    },
+    "physicalHardware": "NOT_TESTED"
+  }
+}

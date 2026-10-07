@@ -1,0 +1,81 @@
+{
+  "issue": 32,
+  "generated": "2026-10-01",
+  "criteria": [
+    {
+      "criterion_id": "issue-32-c1",
+      "text": "Per-preview mode toggle **Focus (touch)** / **Track**; default Focus; the choice is per camera and not persisted across reloads.",
+      "mode": "ui",
+      "test_file": "scripts/test-tracking-ui.cjs",
+      "test_id": "issue-32-c1",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-32-c2",
+      "text": "The Track toggle is shown only for Sony cameras that have a configured, currently resolvable tracking source; otherwise hidden or disabled with a reason.",
+      "mode": "ui",
+      "test_file": "scripts/test-tracking-ui.cjs",
+      "test_id": "issue-32-c2",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-32-c3",
+      "text": "In Track mode a click calls `POST /api/tracking/select` (not touch) and shows an immediate \"Locking…\" state.",
+      "mode": "ui",
+      "test_file": "scripts/test-tracking-ui.cjs",
+      "test_id": "issue-32-c3",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-32-c4",
+      "text": "Overlay shows the target box and a state badge: *Locking / Tracking / Holding / Target lost / Sidecar offline / Stale video / Override (stick)*. Colors and text meet contrast needs and work with the existing dark mode; states are announced via an `aria-live` region.",
+      "mode": "ui",
+      "test_file": "scripts/test-tracking-ui.cjs",
+      "test_id": "issue-32-c4",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-32-c5",
+      "text": "**Stop tracking** button always visible while a session exists, one click, calls `cancel`. `Esc` also cancels when the preview is focused.",
+      "mode": "ui",
+      "test_file": "scripts/test-tracking-ui.cjs",
+      "test_id": "issue-32-c5",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-32-c6",
+      "text": "After `operator_override`, the UI shows a clear \"Paused — stick moved\" state with an explicit **Resume** button; nothing resumes on its own.",
+      "mode": "ui",
+      "test_file": "scripts/test-tracking-ui.cjs",
+      "test_id": "issue-32-c6",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-32-c7",
+      "text": "Polling of `/api/tracking/status` pauses when `document.hidden` and uses the same backoff style as `pollSonyFrame`.",
+      "mode": "ui",
+      "test_file": "scripts/test-tracking-ui.cjs",
+      "test_id": "issue-32-c7",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-32-c8",
+      "text": "Focus-mode touch AF behaves exactly as before.",
+      "mode": "ui",
+      "test_file": "scripts/test-tracking-ui.cjs",
+      "test_id": "issue-32-c8",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-32-c9",
+      "text": "Mobile and tablet layouts of the Sony widget are not degraded.",
+      "mode": "ui",
+      "test_file": "scripts/test-tracking-ui.cjs",
+      "test_id": "issue-32-c9",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [],
+  "verification": "Root ai-workflow checks --level pr exit0 (2026-10-01, tracking changes atop133ae8d); physical/finalDMG gates separate."
+}
