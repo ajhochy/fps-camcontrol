@@ -6,7 +6,9 @@ type: project
 
 ## Current focus
 
-Program streaming is planned, not implemented. The user accepted both plan reviews: real capture proof first, conditional media architecture, coupled sessions, MP4 default, Electron-only new streaming, OS audio routing, explicit queue-age/signal/clock behavior. See [plan](plans/2026-10-06-program-streaming-core.md) and [26-step backlog](generated-issues/streaming-core/README.md).
+2026-10-07: streaming code is preserved in draft [PR #90](https://github.com/ajhochy/fps-camcontrol/pull/90), branch `feat/streaming-s1-media-proof`. Bounded WIP publication verification passed; **full S1 is NOT READY**. Recorded developer 20-case matrix, 44 decoded comparisons and 60-minute soak passed; broad checks failed/hung. Actual publisher reconnect, channel-1 content, network/internal queues, architecture reconciliation and independent full S1 qualification remain pending. `--recovery-contract` requires unpublished local synthetic fixtures; it is not fresh-checkout self-contained. See [current handoff](runs/2026-10-07-streaming-s1.md), [checkpoint results](runs/2026-10-07-streaming-checkpoint-results.json) and [publication contract](contracts/streaming-wip-publication.json). Physical Blackmagic installation/tests remain AJ's separate handoff.
+
+Canonical product streaming remains planned, not integrated. The user accepted both plan reviews: real capture proof first, conditional media architecture, coupled sessions, MP4 default, Electron-only new streaming, OS audio routing, explicit queue-age/signal/clock behavior. See [plan](plans/2026-10-06-program-streaming-core.md) and [26-step backlog](generated-issues/streaming-core/README.md). Oct7 manager-authorized independent-remux/Node-relay exception is limited to S1; canonical architecture reconciliation remains unresolved, not AJ-specific architecture approval.
 
 ## Active branch / PR
 
