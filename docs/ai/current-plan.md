@@ -1,349 +1,38 @@
-# Current plan — GitHub testing release, mirroring Rhythm
-
-> **Integration branch note (`integration/combine-open-prs`).** This file is the Electron line's plan as of PR #58 (release plan first, then the PR #57 packaging plan).
-> Also in flight on the production line: the iPad gamepad remote (PR #59), plan at
-> `docs/ai/plans/2026-10-01-ipad-gamepad-remote.md`, and the Device Config rigs redesign (PR #36), plan at
-> `docs/ai/plans/2026-09-30-device-config-rigs-ui.md`. The click-to-track plan that `current-plan.md` held on
-> main and on the production line is archived verbatim at `docs/ai/plans/2026-09-30-click-to-track.md`.
-
-2026-10-01 user follow-up authorizes building the release workflow and publishing
-test builds of PR57 and PR58. It supersedes only the earlier no-release restriction.
-No PR merge, main-branch write, keychain export, live-hardware operation, cleanup,
-third PR, or change to Rhythm is authorized.
-
-## Intent, scope, and clarification
-
-Goal: provide one clearly labeled GitHub prerelease containing the separately
-identified manual and tracking Apple Silicon installers, and a repeatable hosted
-release workflow based on Rhythm's Electron workflow.
-The user's follow-up selects the reference architecture. Credential reuse is the
-one open external setup question, asked explicitly; do not copy secrets without
-an answer. Preserve both existing PRs; add release tooling to the tracking PR,
-which checks out each artifact's exact source SHA independently. Foundation stays
-frozen. App code/version and existing notarized bytes need not change to publish
-the initial testing release. A release label may differ from the embedded 0.1.0
-app version and must say so explicitly.
-
-Tension: GitHub has no signing secrets, but two signed/notarized local builds
-already exist. Implement hosted build/sign/notarize/verify/publish regardless;
-publish the already-qualified bytes if hosted credentials are unavailable, with
-honest local-build provenance. Never label that as a successful hosted build.
-
-## Prior art
-
-Read-only reference: Rhythm `.github/workflows/electron_release.yml`: manual
-version/prerelease/qualification inputs, macOS build, temporary signing keychain,
-Apple acceptance, signed bundle smoke, artifact upload and GitHub publication.
-Adapt to ARM64 only, two FPS variants, exact source SHA checkouts, staged native
-dependencies, least-privilege secrets, cleanup, checksums, immutable assets and
-prerelease-only publication from unmerged PRs. No Rhythm/Hermes/Colony resources.
-Tag-triggered testing bootstrap avoids merging merely to register a dispatch
-workflow; manual dispatch is documented for after workflow registration.
-
-## Ordered work and acceptance
-
-| Order | Work | Likely files | Required evidence |
-| --- | --- | --- | --- |
-| R1 | Freeze contract before implementation | tests/release, docs/ai/contracts | Runnable failing contract tests |
-| R2 | Implement mirrored workflow and release helper | .github/workflows/electron_release.yml, .github/electron-release-sources.json, scripts/electron-release.cjs, docs/releasing.md | Workflow syntax; input/provenance/security/publication negative tests |
-| R3 | Independently verify | scripts/checks.cjs, run record | Full repo gate; exact asset hash/signature/staple/runtime evidence; diff review |
-| R4 | Push existing tracking PR and publish testing release | PR58, GitHub Releases | Both downloadable DMGs with matching SHA256, source commits, separate identities and explicit remaining human gates |
-
-Concrete criteria: manual dispatch and testing-tag trigger exist; manual and
-tracking sources are full pinned SHAs from this repository; only ARM64 macOS is
-built; credentials fail closed and never reach dependency installation; hosted
-runner keychain is temporary and cleaned even on failure; both signed/notarized
-DMGs pass packaged checks before a single prerelease publication job; qualifying
-only never publishes; each asset has size/hash/source/version/minimum-OS metadata;
-duplicate releases/assets are refused rather than overwritten; downloaded public
-asset bytes must match their receipt. Real-person tracking, clean-OS/TCC and
-physical camera/gimbal smoke remain NOT TESTED until witnessed.
-
-## Completion checklist
-
-- [x] Read context and Rhythm reference; inspect live PRs, secrets and runners.
-- [x] Write contract and observe expected failures (8 runnable assertion failures;
-  missing workflow/helper/pins, no test-import or syntax errors).
-- [x] Implement workflow/helper/docs and independently review (11 focused tests
-  plus actionlint pass; no remaining blocking review finding).
-- [x] Run full repository and release-specific verification (PR gate exit0,
-  smoke268/sandbox104; exact final DMGs rechecked and mounted runtimes pass).
-- [x] Publish and verify both testing downloads; record hosted versus local proof.
-  `electron-local-testing-2026.10.01` is public; both unauthenticated downloads
-  match original sizes/hashes. These are locally built, not hosted-built DMGs.
-- [x] Update project state and hand off release links, without merging.
-
-Release: https://github.com/ajhochy/fps-camcontrol/releases/tag/electron-local-testing-2026.10.01
-Hosted PR validation: https://github.com/ajhochy/fps-camcontrol/actions/runs/36938086068
-Full hosted signing still awaits authorized GitHub secret setup. Clean-Mac and
-real-person/physical-rig acceptance remain unverified; publication does not close
-those gates or either draft PR.
-
-No TodoWrite/update_plan tool is exposed in this session; this durable checklist
-is the workflow tracking fallback.
-
----
-
-# Prior plan — packaging-first Electron delivery
-
-2026-10-01 · Delivered exactly two drafts: manual PR57/source133ae8d and stacked tracking PR58/source3711a9e. Both final signed/notarized/stapled DMGs pass exact mounted runtime. Clean-OS/physical gates remain MANUAL_PENDING; see `runs/2026-10-01-electron-delivery.md`. Historical sections below do not expand active scope.
-
-## Status and clarification interview
-
-The implementation follows this plan for exactly two draft PRs. The supplied request gives concrete outcomes, boundaries, topology, package identities, safety requirements, and verification gates, so no further clarification interview is needed. The app-home and embedded lifecycle slices have local checks; their integration with the preserved full-app wrapper must pass actual packaged runtime tests before the foundation is committed.
-
-The earlier broad plan starts under **Historical superseded plan**. It is retained for provenance, but its controller-customization, remote-access, updater, and broad issue-close scope are not active. The packaging-first scope record at `docs/ai/runs/2026-10-01-packaging-first-scope.md` takes precedence.
-
-## Intent and constraints pass
-
-**Goal.** Ship two independently reviewable ARM64 Electron DMGs: the existing manual CamControl app (macOS 13+) first, then the same verified foundation with genuinely implemented click-to-track (macOS 14+). The tracking minimum follows inspected native dependencies, not wheel filename assumptions.
-
-**In scope.** The foundation packages the existing backend/UI, native HID runtime, controller definitions, documentation, generic first-run seeds, private loopback lifecycle, persistence/import, package safety, signing/notarization, and its evidence. The stacked tracking PR implements #23–35 plus #50: configuration/source binding, capture timestamping, protocol, sidecar/model, control/safety arbitration, API/UI/controller toggle, packaged Python/model delivery, and the tracking runbook.
-
-**Out of scope.** Controller redesign/issues #3–6; remote/Tailscale work #54–56; auto-update #48; tray/diagnostics/launch-at-login #49 unless a minimal crash/startup error is necessary for the packaging contract; generic licensing/open-source issues #52–53 beyond notices and license proof for artifacts actually bundled; deployments, releases, merges, force-pushes, cleanup/deletion, live services/hardware, or mutation of PR #36/the original checkout. A real Sony SDK/CameraWebApp is never shipped.
-
-**Hard constraints.** Work only in the assigned worktree; preserve all existing dirty work and PR #36. Foundation targets `main`; tracking starts from the committed, independently verified foundation SHA and targets `feat/electron-foundation`. Exactly two new draft PRs. Use FPS isolated sandbox only, serialize fixed-port tests, do not share Electron-rebuilt native modules with the live app/Rhythm, do not leak/not read credentials, and never state a human/clean-OS/Gatekeeper/notary/hardware check passed without its evidence.
-
-**Tensions.** Packaged no-tools startup must coexist with the existing cwd-driven dev flow; helpful first-run setup must not import/overwrite personal production data; safe app lifecycle must stop motion without killing user-owned Sony services; a tracking installer must contain a real runtime/model yet baseline must contain none.
-
-**Cheapest proving path.** Convert the proven probe mechanics into a minimal production wrapper around the current app, package and test it from a mounted DMG with generic data, then freeze/commit that artifact before adding tracking. Tracking begins with deterministic protocol/control simulations and a real local TS↔Python mock before a legally redistributable model and packaged inference.
-
-## Baseline and safe decisions
-
-- Starting branch/HEAD: `feat/electron-foundation` at `763122d5ef27097661773ccc16d4f704f950ea81`; `origin/main` observed at `c9098d8ff4b771c369c56ca8a7bb1175bbfdb6f5`; merge-base is `57d51724f528ca1c31d8e7f875cab412b3beae56`. Main's four-file Electron/license delta is already present as uncommitted work and must be integrated without reset/discard. PR #36 remains untouched and must be acknowledged in the foundation PR description.
-- The probe proves Electron 44.5.1/Node 24.21.0/ABI149 can load `node-hid` in a signed ARM64 utility process, uses sandbox/context isolation/no Node integration, and supports empty-HOME/minimal-PATH/random-cwd launch and owned cleanup. It is diagnostic-only, not a deliverable. Its two failed synthetic 30-minute timing runs stay preserved and do not block packaging; neither failures nor the short green telemetry run prove a production timing fix.
-- **Safe decision: local-only foundation server.** The Electron app exposes the backend only on loopback and authenticates its renderer-to-backend session with a per-launch secret. This is required because packaged UI mutations otherwise have no trustworthy client boundary; it does not implement remote/Tailscale access or change remote issue status.
-- **Safe decision: first-run data.** Package only a generic empty/minimum-valid config (no personal addresses, approvals, credentials, or camera IDs). On first launch atomically seed `userData`; import requires validation, preview, explicit confirmation, and a backup. If the current config schema cannot represent zero rigs/ATEM safely, implement the smallest schema/UI tolerance needed rather than inserting fake production values.
-- **Safe decision: signed-but-not-notarized is not delivery complete.** Discover only credential presence/profile names using the approved keychain/environment pattern; never print values. If actual Apple acceptance cannot be obtained, keep the installer/PR as draft and mark notarization explicitly pending instead of simulating it.
-- **Safe decision: tracking model delivery.** Bundle the Python/runtime/model only after verifying the precise runtime, wheel, model-weight and export licenses are redistributable. If the model cannot legally ship, implement a signed-checksum, explicit user-initiated setup/cache path; no system Python/pip and no silent download.
-
-## Ordered two-PR implementation plan
-
-| Order | Title | Goal | Likely files | First validation | Dependencies |
-| --- | --- | --- | --- | --- | --- |
-| P1.0 | Foundation contract and baseline | Preserve PR36/dirty integration; turn the manual-package contract into executable checks and record real resource topology. | `docs/ai/contracts/electron-manual-package-v1.json`, `scripts/test-electron-manual-package.cjs`, package metadata/docs | `git diff --check`; probe contract replay; inspect actual staged resources | Existing probe |
-| P1.1 (#40) | Paths and immutable resources | Introduce an app-home/resource abstraction: packaged read-only assets, `userData` mutable files, unchanged cwd defaults in dev. | `src/config/paths.ts`, `configLoader`, Sony state/docs/log paths, `index.ts`, tests | Focused path/seed tests plus `pnpm build` | P1.0 |
-| P1.2 (#41) | Embedded backend lifecycle | Make backend start explicit, report actual loopback ephemeral port only after listener/auth readiness, accept validated shutdown, and avoid ATEM delaying offline UI. | `src/index.ts`, `src/embed.ts`, logger extraction, `statusServer.ts`, lifecycle tests | Child ready/shutdown/timeout tests; `CAMCONTROL_NO_CONTROLLER=1 pnpm test:smoke:isolated` | P1.1 |
-| P1.3 (#42) | Minimal secure Electron shell | Add a one-instance ARM64 shell that supervises one backend utility process; sandboxed window with preload-only, schema-checked IPC; no Node integration/navigation/popups. | `electron/main.*`, `preload.*`, supervisor, `package.json`, tests | Launch with controller disabled; kill owned child and verify bounded restart/quit cleanup | P1.2 |
-| P1.4 (#43) | Production manual DMG | Build `com.ajhochhalter.fpscamcontrol` production app/DMG: backend/UI/HID/controller defs/docs/notices staged; no tracker/Python/model/Track/Sony SDK. | `electron-builder.*`, `.npmrc`, resource/default files, package scripts, package tests | Actual ARM64 mounted-DMG resource/native-HID inspection; random cwd/empty HOME/minimal PATH/offline | P1.3 |
-| P1.5 (#44) | First-run/import | Present minimal operator setup and import flow with explicit consent, validation/backup/no overwrite, permissions guidance, and persistence. Preserve existing UI behavior rather than redesigning it. | Electron/setup UI, narrow API, seed/import service, UI tests | Fresh-home first/relaunch/import rejection and confirmation tests | P1.4 |
-| P1.6 (#45/#46) | Sony boundary and owned helper safety | Ship only our guide/patch/setup helper; locate/validate an explicitly user-supplied Sony sidecar, and enforce run ownership/start-time/PID-safe cleanup without touching adopted user processes. | `electron/sony/**`, helper ledger, setup docs/route, tests | Missing/invalid/valid fixture paths; no-Sony-in-bundle check; crash/quit orphan and adopted-process non-kill tests | P1.3–P1.5 |
-| P1.7 (#47, #51) | Sign, notarize, and independently verify foundation | Sign inside-out with hardened runtime/timestamps, submit/accept/staple, regenerate final archive, record immutable artifact evidence and honest clean-machine instructions. | signing/package scripts, entitlements, release/docs/run evidence, project-state at final handoff | `codesign --verify --deep --strict`, `spctl`, staple validation, mounted-DMG tests; genuine clean Mac/VM if available | P1.4–P1.6 |
-| P1.8 | Foundation PR gate | Independently rerun baseline/package checks, build immutable manual DMG, commit exactly foundation changes, open one draft PR to `main`. | contract/run docs/PR body | Required matrix below; SHA/size/hash/version/architecture/minOS recorded | P1.7 |
-| P2.0 | Freeze foundation and tracking contract | Branch `codex/electron-tracking` from P1.8 SHA; create protocol/config/safety contracts and keep baseline installer untouched. | tracking contract/docs, package variant config | Contract schema/negative-message tests | P1.8 |
-| P2.1 (#23/#24/#27/#29) | Config, timestamps, trusted sidecar protocol | Disabled-by-default source mapping, receipt timestamp header, bounded loopback helper credential/64KiB protocol, mock Python sidecar and TS client. | `src/config`, Sony manager/status route, `src/tracking`, `tracker-sidecar`, tests | Real TS↔Python loopback mock, malformed/stale/reconnect cases | P2.0 |
-| P2.2 (#25/#26) | Deterministic control and safety manager | Pure stable capped control/simulator then manager with shared manual pacing, manual override/e-stop/disconnect/stale/lost/profile-change stop rules and explicit resume only. | `src/tracking`, state/emergency stop/control hook, virtual tests | Delay sweep + virtual gimbal stop/order/rate scenarios | P2.1 |
-| P2.3 (#30/#31) | Actual detection and identity lock | Fetch authorized loopback frames with backoff, real licensed detector/model/provider telemetry, single-target click association/reacquire that prefers loss over identity switch. | `tracker-sidecar` detector/frame/association, notices/tests | Opt-in actual model load/inference plus synthetic crossing/occlusion/cancel tests | P2.1 |
-| P2.4 (#28/#32/#33) | Tracking API and operator controls | Auth-protected routes/status and accessible Focus/Track UI; click/overlay/Stop/Esc/explicit Resume; the existing unused `RS` only toggles cancel/resume without altering baseline mappings/chords. | `statusServer`, state, controller mapping schema, page checks/tests | API table, desktop/tablet/mobile/dark/keyboard UI tests, virtual pad regression | P2.2/P2.3 |
-| P2.5 (#50/#34) | Packaged tracker and calibration | Stage relocatable ARM64 Python/native runtime/model or secure setup cache; separate tracking identity/userData/update channel; add capped, opt-in-only calibration. | tracking package resources, Electron supervisor, calibration script/docs | Actual packaged model load/inference; offline/corrupt-checksum tests; calibration dry run | P2.3/P2.4 |
-| P2.6 (#35/#51) | Tracking artifact evidence and PR | Document setup/limits/runbook, build/sign/notarize separate tracking DMG, independently validate it and open one stacked draft PR. | docs/tests/contracts/run evidence/project state | Full tracking matrix; physical/clean-OS gates honestly pending unless witnessed | P2.5 |
-
-## Concrete acceptance and verification gates
-
-### PR 1 — Manual foundation (`feat/electron-foundation` → `main`)
-
-On a mounted ARM64 DMG, launch `com.ajhochhalter.fpscamcontrol` from a random cwd with a fresh temporary HOME, minimal PATH, network/hardware absent, and `CAMCONTROL_NO_CONTROLLER=1`. It must show usable offline setup/dashboard within a bounded startup period, report a real private loopback ready port, and persist an explicitly saved generic setting on relaunch. The app must contain the full existing backend/UI/runtime/native HID/resources/controller definitions/docs/legal notices, but contain no tracker Python/model/Track controls/Sony SDK/CameraWebApp and require no system Node/Python/pnpm/Homebrew/CLT.
-
-For an invalid or cancelled import, settings remain unchanged; for a confirmed valid import, a backup exists before replacement. A competing production app instance is refused while sandbox/test instances remain isolated. Quit/crash/sleep initiation sends stop before owned resources close, never replays motion on recovery, and never targets arbitrary/adopted Sony PIDs. Renderer isolation is verified with negative IPC/navigation checks. Every packaged binary passes nested signature verification; final delivery additionally requires Apple **Accepted** notarization, stapling, Gatekeeper assessment, and an artifact record (absolute path, SHA256, bytes, version, arm64, minOS13). A fresh-HOME test is hermetic evidence only; clean OS/Gatekeeper/TCC/physical HID remain explicit manual gates if no compatible clean Mac/VM is available.
-
-Run serially: `pnpm build`; `CAMCONTROL_NO_CONTROLLER=1 pnpm test:smoke:isolated`; `CAMCONTROL_NO_CONTROLLER=1 pnpm sandbox:check`; `python3 -m unittest discover -s pi-bridge/tests -v`; `node scripts/check-page-js.cjs`; production package/package-test commands added by this PR; `git diff --check`. Do not run unisolated smoke or live configuration/HID.
-
-### PR 2 — Tracking (`codex/electron-tracking` → `feat/electron-foundation`)
-
-With tracking enabled and a configured Sony-to-DJI source, a click on the Track preview starts an authenticated bounded sidecar session, reports visible locking/tracking state and an accessible overlay, and sends motion only while observations are fresh. Invalid/oversized/stale protocol data, missing sidecar/model, unavailable source/device, stale/future frame, target loss, sidecar disconnect, profile/binding change, sleep/shutdown, emergency stop, or manual stick override produces an immediate uncapped stop and never resumes except an explicit safe resume after operator override. Manual control of a different camera remains unaffected.
-
-The actual packaged tracking DMG is `com.ajhochhalter.fpscamcontrol.tracking`, has separate userData/artifact/update identity, contains a legally verified ARM64 runtime/model or an explicit checksum-verified setup state, and loads/inferences with the actual model (not a stub). The foundation artifact stays tracking-free. Synthetic simulator, protocol, virtual gimbal, UI/a11y, and packaged runtime tests are mandatory; real camera/gimbal/controller/30-minute activity tests are recorded as manual only unless actually witnessed.
-
-## Known ambiguities resolved safely
-
-1. **No notary profile found:** do not guess a loader or log an environment variable. Complete local signing/package checks, leave notarization `MANUAL_PENDING`, and do not call either installer notarized/delivered.
-2. **No clean macOS host available:** do not substitute fresh HOME for clean OS; retain a reproducible clean-machine procedure and mark Gatekeeper/TCC/physical HID pending.
-3. **Model redistribution uncertain:** do not bundle it. Deliver the explicit secure setup-unavailable state only if actual setup/inference remains testable; no AGPL substitution.
-4. **Issue-body mismatch:** Electron issue #28's historical LAN-open wording is superseded for the packaged shell by the user-requested private-loopback/auth boundary. Do not expand this into #54 remote access.
-
-## Completion checklist
-
-- [x] PR1 only contains packaging/lifecycle/persistence/security/resource fixes needed by the existing app and has an independently verified, signed/notarized manual DMG (inherited PR36 work credited).
-- [x] PR2 is stacked from the exact PR1 SHA, contains actual tracking plus its separately identified signed/notarized DMG, and does not mutate the manual artifact.
-- [x] Every automated gate has a command/result; each external/manual criterion is explicitly qualified, never implied.
-- [x] PR descriptions credit carried PR #36 work and use closing keywords only for genuinely completed scoped issues.
-- [x] Project-state update follows implementation, independent review, Apple acceptance and exact final-byte runtime evidence.
-
----
-
-# Historical superseded plan — retained for provenance
-
-2026-09-30 · Planning only · Design decisions delegated by AJ · No product changes or remote mutations.
-
-## Goal and authority
-
-Deliver exactly two **new draft PRs**: a dependency-free-on-the-user-Mac manual-control Electron app, then that verified foundation plus safe click-to-track. Fix discovered defects in these PRs, not by suggesting new tasks. The implementation manager owns coding dispatch, integration, independent verification, commits and PR creation. No merge, deployment, release publication, destructive cleanup or manual dashboard publishing is authorized. Do not mutate PR #36 or old issues/PRs. Human hardware criteria remain explicitly pending until witnessed.
-
-Read sources: full bodies of all open GitHub issues via `gh issue list --json number,title,body`; context pack and source at PR36 head; Electron plan and tracking plan via `git show origin/main:...`. Context-pack historical counts/status are stale, not current test evidence. No peers dispatched. GitNexus index is at d3cb437, not this baseline: source reads take precedence.
-
-## Baseline and PR topology (important ancestry correction)
-
-- Planning worktree: `/Users/ajhochhalter/.local/share/opencode/worktree/ec2e0fe3fdd54c2e9ab53bfa4cc75c91e40568ed/fps-electron-two-pr-plan`, branch `plan/electron-two-deliverables`, HEAD **763122d5ef27097661773ccc16d4f704f950ea81**. Original isolated branch retained; main checkout untouched.
-- Observed `origin/main` **c9098d8ff4b771c369c56ca8a7bb1175bbfdb6f5**, PR36 **763122d...**, actual merge-base **57d51724f528ca1c31d8e7f875cab412b3beae56**. Contrary to handoff, current main is **not** an ancestor of PR36: c9098d8 adds the MIT/license metadata and Electron plan after divergence. No attempted integration or merge commit was made during planning.
-- Foundation implementation branch `feat/electron-foundation`: start from PR36 head, incorporate main's c9098d8 documentation/license delta once (manager-controlled cherry-pick/integration), resolving package metadata without losing PR36 sandbox scripts. Target **main**. This carries rigs/sandbox work once; explicitly credit existing PR36 in description rather than opening a third foundation PR or changing PR36.
-- Tracking branch `feat/electron-tracking`: start at the independently verified, committed foundation SHA; target **feat/electron-foundation**. Only tracking/#50 and its incremental validation/docs belong in this diff. Exactly two new PRs, not one per slice. Freeze foundation while tracking integrates; any foundation repair is first committed there and then carried forward before revalidation.
-- Build immutable manual artifact from foundation SHA and tracking artifact from tracking SHA; record SHA/version/SHA256/architecture/size/test matrix. Tracking disabled in a tracking build is **not** the manual deliverable. Use distinct app identities `com.ajhochhalter.fpscamcontrol` and `com.ajhochhalter.fpscamcontrol.tracking`, userData roots and updater channels so both can be smoked without cross-updating or overwriting settings. A global production-control instance lock prevents simultaneous ownership of real hardware; sandbox instances are isolated.
-- Preserve `/Users/ajhochhalter/Documents/fps-camcontrol` at stale mega/01d3ea9 and its `.playwright-mcp/`, `config.json`, `permission-test.txt`. Do not remove any worktree/branch; user restriction overrides AGENTS cleanup advice.
-
-## Design decisions and constraints
-
-Alternatives considered: (1) duplicate sibling branches/apps — repeats shared fixes and risks drift; (2) one tracking-capable artifact with a toggle — does not prove the requested no-tracking app; (3) **stacked foundation + tracking** — smallest integration surface and separately proven installers, chosen. Keep existing Express/rigs UI, no renderer rewrite or generic plugin framework.
-
-- Apple Silicon/macOS only, MIT/open-source, public GitHub Releases as the future distribution source. Pin supported Electron/electron-builder/rebuild versions and exact dependency lock in the first packaging slice, recording minimum macOS supported by **all** native wheels/binaries. One pnpm lockfile, hoisted install; do not require pnpm/Node/Python/git/Homebrew/CLT on users' Macs.
-- Electron main owns one `utilityProcess`; backend owns SonyManager and, on tracking branch only, tracker supervision. Window loads private loopback Express port; sandboxed renderer, context isolation, no Node integration, narrow validated preload IPC, navigation/popups denied except allowlisted external Help links. No renderer-supplied shell commands/paths.
-- Backend binds loopback port **0**, publishes actual listening port, never finds then releases a free port. UI becomes ready even with ATEM/Sony/cameras absent; current awaited ATEM startup must not delay listener readiness. Refactor lifecycle only as needed; extract logger from index to remove import-start side effects and make graceful shutdown await real stop sends before closing transports/timers/server. Keep `pnpm start` working.
-- `CAMCONTROL_HOME` centralizes mutable config, mappings, operator profiles, presets, approvals, working-profile and logs; default developer behavior remains cwd. Packaged assets/docs/controller definitions are read-only resources, not cwd or userData fallbacks. Seed generic no-real-network defaults once with exclusive/atomic writes. First run permits zero configured rigs/ATEM (startup and UI must tolerate it) rather than probing fabricated production addresses. Import validates, previews, backs up and requires explicit overwrite consent.
-- Sony SDK/CameraWebApp/dylibs/ZIP **never** ship. Only our setup script, patch (license verified), guide ship. Core works offline without Sony. Locate valid user-supplied arm64 build, health-check using actual SonyManager schema, preserve explicit approval store. User may click to fetch pinned MIT upstream source; Sony SDK comes directly from user and only explicit user license acceptance permits install. Optional local build may need CLT/CMake; guide the user honestly, prefer upstream raw CMake if it removes Node dependency, never silently install tools/accept licenses. Tracking's **real Sony video** still needs this legal setup and a Pi bridge; neither is a hidden core prerequisite.
-- Ship relocatable arm64 Python plus pinned wheels/ONNX runtime in tracking artifact only. Prefer permissively licensed YOLOX ONNX weights **after separately proving weights/export license**, and minimal association + in-memory histogram, no ultralytics/AGPL or face recognition. Prefer bundled licensed model (downloaded at build time, not committed) for cold offline smoke; if license/size prevents bundling, controlled HTTPS download to cache requires pinned SHA256, bounded/resumable partial download, atomic promotion and in-app progress/retry. Missing/corrupt/offline model leaves manual control working and tracking visibly unavailable. Never use system Python/pip on user machines.
-- No images, crops, embeddings, target coordinates, camera approvals or credentials in persistent logs/diagnostics; aggregate timing/counts only. Synthetic fixtures only. Bundled notices cover native transitive payloads as well as npm dependencies; audit FFmpeg/OpenCV wheel licenses explicitly (avoid video-codec wheels when JPEG-only decode suffices).
-- Tailscale optional, user-installed/authenticated; app starts without it. Auth before Serve. No Funnel, no LAN/public bind, no broad `serve reset`, no altering unrelated mappings. Tailnet identity headers alone plus remoteAddress=loopback do **not** prove a trusted proxy: use a dedicated loopback remote gateway to consume Serve identity/allowlist and forward a per-launch authenticated internal request; production backend ignores identity headers directly. Gateway assumes local-machine processes are trusted, documents this boundary, applies exact Host/Origin/CSRF/role checks to HTTP and WS. Electron local operator session gets a per-launch credential, not anonymous loopback mutation rights.
-- Updates can download but never install automatically/on quit/on-air: explicit operator confirmation after stop, show-idle guard, defer on controller motion/tracking/active show, preserve all userData. ATEM has a program input even off-show; program presence alone is not a usable live-show test. Fail closed on invalid signature/downgrade. No release publication during delivery; release script defaults `--publish never`, publication requires separate explicit approval.
-- Helper lifecycle: one owner per process, bounded restart, no automatic replay of motion/targets after crash. Ledger includes PID **and** executable/start-time/run ownership; never kill arbitrary recycled PIDs or user-owned adopted Sony service. Parent-death monitor/pipe plus bridge dead-man stops must cover force-quit now, not merely next-start cleanup. Stop on sleep; wake does not resume tracking/motion.
-- Keep gentle DJI driver default **80** and explicit per-instance calibration env knob (1..1000); deployed gain 200 remains a human low-speed gate, not an implied passed check.
-
-## Shipping user journeys
-
-| User job / entry | Visible success | Owner / in-app check |
-|---|---|---|
-| Download DMG, drag to Applications, launch | Setup/dashboard usable offline without developer tools, Sony or Tailscale | F2–F4; packaged first/second launch + Gatekeeper drill |
-| Setup → controller/network/rigs/import | Honest detected/connected/permission states; validated config survives relaunch, no silent overwrite | F1,F3; Playwright wizard/rigs + physical HID/ATEM |
-| Controllers → operator/Remap/Control Feel | Named operator isolation, live bindings/curve graph, safe camera/zoom control | F1; virtual inputs + UI + real-pad drill |
-| Setup → Sony / Device Config → Sony connections | Skip without breaking core; explicit license/approval, connect approved cameras only | F4; absent/fake pairing tests + two-camera/FX3/HDMI drill |
-| Device Config → gimbal Discover/bind | Names/RSSI/empty/progress states, correct rig binding saved, previous device stopped | F1; sandbox discover/bind + real three-gimbal check |
-| Settings → Remote access | Off by default; authenticated allowlisted tailnet URL/QR, visible ON, own mapping removed on disable | F6; fake CLI + second-device tailnet check |
-| Help/Menu → diagnostics/licenses/login/update/quit | Redacted export, licenses readable, login opt-in, safe deferred update/quit | F5; fixtures + packaged lifecycle tests |
-| Tracking app → rig Tracking setup → Sony preview Track | Choose Sony/gimbal association without YAML; click person, box/status/Stop/Resume, Focus still works | T1,T5; desktop/tablet/mobile keyboard/dark Playwright |
-| Tracking app → calibration/stop/override | Explicit capped calibration; every loss/override stops with reason; no unexpected resume | T2,T4,T6; synthetic closed loop + human drill |
-
-## File ownership map
-
-Existing shared files, **one serial owner at a time**: `src/config/configLoader.ts`, `src/ui/statusServer.ts`, `src/index.ts`, `src/app/state.ts`, `src/model/controlStateMachine.ts`, `src/testing/smokeTest.ts`, `package.json`, lockfiles and `docs/ai/*`.
-
-- F1: `src/model/{controlStateMachine,cameraSelector}.ts`, `src/visca/speedCurves.ts`, `src/config/operatorProfiles.ts` (new), existing config/rig editing and `ui/rigs/*`: real remapping/operator settings, discovery/bind and baseline regressions.
-- F2: `src/config/paths.ts`, `src/embed.ts`, `src/app/logger.ts` (new); existing logger consumers, startup/server/shutdown: paths and lifecycle contracts.
-- F3–F5: `electron/{main,preload,supervisor,updater,diagnostics}.ts`, `electron/wizard/*`, `electron/sony/*`, `electron-builder.yml`, `build/*`, `resources/defaults/*`, `scripts/release.sh`, package scripts: shell, install and safety. Use modules only for these real responsibilities.
-- F6: `src/ui/auth.ts`, `electron/remote/*`, existing routes: local and remote authentication; separate non-shipping remote-input experiment under `src/testing/`.
-- T1–T6: `src/tracking/{protocol,trackingClient,trackingController,trackingManager}.ts`, `tracker-sidecar/{tracker_sidecar,protocol,frames,detector,tracker,association}.py`, `resources/python/`, `src/testing/{virtualTrackingSidecar,trackingSim}.ts`: frozen contracts, deterministic control, vision and packaged supervision.
-- Tests extend existing `src/testing/sandbox/*`, `pi-bridge/tests/`, add narrowly scoped package/Playwright harnesses; docs include `docs/electron.md`, `docs/tracking.md`, `docs/releasing.md`, notices/security/contributing, contracts and run evidence. Do not create a parallel sandbox.
-
-## Audit and serial coding dispatch
-
-Status legend: **present** = source evidence, not acceptance passed; **partial** = observable gap; **new** = absent. Every issue remains in scope; no automatic closing keywords for unfinished human acceptance. Exact issue bodies remain authoritative except explicitly safer delegated decisions above/below.
-
-| Serial slice / issues / observed status | Likely files / concrete scope and acceptance | Depends / required validation |
-|---|---|---|
-| F0 — #21 partial; #38 new | Integrate c9098d8 once; preserve PR36 rigs/sandbox. Record delegated ADR, exact SHAs, chosen gain 80 and review Switch Pro normalizers/conflict resolutions. #21's old PR20 merge/cleanup instructions are superseded, **not executed**. MIT #37 present on main, absent PR36 head, not new work. | First; B,D; no old PR/branch mutations |
-| F1a — #3 new | State machine/selector/mappings/UI: optional bumper camera selection, stick-flick fallback; plain RB next, LB previous on release only if no face/RB chord consumed. LB+face still saves, LB+RB recenters, neither switches. Auto transition moves to `start` in bumper preset, LS precision retained. Preserve legacy bindings until user chooses new preset. All named mappings actually drive input (currently mostly hardcoded). Stop old camera on switch. | F0; B,A,U; chord press/release table, no duplicate motion/cuts |
-| F1b — #4 partial | Trigger zoom is already implemented (difference RT−LT, LS precision, no RT cut); Remap schema exists but runtime reads fixed triggers. Make zoom/precision/transition mappings live/configurable; curve respects pressure, equal triggers cancel. Clarify Take behavior rather than invent an existing RT cut. | F1a; B,U; feather/full/equal/release, switch-mid-zoom stop |
-| F1c — #5 new | New operator profile store **distinct from rig `/api/profiles`**: `/api/operator-profiles`, names validated against traversal, migration from mappings, named Save As/switch/current label. A saves only A, B switches live, restart restores choice; active/last deletion refused. Atomic writes, validation errors never silently replace user file with defaults. | F1b; B,A,U; migration/restart/read/write fault checks |
-| F1d — #6 new | Schema + speedCurves + Controllers Control Feel: power/piecewise/sigmoid/linear, tunable deadzone and curve parameters, precision/sprint/default speed profile fields; default power 1.5 unchanged. Bounded finite endpoints/monotone curve; SVG preview and live marker; persist per operator, apply to pan/tilt/zoom. | F1c; B,U; endpoints/sign/invalid/continuity + hot apply/restart |
-| F1e — #9 new | Pi `discoverGimbals`: existing host-wide BLE lock reused, timeout clamped, plausible DJI names + showAll, name/address/RSSI list or empty. Concurrent instances must not bypass lock; no scan-induced motion or link churn. | F0; P + fake lock/scanner; manual all-three lock/links gate |
-| F1f — #10 new | Pi `bindGimbal`: stop old before close, new address passed to background `maintain_gimbal`, immediate ack even absent; same connected address no-op; hello boundAddress/gimbalConnected; env stays boot default. | F1e; P; async bind/off/same; actual switch needs human |
-| F1g — #11 new | Bridge schema/client/factory/reconcile: optional gimbalAddress round-trips; binds after hello; discover proxy returns actual Pi list; changing binding stops/rebuilds correct device; hostname/no-address legacy supported. | F1f; B,A,S; fake protocol round-trip/reconcile |
-| F1h — #12 new; #13 partial | Rigs UI (not retired legacy Device Config): Discover progress survives poll, selection persists gimbalAddress, name suffix/RSSI/bound/connected/empty explanation. Pi/spec docs method/ack shapes, instances/ports, boot defaults, BLE lock and four troubleshooting signatures. | F1g; S,U,D; real correct-gimbal movement remains pending |
-| F1i — #14,#18 present | YAML Document writer, placeholder-host rejection, protocol patch hydration and rigs save guards exist. Re-run load/save/load including gimbals/unknown fields/comments/working copies/stale versions; fix regressions, don't rewrite writer. | F1h; B,S,A; protocol+bridge+comments retained, no string undefined/null |
-| F1j — #15,#16,#19 present; #17 partial | Driver already has disconnect callback/write-failure/retry, CRC reassembly and gain clamp/log; app separates bridge and gimbal. #17 still returns cached pose up to 1.5s old: violates literal newer-than-call acceptance. Require newer-than-request for preset reads with adequate deadline, retain actual timestamp/age semantics. Test malformed/jump/mid-drop, clear stale link truth; 100 stationary hardware reads <0.5° spread remains human. | F1i; P,B,S; #15 power-cycle, #16 bridge-up/gimbal-off, #19 low-speed gain are manual |
-| F1k — #22 present/physical pending | SonyManager/store + rigs connections present. Retain separate approved-ID store, explicit new ID connect, conservative pairing/no auto-approval; adopt manager's existing bounded dormant probes. Re-run 103/8 historical focused suites without assuming those counts remain current; reconcile c10 contract against actual branch. | F1j; B,S,U,D; two cameras, FX3 focus, HDMI, live layout are manual |
-| F2a — #39 new spike | Tiny packaged utility-process/native HID probe, record Electron/ABI/arm64/min-OS and timing histogram. Spike evidence stays run note, not a third PR. No physical read claimed by no-controller test. | F0; K,L; fail fast if native load incompatible |
-| F2b — #40,#41 new | Paths/resources/logger/lifecycle refactor; embedded ready/shutdown, real listen port 0, signal+IPC shutdown idempotent, backend listener not gated by absent ATEM, all stop sends before close. Developer flow unchanged; timers disposed; imports no longer boot hardware. | F1,F2a; B,S,A; poisoned cwd/HOME/path, child messages/readiness/shutdown |
-| F3a — #42,#43 new | Shell/supervisor + arm64 builder: one global production instance, safe window, crash banner/bounded restart without motion replay, keep-awake; resources and native addon ASAR unpack. Seed generic zero-device home once. Installer starts offline with no shell/developer tools. | F2b; K,B; native module load from packaged utility process, repeat launch/no overwrite |
-| F3b — #44 new | Wizard: welcome/import/controller/network/Sony/Pi/remote steps skippable, re-entry idempotent, permission help not simulated grant; actual ATEM probe and saved-state confirmation. Empty inventory accepted, adding first rig works. | F3a; U,A,K; fresh-account TCC/network manual |
-| F4a — #45 new | Sony locator precedence: explicit config/env → managed app-home → known user checkout → picker; executable/arm64/launch/status/version/timeout validation. Optional pinned upstream fetch only on click; bundled setup+license steps never pre-accept; errors and cancel cleanly return to usable dashboard. | F3b; B,U,K,N; real license/helper under notarized parent manual |
-| F4b — #46 new | Backend helper supervisor/ledger, Sony owner retained; parent-death monitor stops owned helpers on force-quit, safe next-start recovery verifies executable/start-time/owner. Adopted external services never killed. Sleep/quit stops motion first. | F4a; K,S; crash/kill/recycled-PID/adopted-service/port checks |
-| F5a — #47 new | Local build/sign/notary/staple script with publication off, empirically least entitlements, stable identity. Inspect nested native payloads and verify signatures. Credential failure surfaces clearly without printing secrets. | F3a,F4b; N; actual notary authority external, publication prohibited |
-| F5b — #48 new | Public GitHub updater, variant-isolated feeds, explicit idle install, downgrade/signature refusal, no install-on-quit or install during controller/tracking/show activity; update N→N+1 retains config/approvals/permission identity. | F5a; K,U,N; local test feed only, no release publication |
-| F5c — #49 new | Menu/tray health, opt-in login, logs folder, allowlist-built redacted diagnostics export (never entire config/home/raw error/log dump). About versions/licenses. | F4b; B,U,K; sentinel-secret/path/approval/frame redaction tests |
-| F5d — #52,#53 new | Generate deterministic bundled notices incl Electron/Chromium/native/Python later; fail GPL/AGPL/unknown without decision, negative test. Scan current tree **and history** safely; record only finding class/path, never secret values. Generic defaults, PDF/privacy review, SECURITY/CONTRIBUTING/templates/trademark disclaimer. Never rewrite history automatically. | F3a; C,D,K; installer exclusion+notice inspection; findings fixed in this delivery |
-| F6a — #54 new | Auth/remote gateway as design above; exact Host/Origin/CSRF/session/roles, all mutating HTTP+WS protected incl config, rig/operator profiles, Sony, presets; direct forged Tailscale headers rejected. Rebind child port safely after restart. | F2b before F6b; A,C,S; deny anonymous/forged identity/viewer writes/WS cross-origin |
-| F6b — #55 new | Optional Tailscale detect/status JSON/Serve mapping toggle with URL+QR/allowlist/ON wizard. Inspect real installed CLI version/help/schema read-only before commands are designed; fake CLI tests preserve every unrelated mapping, handle auth/HTTPS consent/failure. Never Funnel/reset. | F6a,F3b; C,U + real second-device authenticated tailnet drill |
-| F6c — #56 new measured spike | Non-shipping experiment: Browser Gamepad→WS input, one operator lease/host takeover, stale sequence rejection/250ms expiry, e-stop both sides. Synthetic latency tests + real **second-device** Tailscale input→app→command timings and drop-mid-move ≤500ms. Written go/no-go, not released remote gamepad feature. Missing second device = `BLOCKED: NOT MEASURED`, not fabricated go/no-go. | F6b; S,L,C; run note distinguishes synthetic vs tailnet |
-| F7 — #51 new (foundation portion) | Freeze manual artifact and independent gate matrix; docs/support/runbooks/state update. Repair failures in owning slices before tracking branches. #51 spans both builds and is not fully complete after foundation. | All F slices; B,P,S,U,A,C,K,N,L,D |
-| T1a — #23 new | Tracking schema/default disabled, source inventory+DJI validation, runtime deviceKey maintained through rigs/working-profile resolution. Tracking setup in rigs/wizard edits Sony/gimbal association safely; mapping from current Sony device binding, no duplicate hidden topology. Source absent from active profile→unavailable. | Verified F7; B,A,U |
-| T1b — #24 new | SonyFrame capturedAt set at complete upstream receive, coalesced callers share timestamp; X-Frame-Captured-At + no-store; busy/Retry-After untouched. Document **receipt timestamp, not sensor exposure time**. | T1a; B,A,S |
-| T1c — #27,#29 new | Freeze v1 zod/JSON schemas before TS/Python clients. Loopback ephemeral WS, per-launch helper credential, configure actual frame URL/authorized access, mock scenarios, bounded reconnect and no replayed select. Reject invalid/unknown/oversized/stale-session messages. | T1b; B,V,S; real TS↔Python loopback mock round-trip |
-| T2 — #25 new | Pure EMA+PD law with clock injection, deadzone/hysteresis, invert signs/cap 0.35, stale decay; simulator 8fps, 20Hz, quantization+first-order plant and 150/300/500ms delay. Assert settles within ±0.04 by 30s, overshoot ≤20% initial error and ≤1 post-crossing reversal; no sustained oscillation in final 10s. Fix/tune if it fails, never just weaken assertions. | T1a types; B,V,L |
-| T3a — #30 new | Real ONNX person detector, one in-flight pull/source, duplicate timestamp skip, Retry-After/backoff/corrupt-frame handling; prefer available acceleration with CPU fallback. Licenses + model hash from actual artifact, opt-in actual model load test, FPS/detect p50/p95/age measured on this Mac, not a stub benchmark. | T1b,T1c; V,C,L |
-| T3b — #31 new | Smallest-containing/nearby-radius click lock, exclusive identity, association/dropout prediction, conservative appearance-gated reacquire; lost immediate zero, cancel wipes memory. Synthetic crossing/occlusion/neighbor/no-target tests. If ambiguous identity, lose target instead of switching people. | T3a; V; model real-path integration |
-| T4 — #26 new | Manager 20Hz arbitration; manual tracked-camera stick suspends before motion; other camera unaffected; e-stop cancels all; stale/WS/device loss/sleep/shutdown/profile or binding change stops. Stop never rate-limited; disabled has no sockets/timers. Unified per-device motion budget with manual path, not two independent 20Hz budgets. | T1c,T2; B,S,V; exact state/stop-count scenarios |
-| T5a — #28 new | Status/select/cancel/**resume** adapter routes under F6 auth. 400 invalid,404 unknown,409 disabled/unavailable; coalesce select ≥250ms; async acceptance, additive status shape; cancel idempotent with stop. Curated errors only. | T4; A,S |
-| T5b — #32,#33 new | Focus/Track default Focus, letterbox-aware click/overlay, keyboard Esc/Stop, aria-live + contrast, explicit Resume after override. Poll pauses hidden/backoff. `RS` toggles cancel/resume/no-session no-op; all five shipped definitions expose RS, unused by baseline. F1 operator editor exposes binding; preserve LB chords and emergency Back. | T5a,F1; U,B; mobile/tablet/dark/all states, real pad manual |
-| T6a — #50 new | Bundle relocatable Python/native wheels/model or secure setup from design; no Python/pip at runtime; helper supervision shares F4b machinery; run outside ASAR, sign nested binaries, variant-specific notices/resources. Cold-offline and offline-after-setup tests, corrupt checksum refused, install size recorded. | T3b,T4,F5; K,V,C,N |
-| T6b — #34 new | Capped calibration ≤0.15/≤1s only explicit `--yes-move`, connected rig, always finally stop incl Ctrl-C; dry-run synthetic frames, N trials median/spread, recommend config without editing. No angular-rate claim from pixel displacement without calibrated FOV/geometry: label pixels/s or calibrate scale first. | T4,T3b; V,L; real command→visible delay is human gate |
-| T7 — #35 and #51 tracking portion new | Tracking/operator/clean-machine runbooks, context update and immutable tracking artifact. Human first-gain check, cap0.35, override/e-stop/sidecar kill/BLE+Sony stale/lost target and separate 30min idle+active soak. No new follow-up issues: intentionally excluded v1 jobs documented as limits. | All T; all gates repeated for both variants, never claim human PASS from fakes |
-
-**Dispatch ownership/order:** manager sends one fresh coding-agent context per thin row (may combine adjacent tiny rows); F0→F1a–d→F1e–k→F2→F3→F4→F5→F6→F7→T1→T2→T3→T4→T5→T6→T7. F2a can be the first feasibility probe before extensive F1 edits, but its hardware gate is not a blocker to deterministic coding. No concurrent hot-file writers. Pure simulator and Python vision could be disjoint after protocol freeze, but default is serial per AJ's delivery constraints. `configLoader/statusServer/index/state/smokeTest/package/lock/docs` ownership follows this exact order, not subsystem peers. Before each route edit run `gitnexus_api_impact` if indexed baseline is refreshed; otherwise manually map handlers/consumers/shapes and record staleness. No unsolicited refactors or new GitHub tasks.
-
-## Frozen acceptance contracts (write JSON contracts before implementation)
-
-Contract IDs `foundation-electron-v1` and `tracking-electron-v1` under `docs/ai/contracts/`; each criterion names issue+slice+test+artifact+evidence state (`PASS`, `FAIL`, `NOT_RUN`, `BLOCKED`, `MANUAL_PENDING`). Safety/security/packaged-runtime failures block smoke-ready, not mere warnings. A draft PR can describe incomplete manual gates honestly; do not call its app clean-machine verified until those gates pass.
-
-- Embedded IPC v1: backend→parent `{type:'ready', protocol:1, port:<actual integer>, pid:<integer>}` after listener ready and local auth bootstrapped; parent→backend `{type:'shutdown',protocol:1}`; backend→parent `{type:'stopped',protocol:1}` after stop/cleanup. Private credential travels via parent channel/env only, not URL/logs. Schema reject unknown messages; timeout yields visible failure, no infinite startup spinner.
-- Tracker protocol v1 uses `protocol:1` envelopes. App→helper `hello`, `configure {sources:[{sourceId,frameUrl}]}`, `select {sourceId,x,y,sessionId}`, `cancel {sourceId,sessionId}`, `ping`; helper→app `hello {version,capabilities:['person'],detector,provider,degradedTiming}`, `track {sourceId,sessionId,seq,state,cx,cy,w,h,conf,frameTs,processedAt}`, `pong`, curated `error {code,message}`. States `locking|tracking|lost|idle`; geometry finite normalized image coordinates, dimensions positive/in-bounds, confidence [0,1], timestamps finite/not implausibly future; configured loopback frame URLs only, no SSRF redirects/arbitrary file access. Frame fetch uses scoped credential, not generic operator credential; credential never appears in status. Cap inbound WS payload at 64KiB. Ignore stale seq/session; reconnect invalidates target, requires reselect.
-- `/api/tracking/status` retains #28 exact `{enabled,sidecar:{state,version?},sources:[{sourceId,sonyCameraId,cameraId:null|string,state,reason?,target?:{cx,cy,w,h,conf},ageMs?}]}`; no frame bytes, paths, credentials or raw sidecar errors. Select/cancel/resume bodies as #28; every mutation protected by foundation auth. Add source settings separately, not state in routes.
-- Time conflict resolved: control-law unit decay 400→700ms as #25, but manager stops at **500ms** without genuinely fresh observation; prediction must not refresh `frameTs` or liveness. At >500ms delivery age/future-invalid frame, send no motion. Merely stale session may return on fresh valid observation (literal #26); operator override/e-stop/disconnect/restart/profile change never auto-resumes. Lost stops immediately, holds up to3s, conservative identity reacquire only. Manual path gets priority and shared pacing; stop ordering tested before any manual move/preset/recenter/rebind.
-- #39/#56 remain **measured experiments**, not marketing claims. Loop histogram p50/p95/p99/max and missed 150ms heartbeat/250ms watchdog budgets recorded under load/idle. Remote go only if actual p95 input→backend-command ≤150ms and disconnect→stop ≤500ms across trials; otherwise no-go, keep remote gamepad unshipped. No claims of exposure-to-frame latency from Sony receipt timestamp.
-
-## Validation commands and gate evidence
-
-Planning did not install dependencies, build, run hardware, change Serve, sign or submit notarization. Existing commands **confirmed in PR36 package.json** (run only inside implementation worktree with its own dependencies):
-
-```sh
-pnpm install --frozen-lockfile
-pnpm build
-pnpm test:smoke:isolated
-pnpm sandbox:check
-python3 -m unittest discover -s pi-bridge/tests -v
-pnpm exec ts-node src/testing/sonyManagerTest.ts
-pnpm exec ts-node src/testing/sonyConfigStoreTest.ts
-node scripts/check-page-js.cjs
-git diff --check
-```
-
-Use existing FPS sandbox, **not Rhythm sandbox**. Sandbox ports are currently app8090/Sony8191/VISCA52391–3/DJI17878–80; isolated smoke app8175/Sony8199. Serialize runners and inspect collisions; `SANDBOX_PORT` changes only app port, **not** fixed fake ports. Fake teardown/unique run homes required. Live source smoke still boots index on import until F2b fixes it; never run unisolated smoke against real config/HID. Smoke checks hardcoded profile counts/order may need updating as mappings evolve; do not drop safety coverage.
-
-These are **required new scripts**, not existing commands; owning slice must add them and document invocation before marking its gate passed:
-
-| Gate / script contract | Required evidence |
-|---|---|
-| B backend: existing build/isolated smoke + `pnpm test:backend` (F1/F2) | Focused config/rig/operator/normalizer/stops + real HTTP sandbox; import causes no hardware startup; sidecar absent/crash cases |
-| P Pi: existing Python unittest | Discovery lock/bind/reconnect/CRC/fresh pose/gain; virtual transport only, no deployment |
-| S backend/live-path: existing `pnpm sandbox:check` + `pnpm test:tracking:integration` (T1/T4) | Real backend+TS client+mock Python+virtual gimbal across subprocess/HTTP/WS, crash/stop/state ordering |
-| U UI/a11y: `pnpm test:ui` (F1/F3) | Playwright against real FPS sandbox and packaged Electron; first-run/import/rigs/remap/curves/Sony/remote/tracking states; keyboard, accessible names/focus/aria-live/contrast; desktop/tablet/mobile/dark; no console or fetch errors |
-| A API: `pnpm test:api` (F1/F6) | Shape/status/error/role tables, all new+existing consumer contracts, no destructive save/unknown fields regressions, auth HTTP+WS |
-| C security/licenses: `pnpm test:security` and `pnpm licenses:check` (F5/F6) | Forged identity/origin/host/CSRF/traversal/IPC/SSRF, diagnostics sentinels, no Sony payload/dev tools/personal defaults, dependency/native/model notices and unsafe-license negative case |
-| K packaged runtime: `pnpm electron:package -- --publish never`, `pnpm test:packaged` (F3/F4) | Final .app from final DMG, random cwd, empty test home/minimal PATH, HID enumeration native load in actual utilityProcess, no system deps, health/UI startup+relaunch/config retention, crash/quit/force-quit/no orphans, asset/doc availability; offline both variants |
-| V vision/control: `pnpm test:tracking:sim`; bundled-Python `-m unittest discover -s tracker-sidecar/tests -v`; `pnpm test:tracking:model` (T2/T3/T6) | Deterministic delay sweep; protocol/bad frame/503/occlusion/cancel; **actual packaged model/runtime** loads+executes, provider reported, downloads/checksums/offline fallback negative cases |
-| N signing: `codesign --verify --deep --strict --verbose=2 "$APP"`; `spctl --assess --type execute --verbose=2 "$APP"`; `xcrun stapler validate "$DMG"` | Inside-out signatures, actual notary accepted/stapled, no signing bypass; downloaded quarantine Gatekeeper launch and stable TCC version update on fresh machine remain manual |
-| L performance: `pnpm test:loop-timing`; `pnpm tracking:calibrate -- --dry-run` (F2/T6) | Actual loop/sidecar/tracking metrics with host/versions/load/duration; 30min idle+active histogram; #56 remote measurements distinguished from mocks; no unrelated benchmark project |
-| D docs: `pnpm test:docs` (F7/T7) + `git diff --check` | Referenced scripts actually exist; contracts/issues/artifact SHAs mapped, setup supports no-tools machine and legal Sony exception; state update records facts vs pending |
-
-**Strongest available clean-machine proof:** final arm64 DMG opened in a genuinely clean macOS VM/second Apple-Silicon Mac with network/download quarantine intact, no Homebrew/CLT/Node/Python, hardware permission drill on physical host as needed. Fresh user tests add TCC/install coverage; empty HOME/minimal PATH on this developer machine is only a hermetic packaged-runtime test, **not a fresh OS/Gatekeeper/physical HID substitute**. Test cold offline core, tracking cold offline if bundled model or explicit setup-needed state if not, online first model setup then offline tracking, missing Sony/Tailscale, paths with spaces, update retention, sleep/wake, 30min idle/active soaks. Record device/OS/architecture, artifact hash, exact environment, each pass/fail/pending.
-
-## Tooling limits and doubt review
-
-- Read-only metadata probe found Node, pnpm, Python3, gh, codesign/security/spctl/hdiutil, Tailscale and full Xcode `notarytool`/`stapler`. `security find-identity -v -p codesigning` reports valid Developer ID Application identities (multiple entries for same team); **no private keys, passwords or notary credentials read/exported**. Choose an explicitly valid identity consistently during manager validation. Existence is not proof signing access/notary login works. Notary profile availability and credential usability remain UNVERIFIED; probe via manager's approved nonsecret procedure, no credential dumps. Do not reuse the older plan's false “no identity on this dev machine” assumption.
-- No `prlctl`, `tart` or `virsh` command found in PATH. This does not prove no VM/second Mac exists; no clean-OS or physical device evidence acquired. Tailscale CLI presence does not prove daemon/authenticated tailnet/HTTPS or second-device access. #56 measurements unperformed. These are execution/evidence gates, not design questions or excuses to open follow-up tasks.
-- **Native ABI/TCC doubt:** `node-hid` may load under system Node yet fail in signed utilityProcess; rebuilding changes native output and can break Node-side tests if artifacts shared. Cheapest probe: F2a package arm64 and load/enumerate in actual utility child, then signed physical pad. Separate staged Node vs Electron native builds, never share node_modules across worktrees. Primary docs checked: [Electron native modules](https://www.electronjs.org/docs/latest/tutorial/using-native-node-modules), [utilityProcess](https://www.electronjs.org/docs/latest/api/utility-process) (fork after ready, parentPort, unsigned-library permission default false). Avoid unsigned-library/lib-validation exemptions without measured need; pin versions before exact API claims.
-- **Sony license doubt:** existing script/patch proves technical lifecycle, not redistribution/automated acceptance rights. Cheapest probe: inspect supplied Sony terms and upstream MIT patch/source attribution; prove no Sony material in manifest/DMG, exercise explicit consent using fixtures, then real locally built child under signed parent. Primary local sources `docs/sony-sidecar-setup.md`, `scripts/setup-sony-sidecar.sh`, SonyManager; legal acceptance automation remains UNVERIFIED, manual user action fallback required.
-- **Model/wheel license doubt:** YOLOX project Apache license alone does not license every downloaded ONNX weight/export or native wheel payload. Verify actual pinned upstream weight/export and notices/hash, load on bundled arm64 Python before committing packaging decisions. Primary sources to verify at T3: upstream YOLOX license/model release, ONNX Runtime wheel notices, python-build-standalone distribution manifest and any JPEG decoder native license. Unknown artifact license blocks bundling; never substitute AGPL silently.
-- **Signing doubt:** multiple valid identity entries may have different certificate lifetimes/access; helper signatures, minimum OS and TCC attribution must survive update. Cheapest probe: local signed thin app, nested verification, approved notary submission and clean downloaded launch; discover existing main-machine script/profile names only without secrets. No automatic release/upload; notary submission also requires implementation-manager authority distinct from planning.
-- **Remote trust doubt:** Tailscale strips spoofed headers but localhost address alone cannot distinguish direct local clients. Dedicated remote gateway + per-run internal credential and documented local-process trust avoid treating arbitrary backend headers as identity. Official [Serve docs](https://tailscale.com/kb/1312/serve) checked: HTTPS consent, identity header names, absent headers for tagged clients, CLI≥1.52 changes. Read actual installed CLI schema/version before integration; no guessed mapping JSON or fabricated latency.
-
-## Coverage/self-review and handoff
-
-| Original requirement | Owner / falsifiable completion |
-|---|---|
-| Exactly two new PRs, other issues vs tracking | F0/F7/T7; foundation targets main, tracking targets frozen foundation, PR36 unchanged; every listed open issue maps above |
-| Electron without tracking / with tracking | F7/T7; two SHA-addressed DMGs, manual has no tracker/Python/model/Track controls; tracking real detector works with legal Sony+rig setup |
-| Clean machine, no preinstalled dependencies | F3/F4/T6/#51; K cold core start + genuine clean-OS N/manual drills; developer tools only optional user-built Sony setup |
-| Fix findings rather than recommend tasks | Every slice; repair gate failures in same owning branch and revalidate; human/credential gates reported honestly, no fabricated checks |
-| Autonomous decisions, record them | Design + F0 ADR; no approval interview or unresolved design choices; external execution authority/evidence not invented |
-| Packaged/backend/UI/a11y/security/API/docs/performance gates | K/B/S/U/C/A/D/L above, artifact-specific evidence and independent manager verification |
-| Preserve production/unrelated checkout; no merge/deploy/cleanup | Isolated worktree, FPS sandbox only; no main checkout changes, no global kills/Serve resets/releases or worktree deletion |
-
-No requirement gaps discovered in this planning pass. Prior tracking/Electron plans' scope notes do not remove user-facing setup, operator customization, remote settings or issue #56 evaluation from this delivery. VISCA video ingest/zoom tracking/face re-ID remain outside existing v1 tracking acceptance, not newly filed tasks. **Do not label full delivery PASS while physical, clean-OS, signed update or actual tailnet criteria are pending.** Return this plan to the workflow orchestrator; start a fresh coding context for F0/F2a, then serial slices. Planning output is this single file only.
+# Current plan — program streaming core
+
+The user selected core first on 2026-10-06. The complete implementation plan and ordered issue table are in
+[2026-10-06 — program streaming core](plans/2026-10-06-program-streaming-core.md).
+
+## Intent and constraints
+
+Replace Wirecast's program-feed streaming/recording role with Cam Control's managed FFmpeg pipeline,
+YouTube scheduled-event selection, local audio monitoring and adjustable video sync delay. Preserve
+camera/ATEM control, capture ownership and output continuity. Core first; effects and new event creation deferred.
+MP4 is the default recording format per the user follow-up: hybrid fragmented MP4 during capture,
+regular MP4 after a successful normal stop, with recovery of completed fragments after interruption.
+
+## Ordered issues
+
+| Order | Goal | Likely areas | Required evidence | Dependencies |
+| --- | --- | --- | --- | --- |
+| 1 | Prove shared encode, independent output joins and frame sync | Program/media service and synthetic fixtures | Measured steady-state offsets and decodable output joins; bounded queues | None |
+| 2 | Own capture, stream and recorder lifecycles | Backend lifecycle and existing program adapter | Independent outputs, fault isolation and complete teardown | 1 |
+| 3 | Add local monitor, meters and calibration | Streaming page, audio socket/worklet and config | Audible stereo monitor; independent monitor mute/gain; saved frame delay | 2 |
+| 4 | Connect scheduled events securely | YouTube API/OAuth service and Keychain helper | Event list/bound stream; correct broadcast lifecycle; protected credentials | 2 |
+| 5 | Finish the operator workflow | Streaming page and status/action adapters | Existing event to confirmed YouTube Live plus concurrent recording | 3, 4 |
+| 6 | Package and qualify the target rig | Both Electron variants and operator docs | Clean installed-app proof, physical capture and two-hour YouTube/record soak | 5 |
+
+## Planning status
+
+- [x] Read project context and inspect the current capture/packaging path.
+- [x] Confirm core-first scope with the user and state implementation defaults.
+- [x] Research primary FFmpeg, Web Audio and YouTube API references.
+- [x] Write the detailed plan, output interfaces, ordered issues and acceptance gates.
+- [ ] Implement the synthetic end-to-end media proof before committing to the integrated pipeline.
+- [ ] Implement and independently qualify the full core workflow.
+
+No implementation or runtime tests were performed for this plan. Current local checkout is
+`feat/ipad-remote-touch-redesign` at `84efc9a`; confirm the latest reviewed integration base before implementation.
+The previous Electron release/packaging plan is preserved in
+[2026-10-01 — Electron release and packaging](plans/2026-10-01-electron-release-and-packaging.md).
+Existing PR/hardware gates in that archived plan remain separately relevant.
