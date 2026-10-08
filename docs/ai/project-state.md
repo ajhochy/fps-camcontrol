@@ -6,6 +6,8 @@ type: project
 
 ## Current focus
 
+2026-10-07 delivery checkpoint: draft [PR #91](https://github.com/ajhochy/fps-camcontrol/pull/91) combines the integration baseline, exact deployed Studio iPhone assets, and desktop/iPad Hold this framing. Bounded independent gate passed; physical framing/safety/Safari and broad packaged/runtime qualification remain pending. No automatic zoom or phone Hold feature. Streaming implementation is separate in draft [PR #90](https://github.com/ajhochy/fps-camcontrol/pull/90). Local active branches are limited to `feat/combined-studio-framing` and `feat/streaming-s1-media-proof`; old working copies are superseded. No merge/deployment or Studio config change.
+
 Program streaming is planned, not implemented. The user accepted both plan reviews: real capture proof first, conditional media architecture, coupled sessions, MP4 default, Electron-only new streaming, OS audio routing, explicit queue-age/signal/clock behavior. See [plan](plans/2026-10-06-program-streaming-core.md) and [26-step backlog](generated-issues/streaming-core/README.md).
 
 ## Active branch / PR
