@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 // The `yaml` package (not js-yaml) is used here on purpose: its Document API
@@ -5,6 +6,11 @@ import path from 'path';
 // documentation alive across a UI save. See writeDevicesYaml().
 import * as YAML from 'yaml';
 import { z } from 'zod';
+import { writeFileAtomic } from './atomicWrite';
+import { getUserPath } from './paths';
+import { PROGRAM_DEFAULTS, ProgramConfig } from '../program/programFeed';
+import { TrackingSchema, TrackingConfig, collectTrackingIssues, resolveTrackingConfig } from '../tracking/configSchema';
+import { loadWorkingProfile, setAside as setAsideWorking, workingProfilePath, WorkingProfile } from './workingProfile';
 
 // The string forms of JavaScript's nullish values. A UI that interpolates an
 // absent field into a text input produces the literal string "undefined", which
@@ -38,6 +44,7 @@ const BridgeSchema = z.object({
 
 const CameraSchema = z.object({
   id: z.string(),
+  deviceKey: z.string().optional(),
   label: z.string(),
   protocol: z.enum(['visca', 'dji-bridge']).default('visca'),
   cameraType: z.enum(['vbot', 'birddog', 'generic']).default('generic'),
@@ -52,6 +59,10 @@ const CameraSchema = z.object({
   // above 1 for slower cameras (V-BOT) so they keep up with faster BirdDogs.
   speedScale: z.number().min(0.1).max(5).default(1.0),
   bridge: BridgeSchema.optional(),
+  // Key of the Sony camera device (protocol: sony) mounted on this rig, if any.
+  camera: z.string().optional(),
+  // Zoom goes to the bound Sony camera when it is connected; `head` keeps zooming the PTZ head instead.
+  zoom: z.enum(['head']).optional(),
 }).superRefine((cam, ctx) => {
   if (cam.protocol === 'visca' && !cam.viscaIp) {
     ctx.addIssue({ code: 'custom', message: `camera ${cam.id}: viscaIp required when protocol=visca`, path: ['viscaIp'] });
@@ -82,6 +93,8 @@ const SonySchema = z.object({
   apiUrl: z.string().url().default('http://127.0.0.1:8181'),
   executable: z.string().optional(),
   stateFile: z.string().min(1).optional(),
+  /** launchd job label of the background Sony service (scripts/install-sony-service.sh), for the Start button. */
+  launchdLabel: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/).optional(),
 });
 
 // An entry in the device inventory: a piece of hardware that exists, described
@@ -89,13 +102,16 @@ const SonySchema = z.object({
 // has no `id` or `inputId` — those belong to the slot a profile puts it in.
 const InventoryDeviceSchema = z.object({
   label: z.string(),
-  protocol: z.enum(['visca', 'dji-bridge']).default('visca'),
+  // `sony` is a camera (not a controller): it is referenced from a rig's `camera:` and can never be a rig's `device:`.
+  protocol: z.enum(['visca', 'dji-bridge', 'sony']).default('visca'),
   cameraType: z.enum(['vbot', 'birddog', 'generic']).default('generic'),
   viscaIp: HostString.optional(),
   viscaPort: z.number().default(52381),
   cameraAddress: z.number().min(0).max(7).default(1),
   speedScale: z.number().min(0.1).max(5).default(1.0),
   bridge: BridgeSchema.optional(),
+  // The camera id the Sony sidecar reports (a MAC address). Optional so a rig can be set up before its camera is first seen.
+  sonyCameraId: z.string().regex(/^[A-Za-z0-9:-]{1,128}$/, 'sonyCameraId must be a camera id such as 9C:50:D1:AC:7B:72').optional(),
 }).superRefine((dev, ctx) => {
   if (dev.protocol === 'visca' && !dev.viscaIp) {
     ctx.addIssue({ code: 'custom', message: `device ${dev.label}: viscaIp required when protocol=visca`, path: ['viscaIp'] });
@@ -113,12 +129,79 @@ const SlotSchema = z.object({
   // Optional: a slot whose camera is not wired to the switcher is control-only
   // (motion works, switching does not). See CameraSchema.inputId.
   inputId: OptionalInputId,
+  // Key of the Sony camera device mounted on this rig (optional; BirdDog rigs have a built-in camera and take none).
+  camera: z.string().optional(),
+  // `head`: zoom the PTZ head even when a Sony camera is bound (default: the Sony camera's own zoom).
+  zoom: z.enum(['head']).optional(),
 });
 
 const ProfileSchema = z.object({
   label: z.string().optional(),
   slots: z.array(SlotSchema).min(1).max(8),
 });
+
+/**
+ * Cross-checks between the device inventory and the rigs (profile slots) that use it.
+ * Shared by config load and by profile saves so the rules cannot drift:
+ *  - a rig's `device` must be a controller, never a Sony camera;
+ *  - a rig's `camera` must be a Sony camera device, and BirdDog rigs (built-in camera) take none;
+ *  - a Sony camera can be on only one rig per profile;
+ *  - two Sony devices cannot claim the same physical camera id.
+ */
+export function collectRigIssues(
+  devices: Record<string, InventoryDevice>,
+  profiles: Record<string, Profile>,
+): { message: string; path: (string | number)[] }[] {
+  const issues: { message: string; path: (string | number)[] }[] = [];
+  const claimed = new Map<string, string>();
+  for (const [key, device] of Object.entries(devices)) {
+    if (device.protocol !== 'sony' || !device.sonyCameraId) continue;
+    const id = device.sonyCameraId.toUpperCase();
+    const other = claimed.get(id);
+    if (other) {
+      issues.push({ message: `Sony devices "${other}" and "${key}" both use camera id ${device.sonyCameraId}`, path: ['devices', key, 'sonyCameraId'] });
+    } else {
+      claimed.set(id, key);
+    }
+  }
+  for (const [name, profile] of Object.entries(profiles)) {
+    const used = new Map<string, number>();
+    profile.slots.forEach((slot, i) => {
+      const where = ['profiles', name, 'slots', i] as (string | number)[];
+      const controller = devices[slot.device];
+      if (controller?.protocol === 'sony') {
+        issues.push({ message: `profile "${name}" rig ${i + 1}: "${slot.device}" is a Sony camera, not a controller`, path: [...where, 'device'] });
+      }
+      if (slot.camera === undefined) return;
+      const camera = devices[slot.camera];
+      if (!camera) {
+        issues.push({ message: `profile "${name}" rig ${i + 1}: camera "${slot.camera}" is not in the device inventory`, path: [...where, 'camera'] });
+      } else if (camera.protocol !== 'sony') {
+        issues.push({ message: `profile "${name}" rig ${i + 1}: camera "${slot.camera}" is not a Sony camera device`, path: [...where, 'camera'] });
+      }
+      if (controller?.cameraType === 'birddog') {
+        issues.push({ message: `profile "${name}" rig ${i + 1}: "${slot.device}" is a BirdDog with a built-in camera and takes no Sony camera`, path: [...where, 'camera'] });
+      }
+      const previous = used.get(slot.camera);
+      if (previous !== undefined) {
+        issues.push({ message: `profile "${name}": camera "${slot.camera}" is on both rig ${previous + 1} and rig ${i + 1}`, path: [...where, 'camera'] });
+      } else {
+        used.set(slot.camera, i);
+      }
+    });
+  }
+  return issues;
+}
+
+const ProgramSchema = z.object({
+  enabled: z.boolean().default(PROGRAM_DEFAULTS.enabled),
+  input: z.string().min(1).max(200).nullable().default(PROGRAM_DEFAULTS.input),
+  kind: z.enum(['avfoundation', 'decklink']).nullable().default(PROGRAM_DEFAULTS.kind),
+  formatCode: z.string().regex(/^[A-Za-z0-9]{2,4}$/).nullable().default(PROGRAM_DEFAULTS.formatCode),
+  fps: z.number().int().min(1).max(30).default(PROGRAM_DEFAULTS.fps),
+  width: z.number().int().min(160).max(1920).default(PROGRAM_DEFAULTS.width),
+  ffmpegPath: z.string().min(1).default(PROGRAM_DEFAULTS.ffmpegPath),
+}).strict();
 
 const DevicesSchema = z.object({
   atem: AtemSchema,
@@ -131,7 +214,21 @@ const DevicesSchema = z.object({
   graphics: GraphicsSchema.optional(),
   lowerThirds: z.object({ type: z.string(), dskIndex: z.number() }).optional(),
   sony: SonySchema.optional(),
+  // The status UI's network address. Absent = this Mac only (127.0.0.1); "0.0.0.0" = everyone on the network.
+  server: z.object({ host: z.string().regex(/^[0-9a-fA-F.:]{2,45}$/).optional() }).optional(),
+  // Driving the cameras from an iPad with a game controller (/remote). Off unless switched on here or on the desk page.
+  remoteControl: z.object({ enabled: z.boolean().default(false), pin: z.preprocess((v) => (typeof v === 'number' ? String(v) : v), z.string().regex(/^\d{4,8}$/, 'pin must be 4-8 digits (quote it in the YAML to keep leading zeros)')).optional() }).optional(),
+  tracking: TrackingSchema.optional(),
+  // The switcher's PROGRAM output on a capture device of this Mac, shown in the iPad's PGM pane (docs/program-feed.md).
+  // enabled: off by default. input: the device NAME (exact, then case-insensitive substring; re-resolved at each start).
+  // kind: avfoundation (UVC cards) | decklink (Blackmagic); absent = decided from the device. formatCode: DeckLink mode
+  // (e.g. Hp30). fps / width: of the picture sent to the iPad. ffmpegPath: the ffmpeg binary.
+  program: ProgramSchema.optional(),
 }).superRefine((cfg, ctx) => {
+  for (const issue of collectTrackingIssues(cfg.tracking, cfg.devices)) ctx.addIssue({ code:'custom', ...issue });
+  if (cfg.profiles && cfg.devices) {
+    for (const issue of collectRigIssues(cfg.devices, cfg.profiles)) ctx.addIssue({ code: 'custom', ...issue });
+  }
   const hasProfiles = !!cfg.profiles && !!cfg.activeProfile;
   if (!hasProfiles && !cfg.cameras) {
     ctx.addIssue({
@@ -189,6 +286,7 @@ const MappingSchema = z.object({
   speedDown: z.string().default('dpadDown'),
   lowerThirds: z.string().default('dpadLeft'),
   emergencyStop: z.string().default('back'),
+  trackingToggle: z.string().default('RS'),
 });
 
 export type CameraConfig = z.infer<typeof CameraSchema>;
@@ -203,6 +301,7 @@ export interface SonyRuntimeConfig {
   apiUrl: string;
   executable?: string;
   stateFile: string;
+  launchdLabel?: string;
 }
 
 export interface AppConfig {
@@ -217,6 +316,17 @@ export interface AppConfig {
   profiles?: Record<string, Profile>;
   activeProfile?: string;
   sony?: SonyRuntimeConfig;
+  /** Where the status UI listens (STATUS_HOST overrides; default 127.0.0.1, this Mac only). */
+  serverHost?: string;
+  /** iPad remote control (the /remote page): whether it starts switched on, and an optional PIN. */
+  remoteControl?: { enabled: boolean; pin?: string };
+  tracking?: TrackingConfig;
+  /** The live program feed for the iPad's PGM pane (loadConfig always fills it; off by default). */
+  program?: ProgramConfig;
+  /** Unsaved rig edits of the active profile, applied on top of it (see workingProfile.ts). */
+  working?: WorkingProfile;
+  /** Something to tell the operator about the working copy (a draft that could not be restored, an outside edit). */
+  workingNotice?: string;
 }
 
 function parseSonyEnabled(value: string): boolean {
@@ -239,6 +349,7 @@ function resolveSonyConfig(raw: z.infer<typeof SonySchema> | undefined, devicesP
     apiUrl,
     executable,
     stateFile: path.isAbsolute(stateFile) ? stateFile : path.resolve(path.dirname(devicesPath), stateFile),
+    ...((process.env.SONY_LAUNCHD_LABEL ?? yaml.launchdLabel) ? { launchdLabel: process.env.SONY_LAUNCHD_LABEL ?? yaml.launchdLabel } : {}),
   };
 }
 
@@ -257,8 +368,10 @@ export function resolveProfile(
   return profile.slots.map((slot, i) => {
     const dev = devices[slot.device];
     if (!dev) throw new Error(`unknown device "${slot.device}" in profile slot ${i + 1}`);
+    if (dev.protocol === 'sony') throw new Error(`device "${slot.device}" in profile slot ${i + 1} is a Sony camera, not a controller`);
     return CameraSchema.parse({
       id: `cam${i + 1}`,
+      deviceKey: slot.device,
       label: dev.label,
       protocol: dev.protocol,
       cameraType: dev.cameraType,
@@ -268,14 +381,16 @@ export function resolveProfile(
       cameraAddress: dev.cameraAddress,
       speedScale: dev.speedScale,
       bridge: dev.bridge,
+      camera: slot.camera,
+      zoom: slot.zoom,
     });
   });
 }
 
 export function loadConfig(): AppConfig {
-  const devicesPath = process.env.DEVICES_CONFIG ?? path.join(process.cwd(), 'config/devices.yaml');
-  const speedsPath = process.env.SPEEDS_FILE ?? path.join(process.cwd(), 'config/speeds.json');
-  const mappingsPath = process.env.MAPPINGS_FILE ?? path.join(process.cwd(), 'config/mappings.yaml');
+  const devicesPath = process.env.DEVICES_CONFIG ?? getUserPath('config/devices.yaml');
+  const speedsPath = process.env.SPEEDS_FILE ?? getUserPath('config/speeds.json');
+  const mappingsPath = process.env.MAPPINGS_FILE ?? getUserPath('config/mappings.yaml');
 
   const devicesRaw = YAML.parse(fs.readFileSync(devicesPath, 'utf8'));
   const devices = DevicesSchema.parse(devicesRaw);
@@ -297,9 +412,32 @@ export function loadConfig(): AppConfig {
   }
 
   // Profiles win when present; otherwise fall back to the explicit camera list.
-  const cameras = devices.profiles && devices.activeProfile
+  let cameras = devices.profiles && devices.activeProfile
     ? resolveProfile(devices.devices ?? {}, devices.profiles[devices.activeProfile])
     : devices.cameras ?? [];
+
+  // Unsaved rig edits survive a restart: apply the working copy on top of the saved profile.
+  let working: WorkingProfile | undefined;
+  let workingNotice: string | undefined;
+  if (devices.profiles && devices.activeProfile && devices.devices) {
+    const file = workingProfilePath(devicesPath);
+    const loaded = loadWorkingProfile(file, {
+      profiles: devices.profiles as unknown as Record<string, { slots: { device: string; inputId?: number; camera?: string }[] }>,
+      devices: devices.devices as unknown as Record<string, { protocol?: string; cameraType?: string }>,
+    });
+    workingNotice = loaded.notice ?? undefined;
+    if (loaded.working) {
+      const issues = collectRigIssues(devices.devices, { [loaded.working.base]: { slots: loaded.working.slots } });
+      if (loaded.working.base !== devices.activeProfile) {
+        workingNotice = `Unsaved rig changes belonged to the profile "${loaded.working.base}", but "${devices.activeProfile}" is active; they were kept aside as ${setAsideWorking(file, () => new Date())}.`;
+      } else if (issues.length) {
+        workingNotice = `Unsaved rig changes could not be restored (${issues[0].message}); they were kept aside as ${setAsideWorking(file, () => new Date())}.`;
+      } else {
+        working = loaded.working;
+        cameras = resolveProfile(devices.devices, { slots: loaded.working.slots });
+      }
+    }
+  }
 
   return {
     atem: devices.atem,
@@ -311,6 +449,12 @@ export function loadConfig(): AppConfig {
     profiles: devices.profiles,
     activeProfile: devices.activeProfile,
     sony: resolveSonyConfig(devices.sony, devicesPath),
+    serverHost: process.env.STATUS_HOST ?? devices.server?.host ?? '127.0.0.1',
+    remoteControl: devices.remoteControl,
+    tracking: resolveTrackingConfig(devices.tracking),
+    program: ProgramSchema.parse(devices.program ?? {}),
+    working,
+    workingNotice,
   };
 }
 
@@ -406,8 +550,47 @@ export function validateDevicesConfig(raw: unknown): ValidatedDevicesConfig {
   };
 }
 
+/** Whole-file import must not hydrate partial camera patches from the current installation. */
+export function validateImportedDevicesConfig(raw: unknown): z.infer<typeof DevicesSchema> {
+  const devices = DevicesSchema.parse(raw);
+  return { ...devices, sony: { enabled: false, apiUrl: 'http://127.0.0.1:8181' } };
+}
+
+/** A save was based on a version of devices.yaml that is no longer on disk (edited by hand, or by another save). */
+export class ConfigConflictError extends Error {
+  constructor() {
+    super('devices.yaml changed on disk since this page loaded it; reload and try again');
+    this.name = 'ConfigConflictError';
+  }
+}
+
+export { writeFileAtomic };
+
+/**
+ * Short fingerprint of devices.yaml as it is on disk right now. Read endpoints
+ * hand it to the page; a save that sends it back is refused when the file has
+ * changed in between (hand edit, another save, a profile switch).
+ */
+export function devicesFileVersion(): string {
+  try {
+    return crypto.createHash('sha256').update(fs.readFileSync(devicesConfigPath())).digest('hex').slice(0, 16);
+  } catch {
+    return 'missing';
+  }
+}
+
+/** Where devices.yaml is (DEVICES_CONFIG, else config/devices.yaml under the app home). */
+export function devicesConfigFile(): string {
+  return devicesConfigPath();
+}
+
 function devicesConfigPath(): string {
-  return process.env.DEVICES_CONFIG ?? path.join(process.cwd(), 'config/devices.yaml');
+  return process.env.DEVICES_CONFIG ?? getUserPath('config/devices.yaml');
+}
+
+/** The parsed devices.yaml as it is on disk now (empty object when missing or unreadable). */
+export function readDevicesFile(): Record<string, unknown> {
+  return readDevicesYaml();
 }
 
 function readDevicesYaml(): Record<string, unknown> {
@@ -477,8 +660,15 @@ function stripUndefined(value: unknown): unknown {
  * inputId. A dump()-style write erases all of that on the first UI save
  * (issue #14), because comments are not part of the parsed value at all.
  */
-function writeDevicesYaml(data: Record<string, unknown>): void {
+/** Write devices.yaml through the comment-preserving merge; refuses with ConfigConflictError if `expectedVersion` is stale. */
+export function writeDevicesFile(data: Record<string, unknown>, expectedVersion?: string): void {
+  writeDevicesYaml(data, expectedVersion);
+}
+
+function writeDevicesYaml(data: Record<string, unknown>, expectedVersion?: string): void {
   const devicesPath = devicesConfigPath();
+  // Checked here, right before the merge re-reads the file, so nothing can slip in between.
+  if (expectedVersion !== undefined && expectedVersion !== devicesFileVersion()) throw new ConfigConflictError();
   let doc: YAML.Document | null = null;
   try {
     doc = YAML.parseDocument(fs.readFileSync(devicesPath, 'utf8'));
@@ -487,11 +677,11 @@ function writeDevicesYaml(data: Record<string, unknown>): void {
   }
   // No parsable mapping to merge into (missing or empty file): nothing to preserve.
   if (!doc || !YAML.isMap(doc.contents)) {
-    fs.writeFileSync(devicesPath, YAML.stringify(stripUndefined(data), { lineWidth: 120 }), 'utf8');
+    writeFileAtomic(devicesPath, YAML.stringify(stripUndefined(data), { lineWidth: 120 }));
     return;
   }
   applyToDocument(doc, [], data);
-  fs.writeFileSync(devicesPath, doc.toString({ lineWidth: 120 }), 'utf8');
+  writeFileAtomic(devicesPath, doc.toString({ lineWidth: 120 }));
 }
 
 /** Persist which profile is active, leaving the rest of the file untouched. */
@@ -506,7 +696,7 @@ export function saveActiveProfile(profileName: string): void {
 }
 
 /** Persist profile slot definitions, validating them before touching the file. */
-export function saveProfiles(profiles: Record<string, Profile>): void {
+export function saveProfiles(profiles: Record<string, Profile>, expectedVersion?: string): void {
   const existing = readDevicesYaml();
   const inventory = (existing.devices ?? {}) as Record<string, unknown>;
   for (const [name, profile] of Object.entries(profiles)) {
@@ -517,15 +707,17 @@ export function saveProfiles(profiles: Record<string, Profile>): void {
       }
     });
   }
+  const rigIssues = collectRigIssues(inventory as Record<string, InventoryDevice>, profiles);
+  if (rigIssues.length) throw new Error(rigIssues[0].message);
   existing.profiles = profiles;
   // If the active profile was deleted, fall back to one that still exists so the
   // next load doesn't fail validation.
   const active = existing.activeProfile as string | undefined;
   if (active && !profiles[active]) existing.activeProfile = Object.keys(profiles)[0];
-  writeDevicesYaml(existing);
+  writeDevicesYaml(existing, expectedVersion);
 }
 
-export function saveDevicesConfig(config: ValidatedDevicesConfig): void {
+export function saveDevicesConfig(config: ValidatedDevicesConfig, expectedVersion?: string): void {
   // Merge into the existing file rather than replacing it. `cameras` is derived
   // from the active profile, so a blind write of {atem, cameras, graphics} would
   // delete the whole `devices:` inventory and every profile.
@@ -583,11 +775,11 @@ export function saveDevicesConfig(config: ValidatedDevicesConfig): void {
     out.cameras = config.cameras;
   }
 
-  writeDevicesYaml(out);
+  writeDevicesYaml(out, expectedVersion);
 }
 
 export function saveMappings(mappings: MappingConfig): void {
-  const mappingsPath = process.env.MAPPINGS_FILE ?? path.join(process.cwd(), 'config/mappings.yaml');
+  const mappingsPath = process.env.MAPPINGS_FILE ?? getUserPath('config/mappings.yaml');
   const header = '# Controller button mappings - managed by FPS CamControl UI\n';
-  fs.writeFileSync(mappingsPath, header + YAML.stringify(mappings), 'utf8');
+  writeFileAtomic(mappingsPath, header + YAML.stringify(mappings));
 }

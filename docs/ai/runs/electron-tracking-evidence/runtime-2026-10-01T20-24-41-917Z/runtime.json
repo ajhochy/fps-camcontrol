@@ -1,0 +1,109 @@
+{
+  "testedAt": "2026-10-01T20:24:41.918Z",
+  "status": "FAIL",
+  "dmg": {
+    "path": "/Users/ajhochhalter/.local/share/opencode/worktree/ec2e0fe3fdd54c2e9ab53bfa4cc75c91e40568ed/fps-electron-two-pr-plan/release/tracking/FPS CamControl Tracking-tracking-0.1.0-arm64.dmg",
+    "bytes": 227443211,
+    "sha256": "bc9b562873cc234ea98d7b4d0e5801967c333d6c6657610081e9169bdc011f9a"
+  },
+  "criteria": {
+    "defaultDisabledNoHelper": "PASS",
+    "packagedNetworkDeniedModelAndProtocol": "PASS"
+  },
+  "screenshots": [],
+  "appErrors": [],
+  "networkErrors": [],
+  "boundary": "Exact mounted DMG on developer host, fresh HOME/minimal PATH, real packaged live helper and generated image loopback fixtures. Not clean OS/TCC, camera accuracy, physical hardware or soak acceptance.",
+  "appAsarSha256": "12d6fbb8c529c39a1ddf7c8f87f85c45fb3bd01b5c82e5990ebcb444d47fe6b9",
+  "startupMs": 7074,
+  "runtime": {
+    "versions": {
+      "node": "24.21.0",
+      "acorn": "8.18.0",
+      "ada": "4.0.0",
+      "amaro": "1.1.11",
+      "ares": "1.34.8",
+      "brotli": "1.2.0",
+      "cldr": "48.0",
+      "icu": "78.2",
+      "llhttp": "9.4.3",
+      "merve": "1.2.2",
+      "modules": "149",
+      "napi": "10",
+      "nbytes": "0.1.4",
+      "ncrypto": "0.0.1",
+      "nghttp2": "1.70.0",
+      "nghttp3": "",
+      "ngtcp2": "",
+      "openssl": "0.0.0",
+      "simdjson": "4.6.7",
+      "simdutf": "7.7.0",
+      "sqlite": "3.53.4",
+      "tz": "2025c",
+      "undici": "7.29.1",
+      "unicode": "17.0",
+      "uv": "1.52.1",
+      "uvwasi": "0.0.23",
+      "v8": "15.2.124.28-electron.0",
+      "zlib": "1.3.2.1-motley",
+      "zstd": "1.6.0",
+      "electron": "44.5.1",
+      "chrome": "152.0.7977.130"
+    },
+    "separateUserData": true,
+    "sandbox": true,
+    "contextIsolation": true,
+    "nodeIntegration": false
+  },
+  "packagedPython": {
+    "testedAt": "2026-10-01T20:24:54.305Z",
+    "scope": "packaged-runtime",
+    "app": "/var/folders/f0/kwf9lqtx57qgt3j4rbtvg1ym0000gn/T/fps tracking mounted runtime KmThd5/Mounted DMG/FPS CamControl Tracking.app",
+    "model": {
+      "path": "/var/folders/f0/kwf9lqtx57qgt3j4rbtvg1ym0000gn/T/fps tracking mounted runtime KmThd5/Mounted DMG/FPS CamControl Tracking.app/Contents/Resources/models/object_detection_yolox_2022nov.onnx",
+      "bytes": 35858002,
+      "sha256": "c5c2d13e59ae883e6af3b45daea64af4833a4951c92d116ec270d9ddbe998063"
+    },
+    "hostArchitecture": "arm64",
+    "cleanOS": "NOT_TESTED",
+    "physicalHID": "NOT_TESTED",
+    "inference": {
+      "modelSha256": "c5c2d13e59ae883e6af3b45daea64af4833a4951c92d116ec270d9ddbe998063",
+      "provider": "CoreMLExecutionProvider",
+      "inferenceCount": 2,
+      "shape": [
+        1,
+        8400,
+        85
+      ],
+      "finite": true,
+      "inputDependent": true,
+      "detectP50Ms": 22.363999858498573,
+      "detectP95Ms": 23.829958867281675,
+      "fps": 43.29570478842347,
+      "frameAgeMs": 23.829958867281675,
+      "personCounts": [
+        0,
+        0
+      ],
+      "fixture": "generated RGB only; not accuracy proof",
+      "timingScope": "inference only; not source transport or camera exposure latency"
+    },
+    "networkDeniedInference": "PASS",
+    "helper": {
+      "handshake": "PASS",
+      "selectTrackingCancelIdle": "PASS",
+      "heartbeat": "PASS",
+      "ownedStopAwaited": "PASS",
+      "shutdownMs": 13
+    },
+    "motionIntegration": {
+      "scope": "actual packaged Python + packaged TS control + virtual gimbal",
+      "motion": "PASS",
+      "manualOverrideResume": "PASS",
+      "helperCrashStopNoReplay": "PASS",
+      "physicalHardware": "NOT_TESTED"
+    }
+  },
+  "failure": "Exactly one Python belongs to the actual backend\n\n0 !== 1\n"
+}

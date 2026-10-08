@@ -1,0 +1,17 @@
+{
+  "criteria": {},
+  "screenshots": [
+    {
+      "path": "/Users/ajhochhalter/.local/share/opencode/worktree/ec2e0fe3fdd54c2e9ab53bfa4cc75c91e40568ed/fps-electron-two-pr-plan/docs/ai/runs/electron-manual-evidence/runtime-2026-10-01T19-28-06-577Z/mounted-dmg-startup-failure.png",
+      "sha256": "54124cdd277ee9a1b25ace10d313550e98e688a71636bb3343c5c94fd43e7f86",
+      "state": "FAILED startup, not dashboard evidence"
+    }
+  ],
+  "consoleErrors": [],
+  "networkErrors": [],
+  "appErrors": [],
+  "evidenceBoundary": "Developer host fresh HOME/minimal PATH, not clean OS/TCC/hardware/Gatekeeper/notarization.",
+  "startupMs": 4899,
+  "url": "http://127.0.0.1:62505/",
+  "failure": "c7: app must not read/write the actual account home"
+}

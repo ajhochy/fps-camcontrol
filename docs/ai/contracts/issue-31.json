@@ -1,0 +1,64 @@
+{
+  "issue": 31,
+  "generated": "2026-10-01",
+  "criteria": [
+    {
+      "criterion_id": "issue-31-c1",
+      "text": "`select{x,y}` picks the detection containing the click (smallest area if nested); if none, the nearest detection whose center is within a configurable radius; otherwise responds with `idle` + `error{code:\"no_target\"}`.",
+      "mode": "unit",
+      "test_file": "tracker-sidecar/tests/test_issue_31.py",
+      "test_id": "test_issue31_c1",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-31-c2",
+      "text": "Lock is exclusive: a new person entering or standing near the target never takes over the ID.",
+      "mode": "unit",
+      "test_file": "tracker-sidecar/tests/test_issue_31.py",
+      "test_id": "test_issue31_c2",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-31-c3",
+      "text": "Tracks through short detection dropouts (Kalman predict) and brief occlusion; emits `tracking` with the last good geometry flagged by `conf`.",
+      "mode": "unit",
+      "test_file": "tracker-sidecar/tests/test_issue_31.py",
+      "test_id": "test_issue31_c3",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-31-c4",
+      "text": "On loss beyond `reacquireMs`, emits `lost`; attempts reacquire only with an appearance check (e.g. color-histogram similarity against the locked crop, stored **in memory only**) above a threshold; otherwise stays `lost` until timeout ⇒ `idle`.",
+      "mode": "unit",
+      "test_file": "tracker-sidecar/tests/test_issue_31.py",
+      "test_id": "test_issue31_c4",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-31-c5",
+      "text": "`cancel` clears all lock state and memory of the target appearance immediately.",
+      "mode": "unit",
+      "test_file": "tracker-sidecar/tests/test_issue_31.py",
+      "test_id": "test_issue31_c5",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-31-c6",
+      "text": "Geometry is smoothed only lightly (the app owns the control filter) and always normalized; `frameTs` is that of the frame it was derived from.",
+      "mode": "unit",
+      "test_file": "tracker-sidecar/tests/test_issue_31.py",
+      "test_id": "test_issue31_c6",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-31-c7",
+      "text": "Tracker library license (MIT/Apache/BSD) recorded; AGPL/GPL dependencies are not added without a recorded decision.",
+      "mode": "unit",
+      "test_file": "tracker-sidecar/tests/test_issue_31.py",
+      "test_id": "test_issue31_c7",
+      "status": "pass"
+    }
+  ],
+  "stack": "python",
+  "not_tested": []
+}

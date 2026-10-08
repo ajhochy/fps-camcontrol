@@ -32,7 +32,14 @@ Point the main app at it by adding a camera entry to `config/devices.yaml`:
 Restart the main app. The DJI device joins camera selection on the controller
 exactly like a VISCA camera.
 
-## Production deploy (target Pi: `worship`)
+## One Pi per gimbal (2026-10)
+
+Each gimbal now has its own Pi running one bridge on port 7878, installed from the Mac with
+`scripts/install-pi-bridge.sh <host> --user-service --gimbal <address>`. Which Bluetooth gimbal a bridge drives is
+saved on the Pi (`gimbal.json`) and changed in Device Config ("Choose gimbal…"), or over plain HTTP:
+`GET /gimbals[?scan=1]`, `POST /gimbal?address=<addr|auto>`. Runbook: [docs/pi-per-gimbal.md](../docs/pi-per-gimbal.md).
+
+## Production deploy (bridge 1, `worship`, templated multi-gimbal units)
 
 The active RS3 path is Bluetooth LE. CAN/PiCAN3 is fallback/history only.
 This unit intentionally targets the deployed `worship` account and stable

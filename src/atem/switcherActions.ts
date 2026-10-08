@@ -94,6 +94,18 @@ export async function autoTransitionControlledCamera(
   logger.info({ program: state.programCamera, standby: state.previewCamera }, 'auto transition');
 }
 
+/**
+ * Mirror the switcher: set state.lowerThirdsActive from the key's real on-air state, so the buttons are right even
+ * when someone takes the slides on or off at the ATEM panel. Returns true when it changed.
+ */
+export function syncLowerThirdsFromAtem(atem: AtemClient, state: AppState, config: AppConfig): boolean {
+  const gfx = config.graphics;
+  const onAir = atem.graphicsOnAir({ ...gfx, type: gfx.type === 'auto' ? 'dsk' : gfx.type });
+  if (onAir === undefined || onAir === state.lowerThirdsActive) return false;
+  state.lowerThirdsActive = onAir;
+  return true;
+}
+
 export async function toggleLowerThirds(
   atem: AtemClient,
   state: AppState,

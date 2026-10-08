@@ -1,0 +1,58 @@
+{
+  "fakeOnly": true,
+  "criteria": [
+    "c1",
+    "c3",
+    "c4",
+    "c5",
+    "c7"
+  ],
+  "sourceHashes": {
+    "ui/tracking/tracking.js": "cc5b0e1902163c34a86950eb2a1d1d4e23ca0b82073279c97da21e1fee841770",
+    "ui/remote/remote.js": "aa7d82956a0d2469015bc754dc86e5d431f1cbe2f894e65c5028cd9d5952f4ab",
+    "ui/remote/remote.css": "d9b7fd4805ae7b069306e68456097a3de80ff373b58d3e03ab326ab2302a7ff1",
+    "ui/remote/index.html": "95a7896141fe0bbcc9d2307ad3ea6f3300b2fc270e8bcc0b49daeadabdac0ab9",
+    "src/ui/statusServer.ts": "361afb6f5a322ab086d7a4c6bc6a2d6f84f65cc7d09195a54bbd46a7bf883609",
+    "tests/tracking/keep-this-framing.test.cjs": "40cdd3c9d482ff7e145eea24577fa8073df063d789af7245c94d01d2714c8a1b"
+  },
+  "calls": [
+    {
+      "sourceId": "rig"
+    },
+    {
+      "sourceId": "rig"
+    },
+    {
+      "sourceId": "rig"
+    },
+    {
+      "sourceId": "rig"
+    }
+  ],
+  "keyboardEvidence": [
+    "desk Hold uses Tab / Enter with visible focus",
+    "desk Resume uses Tab / Enter with visible focus",
+    "remote Hold uses Tab / Enter with visible focus",
+    "remote Resume uses Tab / Enter with visible focus"
+  ],
+  "selectionWaiver": "AJ explicitly excludes inherited keyboard target selection; not an accessibility PASS",
+  "reset": "next real public GET and exact DOM reset on desk/PVW/PGM",
+  "pageErrors": [],
+  "screenshots": [
+    "desk-disabled.png",
+    "desk-held.png",
+    "desk-keyboard-hold.png",
+    "desk-keyboard-resume.png",
+    "desk-paused-ready.png",
+    "desk-poll-failure.png",
+    "desk-reset.png",
+    "remote-control-off.png",
+    "remote-disabled.png",
+    "remote-held.png",
+    "remote-keyboard-hold.png",
+    "remote-keyboard-resume.png",
+    "remote-paused-ready.png",
+    "remote-poll-failure.png",
+    "remote-reset.png"
+  ]
+}

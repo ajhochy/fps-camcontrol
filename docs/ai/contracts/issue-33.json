@@ -1,0 +1,49 @@
+{
+  "issue": 33,
+  "generated": "2026-10-01",
+  "criteria": [
+    {
+      "criterion_id": "issue-33-c1",
+      "text": "Choose an input that is unused in every shipped profile (document the choice and why; verify against `xbox.yaml`, `xbox-bluetooth.yaml`, `switch-pro-bluetooth.yaml`, `wii-u-pro.yaml`, `generic.yaml`).",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-33.spec.ts",
+      "test_id": "issue-33-c1",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-33-c2",
+      "text": "Press while tracking the controlled camera ⇒ cancel (with `stop()`); press while suspended ⇒ resume; press with no session ⇒ no-op (no error).",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-33.spec.ts",
+      "test_id": "issue-33-c2",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-33-c3",
+      "text": "The binding is edge-triggered (`risingEdge`) and appears in the activity log with the existing context style.",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-33.spec.ts",
+      "test_id": "issue-33-c3",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-33-c4",
+      "text": "No change to existing chords or `emergencyStop` behavior.",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-33.spec.ts",
+      "test_id": "issue-33-c4",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-33-c5",
+      "text": "Mapping name/default added to `MappingSchema`; existing `mappings.yaml` without the new key still loads.",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-33.spec.ts",
+      "test_id": "issue-33-c5",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [],
+  "verification": "Root ai-workflow checks --level pr exit0 (2026-10-01, tracking changes atop133ae8d); physical/finalDMG gates separate."
+}

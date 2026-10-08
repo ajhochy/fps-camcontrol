@@ -1,0 +1,418 @@
+/*
+ * iPad remote, designed for an iPad in landscape: the seat (Take control) in the top bar next to the connection
+ * state, full-width multiview, and a control bar along the bottom with STOP under the right thumb.
+ * Look: broadcast hardware panel (see .impeccable.md): cool charcoal, amber as the accent, program red, preview green,
+ * near-square corners, solid plates over the picture (no blur). Touch targets 44 px or more, 64+ for the main actions.
+ * Portrait / phone (the same test as RemoteModel.layoutFor) stacks the panes and wraps the bar.
+ */
+:root {
+  --bg: oklch(14% 0.012 240);
+  --panel: oklch(19% 0.012 240);
+  --panel-2: oklch(25% 0.013 240);
+  --line: oklch(33% 0.012 240);
+  --text: oklch(94% 0.006 240);
+  --muted: oklch(70% 0.014 240);
+  --accent: oklch(78% 0.13 78);         /* amber: status-LED colour; only the seat, warnings and the lit TRANSITION */
+  --ok: oklch(68% 0.13 155);            /* preview green */
+  --warn: var(--accent);
+  --bad: oklch(58% 0.17 27);            /* program red */
+  --ink: oklch(16% 0.02 240);           /* text on a lit (accent / ok / bad) surface */
+  --accent-dim: color-mix(in oklch, var(--accent) 22%, var(--bg));
+  --ok-dim: color-mix(in oklch, var(--ok) 20%, var(--bg));
+  --bad-dim: color-mix(in oklch, var(--bad) 24%, var(--bg));
+  --black: oklch(8% 0.01 240);          /* pane letterbox */
+  --plate: oklch(12% 0.01 240 / 0.88);  /* buttons sitting on the picture */
+  --plate-line: oklch(70% 0.01 240 / 0.45);
+  --radius: 3px;
+  /* Keys: a backlit cap a step above the panel, bevelled (light top edge, dark bottom), inverted while pressed.
+     The bevel is translucent so the same edge reads on an unlit cap and on a lit (amber / red / green / white) one. */
+  --cap: oklch(25% 0.013 240);
+  --cap-edge: oklch(10% 0.01 240);
+  --bevel: inset 0 1px 0 oklch(100% 0 0 / 0.16), inset 0 -1px 0 oklch(0% 0 0 / 0.5);
+  --bevel-in: inset 0 1px 0 oklch(0% 0 0 / 0.55), inset 0 -1px 0 oklch(100% 0 0 / 0.08);
+  --legend-dim: oklch(94% 0.006 240 / 0.45);  /* an unlit, unavailable key */
+  --lit: oklch(90% 0.005 240);                 /* a lit white key (the selected speed) */
+  --well: oklch(9% 0.01 240);                  /* recessed displays: message strip, joystick well */
+  --led-off: oklch(27% 0.01 240);
+  --key-r: 2px;
+  --bar-h: 44px;                      /* every cell and button in the top bar */
+  --gap: 12px;
+}
+
+/* ---- base */
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body {
+  margin: 0; height: 100%; background: var(--bg); color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  overscroll-behavior: none; touch-action: manipulation; -webkit-user-select: none; user-select: none;
+}
+button { font: inherit; color: inherit; cursor: pointer; }
+p { margin: 0; }
+[hidden] { display: none !important; }
+.muted { color: var(--muted); }
+.spacer { flex: 1; }
+:where(button, select, input, [tabindex]):focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+/* ponytail: panel-label style, system font. A condensed web font would be a network dependency in an offline booth. */
+.label { font-size: 11px; font-weight: 700; text-transform: uppercase; }
+#app {
+  display: flex; flex-direction: column; height: 100%;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+/* ---- top bar: one status strip of panel cells */
+#topbar {
+  display: flex; align-items: center; gap: 8px; min-height: 52px; padding: 6px var(--gap);
+  background: var(--panel); border-bottom: 1px solid var(--line); font-size: 15px;
+}
+/* The how-to sentence is for first use only and costs a column of the top bar: the banner says what matters. */
+#hint { display: none; }
+/* Status cluster: square LEDs with a legend beneath, on the bar's own surface; hairlines between groups, no boxes.
+   Every cell has a fixed size: state changes colour only, so the bar never reflows. */
+.status-chip, .pill {
+  display: inline-grid; grid-template-columns: auto; justify-items: center; align-content: center; row-gap: 5px;
+  height: var(--bar-h); padding: 0 14px 0 4px; border-right: 1px solid var(--line); white-space: nowrap; color: var(--muted);
+}
+.status-chip { grid-template-columns: auto 6ch; column-gap: 10px; }
+.status-chip > svg, #ownerPill > svg { display: none; }
+.status-chip::after, #ownerPill::after { grid-row: 2; grid-column: 1; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; line-height: 1; color: var(--muted); }
+.status-chip::after { content: 'LINK'; }
+#ownerPill::after { content: 'SEAT'; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+/* The seat LED: amber you, grey desk, hollow amber another iPad (a warning), red off, unlit waiting. */
+.seat-dot { background: currentColor; }
+.pill-wait .seat-dot { background: var(--led-off); }
+/* Controller state lives on its own screen (the Controller button); the cell stays in the DOM for the script only. */
+#padPill { display: none; }
+
+.dot { width: 9px; height: 9px; border-radius: 1px; background: var(--led-off); flex: none; box-shadow: inset 0 0 0 1px oklch(0% 0 0 / 0.35); }
+.dot-on { background: var(--ok); box-shadow: 0 0 6px color-mix(in oklch, var(--ok) 55%, transparent); }
+.dot-off { background: var(--bad); box-shadow: 0 0 6px color-mix(in oklch, var(--bad) 55%, transparent); }
+#rtt { grid-row: 1 / span 2; grid-column: 2; align-self: center; justify-self: start; font-size: 13px; font-weight: 500; color: var(--muted); }
+#conn, .seat-dot { grid-row: 1; grid-column: 1; }
+.pill-you { color: var(--accent); }
+.pill-you .seat-dot { box-shadow: 0 0 6px color-mix(in oklch, var(--accent) 55%, transparent); }
+.pill-desk { color: var(--muted); }
+.pill-other { color: var(--accent); }
+.pill-other .seat-dot { background: transparent; box-shadow: inset 0 0 0 2px var(--accent); }
+.pill-other::after { color: var(--accent); }
+.pill-off { color: var(--bad); }
+.pill-wait { color: var(--muted); }
+.name-btn { height: var(--bar-h); padding: 0 14px; border-radius: var(--radius); border: 1px solid var(--line); background: transparent; color: var(--accent); font-size: 15px; font-weight: 600; }
+
+/* ---- messages */
+/* Messages sit in the top bar's free space, right-aligned, and shrink / truncate rather than move anything. */
+.banner { flex: 0 1 auto; min-width: 0; margin-left: auto; height: var(--bar-h); line-height: var(--bar-h); padding: 0 14px; border-radius: var(--key-r); background: var(--well); box-shadow: var(--bevel-in); color: var(--text); font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.banner.bad { color: var(--bad); }
+#padBtn { margin-left: auto; }
+.icon-btn { position: relative; width: var(--bar-h); height: var(--bar-h); padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+.pad-dot { position: absolute; right: 5px; top: 5px; width: 8px; height: 8px; }
+.banner:not([hidden]) ~ #padBtn { margin-left: 0; }
+.pin-row { display: flex; align-items: center; justify-content: center; gap: 14px; padding: 12px var(--gap); background: var(--panel); border-bottom: 1px solid var(--line); }
+.pin-row label { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.pin-row input {
+  width: 220px; min-height: 56px; padding: 0 16px; border-radius: var(--key-r); border: 1px solid var(--cap-edge);
+  background: var(--black); box-shadow: var(--bevel-in); color: var(--text); font-size: 28px; letter-spacing: 0.3em; -webkit-user-select: text; user-select: text;
+}
+
+/* ---- stage */
+#stage { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+#viewCol { flex: 0 1 auto; display: flex; flex-direction: column; min-width: 0; min-height: 0; max-height: calc(100% - 160px); }
+/* Height for two 16:9 big panes over a 16:9 rig row at this width: (W-10)/2*9/16 + (W-30)/4*9/16 + gap. The column
+   above the control bar may shrink it, in which case the panes letterbox a little rather than squeeze the bar. */
+#main { flex: 0 1 auto; display: flex; min-height: 0; padding: var(--gap) var(--gap) 0; height: calc((100vw - 2 * var(--gap) - 10px) * 0.28125 + (100vw - 2 * var(--gap) - 30px) * 0.140625 + 10px + var(--gap)); }
+#infoBar { display: flex; gap: 20px; min-height: 30px; padding: 6px var(--gap); font-size: 12px; }
+#controlInfo:not(:empty) { color: var(--text); font-weight: 600; }
+
+/* ---- multiview: PVW | PGM on top, rig panes four to a row below. Reads like a hardware multiviewer: a thin dark
+   frame per pane, tally as a strip on the top edge, the name in a solid black label bar along the bottom. */
+#multiview {
+  flex: 1; display: grid; gap: 10px; min-width: 0; min-height: 0;
+  grid-template-columns: repeat(8, minmax(0, 1fr)); grid-template-rows: minmax(0, 2fr) minmax(0, 1fr);
+}
+.small-panes { display: contents; }
+.pane { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--black); border: 1px solid var(--line); border-radius: 2px; }
+.pane-big { grid-column: span 4; }
+.pane-small { grid-column: span 2; cursor: pointer; }
+.pane-small:active { filter: brightness(1.25); }
+/* Tally: a 3 px strip across the top edge. Program wins when a pane is both. */
+.pane::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; z-index: 5; pointer-events: none; }
+.pane-pvw::before, .pane.is-pvw::before { background: var(--ok); }
+.pane-pgm::before, .pane.is-pgm::before { background: var(--bad); }
+
+.pane-pic { position: absolute; inset: 0; }
+.pane-pic img { display: block; width: 100%; height: 100%; object-fit: contain; -webkit-touch-callout: none; }
+.pane-big .pane-pic img { cursor: crosshair; }
+.pane.tracking-mode .pane-pic img { outline: 2px solid var(--ok); outline-offset: -2px; }
+.pane-note { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 56px 16px 32px; text-align: center; font-size: 14px; color: var(--muted); pointer-events: none; }
+.pane-note.check { color: var(--accent); }
+.pane-note.down { color: var(--bad); }
+.pane-small .pane-note { padding: 36px 8px 28px; }
+/* "Program feed offline — showing camera": over the foot of the camera's picture, never moving the layout. */
+.pane-note.feed-off { align-items: flex-end; padding-bottom: 12px; font-size: 12px; color: var(--accent); text-shadow: 0 1px 2px #000; }
+
+/* The head covers the pane (click-through) so the indicators can sit in the bottom bar while staying in its DOM;
+   only Track + the menu remain at the top right. */
+.pane-head { position: absolute; inset: 0; z-index: 4; display: flex; align-items: flex-start; align-content: flex-start; justify-content: flex-end; gap: 6px; padding: 8px; pointer-events: none; }
+.pane-head > * { pointer-events: auto; }
+.pane-small .pane-head { padding: 6px; }
+/* The health line is retired: the bottom-bar icons say link + battery, the centre note says why there is no picture. */
+.pane-foot { display: none; }
+
+/* Label bar: solid black along the bottom, name left, indicators right. */
+.pane-title { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; height: 24px; line-height: 24px; padding: 0 10px; background: var(--black); color: var(--text); font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+.pane-small .pane-title { height: 22px; line-height: 22px; font-size: 12px; }
+/* Head link + batteries; colours: ok / warn / bad / off (unknown). */
+.pane-ind { position: absolute; right: 0; bottom: 0; z-index: 3; display: flex; align-items: center; gap: 8px; height: 24px; padding: 0 8px; background: var(--black); pointer-events: none; }
+.pane-ind:empty { display: none; }
+.pane-small .pane-ind { height: 22px; gap: 6px; padding: 0 6px; }
+.ind { display: inline-flex; align-items: center; gap: 1px; height: 100%; color: var(--muted); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ind-ok { color: var(--ok); }
+.ind-warn { color: var(--accent); }
+.ind-bad { color: var(--bad); }
+.ico { width: 14px; height: 14px; fill: currentColor; flex: none; }
+.pane-small .ico { width: 12px; height: 12px; }
+.bars rect { fill: currentColor; opacity: 0.22; }
+.bars-1 .b1, .bars-2 .b1, .bars-2 .b2, .bars-3 .b1, .bars-3 .b2, .bars-3 .b3 { opacity: 1; }
+.bars .slash { display: none; }
+.bars.crossed .slash { display: block; }
+.batt { position: relative; width: 18px; height: 9px; margin: 0 3px 0 2px; border: 1.5px solid currentColor; border-radius: 1px; flex: none; }
+.batt::after { content: ''; position: absolute; right: -4px; top: 1.5px; width: 2px; height: 3px; background: currentColor; }
+.batt-fill { height: 100%; background: currentColor; }
+.pane-small .batt { width: 15px; height: 8px; }
+.pct { min-width: 28px; font-size: 11px; font-variant-numeric: tabular-nums; }
+.pane-small .pct { min-width: 26px; }
+
+/* Buttons on the picture: solid dark plates, white legends. Disabled dims the legend, not the plate. */
+.pane-menu, .track-btn, .track-state { border-radius: 2px; border: 1px solid var(--line); background: oklch(12% 0.01 240 / 0.96); color: var(--text); }
+.pane-menu { flex: none; width: 44px; height: 44px; padding: 0; font-size: 24px; line-height: 1; }
+.pane-menu:disabled, .track-btn:disabled { color: color-mix(in oklch, var(--text) 45%, transparent); cursor: default; }
+
+.crosshair { position: absolute; width: 48px; height: 48px; margin: -24px 0 0 -24px; border: 2px solid var(--text); border-radius: 50%; opacity: 0; pointer-events: none; transition: opacity 0.4s; }
+.crosshair::before, .crosshair::after { content: ''; position: absolute; background: var(--text); }
+.crosshair::before { left: 50%; top: -6px; bottom: -6px; width: 2px; margin-left: -1px; }
+.crosshair::after { top: 50%; left: -6px; right: -6px; height: 2px; margin-top: -1px; }
+.crosshair.on { opacity: 1; transition: none; }
+
+/* The stick, speed buttons and the big buttons never scroll, select or pop a callout. */
+.stick, .zoom-btn, .seg, .seg-btn, .btn-transition, .btn-stop, .track-btn { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+
+/* ---- tracking controls in the big pane header */
+.track-bar { display: flex; flex-wrap: wrap; flex: 1 1 280px; min-width: 0; align-items: center; gap: 6px; }
+.track-bar + .pane-menu { margin-left: 0; }
+.clear-focus[hidden] { display: none; }
+.track-bar[hidden], .track-bar [hidden] { display: none; }
+.track-btn { flex: none; min-height: 44px; min-width: 44px; padding: 0 12px; font-size: 15px; font-weight: 700; }
+.track-btn.on { background: var(--ok); border-color: var(--ok); color: var(--ink); }
+.track-stop { color: var(--bad); }
+.track-state { flex: 1 0 100%; box-sizing: border-box; padding: 6px 10px; font-size: 13px; font-weight: 600; white-space: normal; overflow-wrap: anywhere; }
+.pane-head { flex-wrap: wrap; }
+.track-state:empty { display: none; }
+.track-state.tracking { color: var(--ok); }
+.track-state.operator_override, .track-state.lost, .track-state.stale, .track-state.sidecar_offline { color: var(--accent); }
+.track-box { position: absolute; display: none; box-sizing: border-box; border: 2px solid var(--text); outline: 1px solid var(--black); pointer-events: none; }
+.track-box.on { display: block; }
+
+/* ---- control bar along the bottom: TRANSITION over STOP on the left, speed in the middle, the joystick under the
+   right thumb. It takes whatever height the 16:9 multiview leaves (at least 160 px). */
+#actions {
+  flex: 1; min-height: 160px; display: grid; grid-template-columns: auto auto 1fr auto; align-items: stretch; gap: var(--gap); padding: 10px var(--gap);
+  background: var(--panel); border-top: 1px solid var(--line);
+}
+.rail-zoom { display: grid; grid-template-rows: 1fr 1fr; gap: 8px; width: 72px; }
+.zoom-btn { min-height: 0; padding: 0; line-height: 1; }
+.rail-left { display: grid; grid-template-rows: 1fr 1fr 1fr; gap: 8px; min-width: 200px; }
+.btn-lt { min-height: 0; display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 15px; }
+.btn-lt small { font-size: 11px; font-weight: 700; color: var(--muted); }
+.lt-dot { width: 9px; height: 9px; border-radius: 1px; background: var(--led-off); box-shadow: inset 0 0 0 1px oklch(0% 0 0 / 0.4); flex: none; }
+.btn-lt.on { background: var(--ok); color: var(--ink); }
+.btn-lt.on small { color: var(--ink); }
+.btn-lt.on .lt-dot { background: oklch(97% 0.06 155); box-shadow: 0 0 6px oklch(97% 0.06 155 / 0.8); }
+@keyframes lt-pulse { 50% { filter: brightness(0.8); } }
+.rail-mid { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-width: 0; }
+.rail-mid .label { color: var(--muted); }
+.rail-right { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
+/* The joystick as a physical stick: a knurled outer ring, a hairline, a flat recessed well, and a domed stick top
+   with a highlight on its upper edge. Held: the ring lights amber. Geometry (2px ring, 40% knob) is what the script measures. */
+.stick {
+  position: relative; height: calc(100% - 26px); max-height: 220px; min-height: 120px; aspect-ratio: 1; border-radius: 50%;
+  border: 2px solid var(--cap-edge); touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+  background:
+    radial-gradient(circle closest-side, var(--well) 0 70%, var(--line) 70% 72%, transparent 72.5%),
+    repeating-conic-gradient(oklch(27% 0.012 240) 0 3deg, oklch(22% 0.012 240) 3deg 6deg);
+  box-shadow: inset 0 1px 0 oklch(100% 0 0 / 0.12), inset 0 -1px 0 oklch(0% 0 0 / 0.5);
+}
+.stick::before { content: ''; position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; background: var(--line); }
+.stick-knob {
+  position: absolute; left: 50%; top: 50%; width: 40%; height: 40%; margin: -20% 0 0 -20%; border-radius: 50%; pointer-events: none;
+  border: 1px solid var(--cap-edge);
+  background: radial-gradient(circle at 50% 38%, oklch(48% 0.01 240), oklch(32% 0.012 240) 62%, oklch(24% 0.012 240));
+  box-shadow: inset 0 1px 0 oklch(100% 0 0 / 0.35), 0 3px 6px oklch(0% 0 0 / 0.55);
+}
+.stick.held { border-color: var(--accent); box-shadow: 0 0 8px color-mix(in oklch, var(--accent) 45%, transparent); }
+.stick.dim { opacity: 0.45; }
+.stick-label { letter-spacing: 0; color: var(--muted); white-space: nowrap; max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+#menuSheet .seg { flex: 1; display: grid; grid-template-columns: 1fr 1fr; }
+#menuSheet .seg-btn { min-height: 48px; }
+.dpad { display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); grid-template-areas: '. up .' 'left . right' '. down .'; gap: 6px; height: calc(100% - 26px); max-height: 220px; min-height: 120px; aspect-ratio: 1; }
+.arrow { min-height: 0; padding: 0; font-size: 20px; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.arrow-up { grid-area: up; } .arrow-down { grid-area: down; } .arrow-left { grid-area: left; } .arrow-right { grid-area: right; }
+.dpad.dim .arrow { color: var(--legend-dim); }
+#hint, #wakeHint { font-size: 13px; line-height: 1.3; max-width: 340px; }
+
+/* ---- keys: every button in the top bar and the control bar is a bevelled cap with a white legend.
+   Unlit = cap; pressed / held = cap darkens and the bevel inverts; lit = a saturated fill with a dark legend. */
+.btn, .seg-btn, .arrow, .icon-btn {
+  border: 1px solid var(--cap-edge); border-radius: var(--key-r); background: var(--cap); color: var(--text);
+  box-shadow: var(--bevel); font-weight: 700; transition: filter 0.08s;
+}
+.btn:active, .seg-btn:active, .arrow:active, .icon-btn:active, .zoom-btn.held, .arrow.held { box-shadow: var(--bevel-in); filter: brightness(0.78); }
+.btn { min-height: 64px; padding: 0 22px; font-size: 15px; white-space: nowrap; }
+.zoom-btn { font-size: 24px; }
+.btn:disabled { cursor: default; }
+.zoom-btn.dim, .btn-lt.dim, .btn:disabled { color: var(--legend-dim); }
+.btn-primary { background: var(--accent); color: var(--ink); }
+.btn-primary:disabled { background: var(--cap); color: var(--legend-dim); }
+#mapBar .btn-primary { background: var(--lit); color: var(--ink); }
+.btn-claim { min-height: 0; height: var(--bar-h); min-width: 150px; padding: 0 18px; font-size: 13px; }
+.btn-sm { min-height: 48px; padding: 0 18px; font-size: 15px; }
+
+/* Speed: one strip of keys split by the cap edge; the selected one is a lit white key. */
+.seg { display: inline-flex; flex: none; border: 1px solid var(--cap-edge); border-radius: var(--key-r); overflow: hidden; }
+.seg-btn { min-height: 64px; min-width: 84px; padding: 0 12px; border: 0; border-right: 1px solid var(--cap-edge); border-radius: 0; font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase; }
+.seg-btn:last-child { border-right: 0; }
+.seg-btn.on { background: var(--lit); color: var(--ink); }
+
+/* TRANSITION is lit amber only while it will cut; otherwise an unlit cap. STOP is always lit red. */
+.btn-transition {
+  min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  background: var(--accent); color: var(--ink); font-size: 24px; letter-spacing: 0.04em; line-height: 1;
+}
+.btn-transition small { font-size: 11px; font-weight: 700; letter-spacing: 0.04em; opacity: 0.75; }
+.btn-transition.dim { background: var(--cap); color: var(--legend-dim); }
+.btn-stop { min-height: 0; background: var(--bad); color: var(--ink); font-size: 24px; letter-spacing: 0.04em; }
+
+/* ---- drawers (camera menu, controller, this iPad): another face of the same panel, from the right in landscape.
+   Rows read like a hardware menu strip: uppercase legend left, control right, a hairline between rows.
+   Option buttons are small keys (lit white = selected); read-only values sit in a recessed well. No amber here
+   except a check-level warning. */
+.sheet-back { position: fixed; inset: 0; z-index: 10; background: oklch(5% 0.01 240 / 0.6); }
+.sheet {
+  position: fixed; z-index: 11; top: 0; right: 0; bottom: 0; width: min(460px, 100%); overflow-y: auto;
+  padding: calc(16px + env(safe-area-inset-top)) calc(20px + env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom)) 20px;
+  background: var(--panel); border-left: 1px solid var(--line); box-shadow: none;
+}
+.sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.sheet-head h2 { margin: 0 0 4px; font-size: 18px; font-weight: 700; }
+.sheet-head h2 + * { font-size: 12px; font-weight: 600; }
+.sheet-rows { display: flex; flex-direction: column; }
+.sheet-row { display: flex; align-items: flex-start; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.sheet-row label { flex: 0 0 120px; padding-top: 16px; font-size: 12px; font-weight: 700; line-height: 1.3; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.sheet-row select { flex: 1; min-width: 0; min-height: 48px; padding: 0 12px; border-radius: var(--key-r); border: 1px solid var(--cap-edge); background: var(--black); color: var(--text); font-size: 15px; }
+.sheet-row select:disabled { opacity: 0.55; }
+.sheet-row .ro { flex: 1; min-height: 48px; display: flex; align-items: center; padding: 0 12px; border: 1px solid var(--cap-edge); border-radius: var(--key-r); background: var(--black); box-shadow: var(--bevel-in); font-size: 15px; color: var(--muted); }
+.prop { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.prop-slider { display: flex; align-items: center; gap: 10px; }
+.prop-value { flex: 0 0 72px; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; font-size: 15px; }
+.opt-row { display: flex; flex-wrap: wrap; gap: 6px; }
+/* The same key as .btn, smaller. */
+.opt-btn { min-height: 40px; padding: 0 14px; border: 1px solid var(--cap-edge); border-radius: var(--key-r); background: var(--cap); color: var(--text); box-shadow: var(--bevel); font-size: 14px; font-weight: 700; transition: filter 0.08s; }
+.opt-btn:active { box-shadow: var(--bevel-in); filter: brightness(0.78); }
+.opt-btn.on { background: var(--lit); color: var(--ink); }
+.opt-btn.auto { letter-spacing: 0.04em; }
+.prop.busy { opacity: 0.55; pointer-events: none; }
+/* Faders: a 4 px recessed slot and a round off-white cap. Custom pseudo-elements because accent-color alone keeps
+   WebKit's own track on iPad. */
+.prop-slider input, .speed-slider { flex: 1; height: 44px; margin: 0; background: transparent; accent-color: var(--lit); touch-action: none; -webkit-appearance: none; appearance: none; }
+.prop-slider input::-webkit-slider-runnable-track, .speed-slider::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--panel-2); box-shadow: inset 0 0 0 1px var(--cap-edge); }
+.prop-slider input::-moz-range-track, .speed-slider::-moz-range-track { height: 4px; border-radius: 2px; background: var(--panel-2); box-shadow: inset 0 0 0 1px var(--cap-edge); }
+.prop-slider input::-webkit-slider-thumb, .speed-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 28px; height: 28px; margin-top: -12px; border-radius: 50%; border: 1px solid var(--cap-edge); background: var(--lit); }
+.prop-slider input::-moz-range-thumb, .speed-slider::-moz-range-thumb { box-sizing: border-box; width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--cap-edge); background: var(--lit); }
+.speed-holder { flex: 1; display: flex; align-items: center; gap: 12px; min-height: 48px; }
+.speed-value { flex: 0 0 52px; text-align: right; font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.steps { margin: 0 0 12px; padding-left: 22px; font-size: 15px; line-height: 1.45; }
+.steps li + li { margin-top: 10px; }
+.pad-status { font-size: 12px; font-weight: 600; }
+.sheet-row .name-btn { flex: 1; min-height: 48px; padding: 0 14px; text-align: left; border: 1px solid var(--cap-edge); border-radius: var(--key-r); background: var(--cap); color: var(--text); box-shadow: var(--bevel); font-size: 15px; font-weight: 700; }
+.sheet-row .name-btn:active { box-shadow: var(--bevel-in); filter: brightness(0.78); }
+.sheet-row .key-link { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; flex: 1; min-height: 48px; }
+#menuSheet .small { margin-top: 12px; }
+.small { font-size: 13px; line-height: 1.4; color: var(--muted); }
+/* Map mode: every mappable control shows a grey frame (white when armed) and its binding tag. */
+/* Map mode lives in the top bar: the instruction in the message slot, Clear / Done beside the Bluetooth button. */
+.map-bar { display: inline-flex; gap: 6px; }
+.map-bar:not([hidden]) + #padBtn { margin-left: 0; }
+.banner.map { color: var(--accent); }
+body.mapping [data-map] { outline: 1px solid var(--muted); outline-offset: 2px; position: relative; }
+body.mapping [data-map].armed { outline: 2px solid var(--text); animation: lt-pulse 0.8s ease-in-out infinite; }
+.map-tag { position: absolute; left: 50%; bottom: -10px; transform: translateX(-50%); z-index: 5; padding: 1px 6px; border-radius: 2px; background: var(--lit); color: var(--ink); font-size: 11px; font-weight: 700; letter-spacing: 0.04em; white-space: nowrap; pointer-events: none; }
+body:not(.mapping) .map-tag { opacity: 0.85; }
+.pane-small .map-tag { bottom: auto; top: 6px; left: auto; right: 56px; transform: none; }
+.map-list { margin-top: 10px; font-size: 13px; line-height: 1.5; color: var(--text); }
+#mapBar .btn-sm { min-height: 0; height: var(--bar-h); padding: 0 14px; font-size: 13px; }
+.sheet-status { min-height: 22px; margin-top: 12px; font-size: 13px; color: var(--muted); }
+.sheet-status.bad, #programNote.bad { color: var(--bad); }
+.lvl-ready { color: var(--ok); }
+.lvl-check { color: var(--accent); }
+.lvl-down { color: var(--bad); }
+
+/* ---- smaller landscape iPads (mini, split view) */
+@media (max-width: 1100px) {
+  :root { }
+  .rail-left { min-width: 160px; }
+  .pane-big .pane-head { flex-wrap: wrap; }
+}
+@media (max-height: 700px) {
+  :root { --gap: 10px; }
+  #topbar { min-height: 48px; }
+  .seg-btn { min-height: 56px; }
+  .btn-transition small { display: none; }
+  #actions { min-height: 140px; }
+  #viewCol { max-height: calc(100% - 140px); }
+}
+
+/* ---- portrait / phone: same test as RemoteModel.layoutFor (wide = width >= 700 and width > 1.1 x height) */
+@media (max-width: 699.98px), (max-aspect-ratio: 11/10) {
+  #main[data-layout="tall"] { display: block; overflow-y: auto; padding-bottom: 8px; }
+  #main[data-layout="tall"] #multiview { display: grid; grid-template-rows: none; grid-auto-rows: auto; }
+  #main[data-layout="tall"] .pane-big { grid-column: span 8; aspect-ratio: 16 / 9; }
+  #main[data-layout="tall"] .pane-small { grid-column: span 4; aspect-ratio: 4 / 3; }
+  #viewCol { flex: 1; max-height: none; }
+  #main[data-layout="tall"] { height: auto; }
+  /* The joystick stays on the right, always: TRANSITION / STOP on the left, speed between, in one row. */
+  #actions { flex: none; display: grid; grid-template-columns: auto auto 1fr auto; gap: 8px; min-height: 0; }
+  .rail-zoom { width: 56px; }
+  .rail-left { min-width: 150px; }
+  .rail-mid .seg { display: grid; grid-template-columns: 1fr; width: 100%; max-width: 120px; }
+  .rail-mid .seg-btn { min-height: 48px; border-right: 0; border-bottom: 1px solid var(--cap-edge); }
+  .rail-mid .seg-btn:last-child { border-bottom: 0; }
+  .stick { height: 150px; }
+  .btn-transition { font-size: 20px; }
+  .btn-stop { font-size: 20px; }
+  .sheet { top: auto; left: 0; width: 100%; max-height: 88%; border-left: 0; border-top: 1px solid var(--line); }
+  #topbar { flex-wrap: nowrap; }
+  .btn-claim { min-width: 120px; padding: 0 12px; }
+}
+@media (max-width: 520px) { #rtt { display: none; } .status-chip { grid-template-columns: auto; } .rail-zoom { width: 44px; } .zoom-btn { font-size: 20px; }  .rail-left { min-width: 104px; } .rail-mid .seg { max-width: 84px; } .rail-mid .seg-btn { min-width: 0; font-size: 13px; } .stick { height: 120px; min-height: 120px; } .btn-transition { font-size: 15px; } .btn-stop { font-size: 15px; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
+
+/* ---- zoom lever (appended; the drawers agent owns the middle of the file) */
+/* A single-axis lever in the zoom column: a recessed slot with a centre tick and a bevelled cap that springs back.
+   Up = zoom in, down = zoom out. Held: the cap lights white like the selected speed key. */
+.lever {
+  position: relative; grid-row: 1 / -1; min-height: 0; border: 1px solid var(--cap-edge); border-radius: var(--key-r);
+  background: var(--well); box-shadow: var(--bevel-in);
+  touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+}
+.lever-track {
+  position: absolute; left: 50%; top: 10px; bottom: 10px; width: 6px; margin-left: -3px; border-radius: 1px; pointer-events: none;
+  background: var(--black); box-shadow: inset 0 1px 2px oklch(0% 0 0 / 0.8), inset 0 -1px 0 oklch(100% 0 0 / 0.06);
+}
+.lever-track::after { content: ''; position: absolute; left: -6px; right: -6px; top: 50%; height: 1px; background: var(--line); }
+.lever-knob {
+  position: absolute; left: 0; right: 0; top: 50%; width: min(56px, calc(100% - 8px)); height: 30px; margin: -15px auto 0; pointer-events: none;
+  border: 1px solid var(--cap-edge); border-radius: var(--key-r); background: var(--cap); box-shadow: var(--bevel), 0 3px 6px oklch(0% 0 0 / 0.55);
+}
+.lever-knob::after { content: ''; position: absolute; left: 25%; right: 25%; top: 50%; height: 2px; margin-top: -1px; background: oklch(0% 0 0 / 0.45); box-shadow: 0 1px 0 oklch(100% 0 0 / 0.12); }
+.lever.held .lever-knob { background: var(--lit); }
+.lever.dim .lever-knob { opacity: 0.45; }
