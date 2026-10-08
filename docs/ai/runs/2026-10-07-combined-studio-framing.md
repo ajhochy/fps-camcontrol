@@ -132,3 +132,6 @@ Parent command, from the combined root: `CAMCONTROL_NO_CONTROLLER=1 node --test 
 
 ## Independent bounded combined draft gate — PASS
 Verifier9817ea23 freshly executed build, page-JS,24/24 focused integration/browser tests zero failures/skips, diff hygiene, six current-source hashes, four exact phone hashes, Studio8862d99 ancestry and config/statusServer exclusions; bounded command exit0. Fresh evidence23-53-38-625Z. UI/backend/API/docs reviewed. No GitNexus risk clearance available; no full-main, packaged, inference or physical qualification claimed. Publication permitted as draft only.
+
+## AJ-authorized local cleanup
+Published PR #91 combined branch and PR #90 streaming branch remain. Old framing and phone source copies are superseded by published framing and exact deployed phone assets (all four source/generated phone bytes matched). Old controller customization drafts were incomplete and stale; no controller enhancement is silently delivered. Old test logs, duplicate screenshots, assembly input patch and private tool config are not product source. Before cleanup, all local branch history and nondependency dirty files were backed up outside the repo in a private recovery bundle/archive. Remote branches, Studio configuration/services and published PRs are untouched. Streaming pending tests/fixture dependencies remain documented in #90.
