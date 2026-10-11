@@ -23,6 +23,14 @@ export class VirtualAtem extends EventEmitter {
     this.log.push(`changePreviewInput(${inputId})`);
   }
 
+  mixFrames = 30;
+  transitionInfo(): { style: string; frames: number | null } { return { style: 'mix', frames: this.mixFrames }; }
+  async setTransitionFrames(frames: number): Promise<void> {
+    if (frames === this.mixFrames) return;
+    this.mixFrames = frames;
+    this.log.push(`setTransitionFrames(${frames})`);
+  }
+
   async cut(): Promise<void> {
     this.state.programInput = this.state.previewInput;
     this.log.push(`cut() → program=${this.state.programInput}`);

@@ -374,7 +374,8 @@ export function createStatusServer(
   // switch the gimbal on). Both maps omit direct-link cameras (VISCA) entirely:
   // a missing key means "no second stage", not "broken".
   app.get('/api/status', (_req, res) => {
-    res.json({ ...state, tracking: trackingSnapshot(config, getTracking(), trackingRuntimeFor(state)) });
+    // atemTransition: the switcher's current transition style and length (frames), for the desk and for tuning.
+    res.json({ ...state, tracking: trackingSnapshot(config, getTracking(), trackingRuntimeFor(state)), atemTransition: atem && atem.connected ? atem.transitionInfo(config.atem.meIndex) ?? null : null, transitionFrames: config.atem.transitionFrames ?? null });
   });
 
   // ---- health: one verdict per rig (motion) and per rig's Sony camera, every second, with a change log

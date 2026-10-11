@@ -86,6 +86,11 @@ const AtemSchema = z.object({
   ip: HostString,
   defaultTransition: z.enum(['cut', 'auto']),
   meIndex: z.number().default(0),
+  /**
+   * Length of an auto transition (MIX / DIP / WIPE) in frames. When set, the app sets the ATEM's rate for the
+   * current transition style before every auto transition; unset leaves the ATEM's own rate alone.
+   */
+  transitionFrames: z.number().int().min(1).max(250).optional(),
 });
 
 const SonySchema = z.object({
@@ -305,7 +310,7 @@ export interface SonyRuntimeConfig {
 }
 
 export interface AppConfig {
-  atem: { ip: string; defaultTransition: string; meIndex: number };
+  atem: { ip: string; defaultTransition: string; meIndex: number; transitionFrames?: number };
   /** The resolved camera slots (cam1..camN) the whole app operates on. */
   cameras: CameraConfig[];
   graphics: GraphicsConfig;

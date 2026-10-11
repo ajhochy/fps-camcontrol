@@ -7,7 +7,7 @@ import { EdgeState, createEdgeState, risingEdge } from '../input/edgeTriggers';
 import { CameraSelector } from './cameraSelector';
 import { PresetManager } from './presetManager';
 import { SpeedManager } from './speedManager';
-import { autoTransitionControlledCamera, toggleLowerThirds } from '../atem/switcherActions';
+import { autoTransitionControlledCamera, cutControlledCameraLive, toggleLowerThirds } from '../atem/switcherActions';
 import { applyCurve, applyDeadzone, clamp } from '../visca/speedCurves';
 import { emergencyStopAll } from '../safety/emergencyStop';
 import { ActivityLog } from '../app/activityLog';
@@ -17,6 +17,9 @@ import { SonyZoom, ZoomTarget, sonyZoomSpeed, zoomTarget } from './zoomTarget';
 import { SonyRetryableError } from '../sony/sonyManager';
 
 const TRIGGER_DEADZONE = 0.05;
+// LB on its own is a hard cut, fired on release so LB still works as the chord modifier (LB+RB recenter,
+// LB+X/A/B/Y save preset): a tap shorter than this with no chord in between cuts; a longer hold does nothing.
+const LB_TAP_MAX_MS = 500;
 const FACE_CAMERA_BUTTONS = ['X', 'A', 'B', 'Y'] as const;
 const INPUT_STALE_MS = 250;
 const PTZ_HEARTBEAT_MS = 250;
@@ -85,6 +88,9 @@ interface LastSent {
 
 export class ControlStateMachine {
   private edgeState: EdgeState = createEdgeState();
+  /** When LB went down (null while up), and whether another button was used with it as a chord. */
+  private lbDownAt: number | null = null;
+  private lbChord = false;
   private lastInput: NormalizedInput | null = null;
   private lastInputTs = 0;
   private cameraSelector: CameraSelector;
@@ -175,7 +181,7 @@ export class ControlStateMachine {
     if (!this.atem.connected) return 'atem-offline';
     if (this.state.controlledCamera !== pv) this.cameraSelector.selectByIndex(index);
     this.activityLog?.setContext(controller, 'TRANSITION button', 'Auto Transition');
-    autoTransitionControlledCamera(this.atem, this.state, this.config.cameras, this.devices)
+    autoTransitionControlledCamera(this.atem, this.state, this.config.cameras, this.devices, this.config.atem.transitionFrames)
       .catch((err) => logger.error({ err }, 'auto transition error'));
     return 'ok';
   }
@@ -208,6 +214,9 @@ export class ControlStateMachine {
     this.lastInputTs = 0;
     this.sourceLabel = null;
     this.edgeState.prevButtons = { ...(seed?.buttons ?? {}) };
+    // An LB already held by the new source must not cut when it is released after the handover.
+    this.lbDownAt = seed?.buttons?.LB ? Date.now() : null;
+    this.lbChord = !!seed?.buttons?.LB;
   }
 
   tick(): void {
@@ -317,6 +326,21 @@ export class ControlStateMachine {
     this.wasMovingPT = movingPT;
     this.wasMovingZoom = movingZoom;
 
+    // LB tap = hard cut (on release, only when no chord used it as a modifier).
+    const lbHeld = input.buttons.LB ?? false;
+    const lbNow = Date.now();
+    if (lbHeld && this.lbDownAt === null) { this.lbDownAt = lbNow; this.lbChord = false; }
+    if (lbHeld && ['RB', 'X', 'A', 'B', 'Y'].some((b) => input.buttons[b])) this.lbChord = true;
+    if (!lbHeld && this.lbDownAt !== null) {
+      const tapped = !this.lbChord && lbNow - this.lbDownAt <= LB_TAP_MAX_MS;
+      this.lbDownAt = null;
+      if (tapped) {
+        this.activityLog?.setContext(controller, 'LB', 'Cut');
+        cutControlledCameraLive(this.atem, this.state, this.config.cameras, this.devices)
+          .catch(err => logger.error({ err }, 'cut error'));
+      }
+    }
+
     if (risingEdge('RB', input.buttons.RB ?? false, this.edgeState)) {
       const recenterDevice = this.devices.get(this.state.controlledCamera);
       if (input.buttons.LB && recenterDevice?.recenter) {
@@ -325,7 +349,7 @@ export class ControlStateMachine {
         recenterDevice.recenter().catch(err => logger.error({ err }, 'recenter error'));
       } else {
         this.activityLog?.setContext(controller, INPUT_LABELS.RB, 'Auto Transition');
-        autoTransitionControlledCamera(this.atem, this.state, this.config.cameras, this.devices)
+        autoTransitionControlledCamera(this.atem, this.state, this.config.cameras, this.devices, this.config.atem.transitionFrames)
           .catch(err => logger.error({ err }, 'auto transition error'));
       }
     }

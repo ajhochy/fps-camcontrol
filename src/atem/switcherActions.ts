@@ -79,7 +79,8 @@ export async function autoTransitionControlledCamera(
   atem: AtemClient,
   state: AppState,
   cameras: CameraConfig[],
-  devices: Map<CameraId, MotionDevice>
+  devices: Map<CameraId, MotionDevice>,
+  transitionFrames?: number
 ): Promise<void> {
   const cam = cameras.find(c => c.id === state.controlledCamera);
   if (!cam) return;
@@ -89,6 +90,8 @@ export async function autoTransitionControlledCamera(
   }
   warnIfGimbalDetached(cam, devices);
   await atem.changePreviewInput(cam.inputId);
+  // A failed rate change must never block the take: the ATEM then simply uses its own rate.
+  if (transitionFrames) await atem.setTransitionFrames(transitionFrames).catch((err) => logger.warn({ err }, 'could not set the ATEM transition rate'));
   await atem.autoTransition();
   armPreviousProgramAsStandby(state, cameras, devices);
   logger.info({ program: state.programCamera, standby: state.previewCamera }, 'auto transition');
