@@ -345,9 +345,9 @@ async function runTests(): Promise<void> {
   assert('Sony status route delegates to the injected manager', statusResult.response.status === 200 && JSON.parse(statusResult.text).sidecar.mode === 'external');
   const home = await sonyGet('/');
   assert('Sony UI is below existing home controls', home.text.indexOf('id="sony-cameras"') > home.text.indexOf('id="home"'));
-  const expectedSonyProperties = ['aperture', 'shutter-speed', 'iso', 'white-balance', 'focus-mode', 'focus-area'];
+  const expectedSonyProperties = ['aperture', 'shutter-speed', 'iso', 'white-balance', 'focus-mode', 'focus-area', 'zoom-setting'];
   const sonyPropertyArray = home.text.match(/var SONY_PROPERTIES = (\[[^;]+\]);/);
-  assert('Sony UI uses exactly the six live upstream property names', sonyPropertyArray !== null && JSON.stringify(JSON.parse(sonyPropertyArray[1].replace(/'/g, '"'))) === JSON.stringify(expectedSonyProperties));
+  assert('Sony UI uses exactly the seven live upstream property names (the six settings plus the Zoom setting)', sonyPropertyArray !== null && JSON.stringify(JSON.parse(sonyPropertyArray[1].replace(/'/g, '"'))) === JSON.stringify(expectedSonyProperties));
   assert('Sony camera IDs are escaped in every generated HTML attribute', (home.text.match(/esc\(camera\.id\)/g) || []).length >= 4 && (home.text.match(/esc\(key\)/g) || []).length >= 5 && !home.text.includes('data-camera-id="\' + camera.id + \'"'));
   assert('Sony UI includes sequential hidden-aware bounded preview polling', home.text.includes('document.hidden') && home.text.includes('setTimeout') && home.text.includes('sony-preview-stale'));
   assert('Sony UI includes contained-image touch mapping and keyboard fallback', home.text.includes('naturalWidth') && home.text.includes('Apply touch point') && home.text.includes('aria-live'));

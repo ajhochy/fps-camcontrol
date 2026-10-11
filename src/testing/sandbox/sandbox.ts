@@ -31,7 +31,7 @@ const DJI_PORTS = [0, 1, 2].map((i) => DJI_BASE + i);
 const CAMERAS = [
   { id: 'AA:00:00:00:00:01', model: 'ILCE-7SM3', powered: true },
   // Like the real FX3A over Wi-Fi: refuses to connect until pairing mode is opened, aperture set by the lens.
-  { id: 'AA:00:00:00:00:02', model: 'ILME-FX3A', powered: true, needsPairing: true, readOnlyAperture: true, battery: 0xffff },
+  { id: 'AA:00:00:00:00:02', model: 'ILME-FX3A', powered: true, needsPairing: true, readOnlyAperture: true, battery: 0xffff, noPowerZoom: true },
   { id: 'AA:00:00:00:00:03', model: 'ILCE-7SM3', powered: false },
   { id: 'AA:00:00:00:00:04', model: 'ILCE-7M4', powered: false },
 ];
@@ -764,6 +764,55 @@ async function selfTest(): Promise<number> {
         await r1.stream(300, [0, 0, 0, 0], [0, 0.8]);
         await hold(100);
         check('on a BirdDog (no Sony camera) the trigger zooms the VISCA head instead', birddogHead.zoomCommands > bdZoom0 && (await sonyA()).zoomCalls === sonyCalls1, `zoomCommands +${birddogHead.zoomCommands - bdZoom0}`);
+        // ---- desk zoom (hold-to-zoom buttons), the refused-zoom notice and the Zoom setting
+        const keepSeat = setInterval(() => r1.frame([0, 0, 0, 0]), 100); // the iPad seat needs frames or it is released
+        const sonyOf = async (id: string): Promise<any> => (((await (await fetch(`${control}/state`)).json()) as any).cameras as any[]).find((c) => c.id === id);
+        const deskPage = String((await api('/')).body);
+        check('the Status page has hold-to-zoom buttons and the Zoom setting menu on each Sony card', deskPage.includes('sony-zoom__btn') && deskPage.includes("'focus-area','zoom-setting'") && deskPage.includes('sonyZoomStop') && deskPage.includes("document.addEventListener('visibilitychange'"));
+        check('the Controllers tab shows Zoom In = Right Trigger and Zoom Out = Left Trigger', deskPage.includes("rightTrigger: 'Right Trigger'") && deskPage.includes("leftTrigger: 'Left Trigger'") && (await api('/api/mappings')).body.zoomIn === 'rightTrigger' && (await api('/api/mappings')).body.zoomOut === 'leftTrigger');
+        const headCmds = fakes.visca[0].zoomCommands;
+        const deskIn = await post(`/api/sony/cameras/${A}/zoom`, { speed: 0.5 });
+        check('desk zoom in on a Sony camera answers 200 and zooms it (speed 5)', deskIn.status === 200 && deskIn.body.ok === true && (await sonyOf(A)).zoomSpeed === 5, JSON.stringify(deskIn.body));
+        for (let i = 0; i < 4; i++) { await sleep(200); await post(`/api/sony/cameras/${A}/zoom`, { speed: 0.5 }); }
+        check('refreshing every 200 ms keeps it zooming past the dead-man window', (await sonyOf(A)).zoomSpeed === 5);
+        check('with no refresh the server stops the camera itself within ~600 ms (dead-man)', await waitFor('the dead-man stop', async () => (await sonyOf(A)).zoomSpeed === 0, 1500, 50).then(() => true, () => false));
+        await post(`/api/sony/cameras/${A}/zoom`, { speed: -1 });
+        check('desk zoom out maps full speed to -10', (await sonyOf(A)).zoomSpeed === -10);
+        await post(`/api/sony/cameras/${A}/zoom`, { speed: 0 });
+        check('an explicit zoom 0 stops it at once', (await sonyOf(A)).zoomSpeed === 0);
+        check('a bad desk zoom speed is refused (400) and an unknown rig is refused', (await post(`/api/sony/cameras/${A}/zoom`, { speed: 7 })).status === 400 && (await post('/api/zoom', { rigId: 'nope', speed: 0.5 })).status === 400);
+        const byRig = await post('/api/zoom', { rigId: vbotId, speed: 0.3 });
+        check('desk zoom by rig goes to the rig Sony camera, not the head', byRig.status === 200 && (await sonyOf(A)).zoomSpeed === 3 && fakes.visca[0].zoomCommands === headCmds, JSON.stringify(byRig.body));
+        await post(`/api/sony/cameras/${A}/zoom`, { speed: 0 });
+
+        // The FX3A on the RS3 gimbal has no power zoom: with Zoom Setting on Optical it refuses, and a gimbal head cannot zoom.
+        const rs3Rig = ((await api('/api/rigs')).body.rigs as any[]).find((r) => r.deviceKey === 'rs3');
+        check('the FX3A is on the RS3 gimbal rig', rs3Rig?.camera === 'sony-stage-right' && rs3Rig?.protocol === 'dji-bridge');
+        const bCalls = (await sonyOf(B)).zoomCalls;
+        const refusedZoom = await post('/api/zoom', { rigId: rs3Rig.id, speed: 0.5 });
+        check('a refused zoom on a gimbal rig is reported, not hidden (409 with the reason)', refusedZoom.status === 409 && /Zoom setting/.test(String(refusedZoom.body.error)), JSON.stringify(refusedZoom.body));
+        const notice = await waitFor('the zoom notice in /api/status', async () => (await api('/api/status')).body.zoomNotice, 3000, 50).catch(() => null);
+        check('/api/status carries zoomNotice {cameraId, sonyId, message, at} for that rig', !!notice && notice.cameraId === rs3Rig.id && notice.sonyId.toUpperCase() === B && /Clear Image or Digital Zoom/.test(notice.message) && typeof notice.at === 'number', JSON.stringify(notice));
+        check('the refused camera was not given a zoom and nothing else was driven in its place', (await sonyOf(B)).zoomCalls === bCalls && (await sonyOf(B)).zoomSpeed === 0);
+        check('the rig shows a Zoom Refused verdict (alert + bell source) with the reason', !!(await waitFor('the zoom health verdict', async () => { const z = (await api('/api/status')).body.health?.zoom?.[rs3Rig.id]; return z?.level === 'check' && z?.text === 'Zoom Refused' && /Zoom setting/.test(z.hint); }, 4000, 100).catch(() => null)));
+        check('the Status page draws the zoom verdict on the tile and the notice on the Sony card', deskPage.includes('health.zoom') && deskPage.includes('sony-zoom__notice'));
+
+        const zprops = (await api(`/api/sony/cameras/${B}/properties/zoom-setting`)).body;
+        const zdata = zprops.data ?? zprops;
+        const digital = (zdata.available_values ?? []).find((v: any) => /digital/i.test(String(v.formatted)));
+        check('the camera Zoom setting is readable with Optical / Clear Image / Digital choices', !!digital && (zdata.available_values ?? []).some((v: any) => /optical/i.test(String(v.formatted))) && (zdata.available_values ?? []).some((v: any) => /clear/i.test(String(v.formatted))), JSON.stringify(zdata).slice(0, 200));
+        const setZoomSetting = await put(`/api/sony/cameras/${B}/properties/zoom-setting`, { value: digital?.hex_value });
+        check('the Zoom setting can be changed from the desk (existing property path)', setZoomSetting.status === 200, JSON.stringify(setZoomSetting.body));
+        await waitFor('the Zoom setting to read back Digital', async () => /digital/i.test(String(((await api(`/api/sony/cameras/${B}/properties/zoom-setting`)).body.data ?? {}).current_formatted ?? '')), 4000, 100).catch(() => undefined);
+        const okZoom = await post('/api/zoom', { rigId: rs3Rig.id, speed: 0.5 });
+        check('with Digital Zoom on, the same camera now zooms (200, speed 5)', okZoom.status === 200 && (await sonyOf(B)).zoomSpeed === 5, JSON.stringify(okZoom.body));
+        check('and the notice is cleared by that successful zoom', !!(await waitFor('the notice to clear', async () => (await api('/api/status')).body.zoomNotice === null && !(await api('/api/status')).body.zoomNotices?.[rs3Rig.id], 3000, 50).catch(() => null)));
+        await post('/api/zoom', { rigId: rs3Rig.id, speed: 0 });
+        check('the zoom stop was sent (speed 0)', (await sonyOf(B)).zoomSpeed === 0);
+        // Put the setting back so the rest of the run is unchanged.
+        const optical = (zdata.available_values ?? []).find((v: any) => /optical/i.test(String(v.formatted)));
+        if (optical) await put(`/api/sony/cameras/${B}/properties/zoom-setting`, { value: optical.hex_value });
+        clearInterval(keepSeat);
         r1.send({ t: 'select', camera: rs3Id, preview: false });
         await hold(150);
       }

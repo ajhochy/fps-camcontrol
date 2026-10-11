@@ -44,6 +44,7 @@
   var padInfo = M.padStatus([]);
   var pushed = null;           // last {t:'state'} the server pushed while we own
   var status = null;           // GET /api/status
+  var lastZoomNoticeAt = null;   // the newest zoom notice already shown as a banner
   var sonyStatus = null;       // GET /api/sony/status (camera connection + battery), every 10 s
   var cameras = [];
   var speeds = null;
@@ -302,6 +303,14 @@
     getJson('/api/status').then(function (s) {
       status = s;
       if (s.remoteControl && typeof s.remoteControl.enabled === 'boolean') enabled = s.remoteControl.enabled;
+      // A zoom that did nothing (the camera refused and the head cannot zoom) says why, once per attempt.
+      // (The first status only sets the baseline, so an old notice is not shown on page load; no clock compare with the Mac.)
+      var zn = s.zoomNotice;
+      if (zn && zn.at && zn.at !== lastZoomNoticeAt) {
+        var firstStatus = lastZoomNoticeAt === null;
+        lastZoomNoticeAt = zn.at;
+        if (!firstStatus) showBanner(zn.message, true, 6000);
+      } else if (lastZoomNoticeAt === null) lastZoomNoticeAt = 0;
       renderMultiview();
       render();
     }).catch(function () { /* the connection dot says it */ });

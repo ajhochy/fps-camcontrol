@@ -22,13 +22,15 @@ import { ActivityLog } from '../app/activityLog';
 import { ViscaDevice } from '../devices/viscaDevice';
 import { MotionDevice } from '../devices/motionDevice';
 import { createMotionDevice } from '../devices/deviceFactory';
-import { HealthTracker, rigHealth, sonyHealth, gimbalBatteryHealth, HealthItem } from '../app/health';
+import { HealthTracker, rigHealth, sonyHealth, gimbalBatteryHealth, zoomHealth, HealthItem } from '../app/health';
 import { probeBridge, fetchBridgeInfo, mergeBridges, DEFAULT_BRIDGE_PORTS, tcpOpen, localSubnetHosts, inBatches, resolveHost, nameOf, BridgeProbe, FoundBridge, fetchBluetoothGimbals, selectBluetoothGimbal, normalizeBluetoothAddress } from '../devices/gimbalScan';
 import { AtemClient } from '../atem/atemClient';
 import { loadProfiles, detectConnectionType } from '../input/profileDetector';
 import { eventBus, AppEvent } from '../app/eventBus';
 import { logger } from '../index';
 import { SonyManager, SonyRetryableError, SonyUpstreamError } from '../sony/sonyManager';
+import { zoomRouterFor } from '../model/sonyZoomRouter';
+import { sonyZoomSpeed } from '../model/zoomTarget';
 import { RemoteControlHub } from '../input/remoteControl';
 import { emergencyStopAll } from '../safety/emergencyStop';
 import { toggleLowerThirds } from '../atem/switcherActions';
@@ -348,6 +350,26 @@ export function createStatusServer(
       void sonyManager.liveViewStop(id).then(() => logger.info({ camera: id }, 'Sony live view stopped: nobody watching')).catch(() => { idleStopped.delete(id); });
     }
   }, 10000).unref();
+  // Desk hold-to-zoom: speed is -1 (wide) .. 1 (tele), mapped like the triggers do. Each non-zero call must be refreshed
+  // (the page sends one every 200 ms); with no refresh within 600 ms the server tells the camera zoom 0 itself.
+  const zoomRouter = () => zoomRouterFor(state, config, sonyManager ?? null, devices, (level, msg, extra) => logger[level](extra ?? {}, msg));
+  const deskZoom = (req: express.Request, res: express.Response, target: { sonyId?: string; rigId?: string }): void => {
+    const manager = sony(res); if (!manager) return;
+    const raw = (req.body as { speed?: unknown } | undefined)?.speed;
+    if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < -1 || raw > 1) { res.status(400).json({ error: 'speed must be a number from -1 to 1' }); return; }
+    if (target.sonyId && !manager.connected(target.sonyId) && raw !== 0) { res.status(409).json({ ok: false, error: 'Sony camera is not connected' }); return; }
+    void zoomRouter().deskZoom(target, sonyZoomSpeed(raw)).then((result) => {
+      if (result.ok) res.json({ ok: true, sonyId: result.sonyId, speed: sonyZoomSpeed(raw) });
+      else res.status(409).json({ ok: false, sonyId: result.sonyId, error: result.message });
+    }).catch((error) => sonyError(res, error));
+  };
+  app.post('/api/sony/cameras/:id/zoom', (req, res) => { const id = sonyId(req, res); if (id) deskZoom(req, res, { sonyId: id }); });
+  app.post('/api/zoom', (req, res) => {
+    const body = (req.body ?? {}) as { rigId?: unknown; sonyId?: unknown };
+    if (typeof body.sonyId === 'string' && /^[A-Za-z0-9:-]{1,128}$/.test(body.sonyId)) { deskZoom(req, res, { sonyId: body.sonyId }); return; }
+    if (typeof body.rigId === 'string' && config.cameras.some((camera) => camera.id === body.rigId)) { deskZoom(req, res, { rigId: body.rigId }); return; }
+    res.status(400).json({ error: 'Name a rig (rigId) or a Sony camera (sonyId)' });
+  });
   app.post('/api/sony/cameras/:id/touch', (req, res) => {
     const manager = sony(res); const id = sonyId(req, res); if (!manager || !id) return;
     const x = req.body?.normalized?.x;
@@ -400,6 +422,7 @@ export function createStatusServer(
           const sonyCam = sonyId ? sonyStatus?.cameras.find((c) => c.id.toUpperCase() === sonyId) : undefined;
           const key = `camera:${cam.id}`;
           cameraKeys[cam.id] = key;
+          items.push({ key: `zoom:${cam.id}`, label: `${cam.label} zoom`, health: zoomHealth(state.zoomNotices?.[cam.id], Date.now()) });
           items.push({ key, label: `${cam.label} camera (${device?.label ?? rig.camera})`, health: serviceStopped ? { level: 'check', text: 'Sony Service Stopped', hint: 'Stopped from the app: Device Config ▸ Sony connections ▸ Start Sony service' } : sonyHealth(sonyCam as never, serviceUp, !!sonyId) });
         }
       }
@@ -412,6 +435,7 @@ export function createStatusServer(
         rigs: Object.fromEntries(config.cameras.map((cam) => [cam.id, snap[`rig:${cam.id}`]]).filter(([, v]) => v)),
         cameras: Object.fromEntries(Object.entries(cameraKeys).map(([id, key]) => [id, snap[key]]).filter(([, v]) => v)),
         batteries: Object.fromEntries(config.cameras.map((cam) => [cam.id, snap[`battery:${cam.id}`]]).filter(([, v]) => v)),
+        zoom: Object.fromEntries(config.cameras.map((cam) => [cam.id, snap[`zoom:${cam.id}`]]).filter(([, v]) => v)),
       };
     } catch (err) {
       logger.warn({ err: String(err) }, 'health update failed');
@@ -1790,6 +1814,13 @@ function statusHtml(): string {
   .sony-preview-loading::after { content:'Live preview loading…'; position:absolute; inset:50% auto auto 50%; transform:translate(-50%,-50%); color:var(--text-2); white-space:nowrap; }
   .sony-preview-stale::after { content:'STALE'; position:absolute; top:8px; right:8px; padding:3px 6px; background:var(--warn-bg); color:var(--warn-text); }
   .sony-crosshair { position:absolute; width:18px; height:18px; border:2px solid var(--amber); border-radius:50%; transform:translate(-50%,-50%); pointer-events:none; display:none; }
+  .sony-zoom { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:6px 0 2px; }
+  .sony-zoom__label { font-size:12px; color:var(--text-2); }
+  .sony-zoom__btn { min-width:64px; min-height:44px; font-size:22px; touch-action:none; user-select:none; -webkit-user-select:none; }
+  .sony-zoom__btn.is-held { background:var(--ok-text); color:#000; }
+  .sony-zoom__status { font-size:12px; color:var(--text-2); }
+  .sony-zoom__notice { margin:4px 0 0; font-size:12px; }
+  .sony-zoom__notice:empty { display:none; }
   .sony-controls { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-top:10px; }
   .sony-controls label { display:grid; gap:3px; color:var(--text-2); font-size:.72rem; }
   .sony-touch-controls { display:flex; flex-wrap:wrap; align-items:end; gap:8px; margin-top:10px; }
@@ -2373,18 +2404,22 @@ function renderStatus(s, c) {
   const healthOf = function(h) { return h ? { cls: h.level === 'ready' ? 'ok' : h.level === 'check' ? 'warn' : 'err', text: h.text, hint: h.hint || '', since: h.since } : null; };
   const worse = function(a, b) { var rank = { ok: 0, warn: 1, err: 2 }; return !b || rank[a.cls] >= rank[b.cls] ? a : b; };
   const alerts = [];
+  sonyZoomNotices = s.zoomNotices || {};
+  if (typeof applySonyZoomNotices === 'function') applySonyZoomNotices();
   let camGrid = '<div class="cam-grid">';
   for (var i = 0; i < cams.length; i++) {
     const cam = cams[i];
     const motion = healthOf(s.health && s.health.rigs && s.health.rigs[cam.id]) || cameraLinkState(s, cam.id);
     const camera = healthOf(s.health && s.health.cameras && s.health.cameras[cam.id]);
     const battery = healthOf(s.health && s.health.batteries && s.health.batteries[cam.id]);
+    const zoomH = healthOf(s.health && s.health.zoom && s.health.zoom[cam.id]);
     const link = worse(worse(motion, camera), battery);
     // Say which part the verdict is about, so CHECK on a tile never reads as "everything here is suspect".
     const verdictReason = link === battery ? 'Low battery' : link === camera ? 'Camera' : (cam.protocol === 'dji-bridge' ? 'Gimbal' : 'Control');
     const camName = 'CAM ' + String(i + 1).padStart(2, '0') + ' ' + cam.label;
     if (motion.cls !== 'ok') alerts.push({ cls: motion.cls, what: camName + (cam.protocol === 'dji-bridge' ? ' gimbal' : ' control'), text: motion.text, hint: motion.hint, since: motion.since });
     if (camera && camera.cls !== 'ok') alerts.push({ cls: camera.cls, what: camName + ' camera', text: camera.text, hint: camera.hint, since: camera.since });
+    if (zoomH && zoomH.cls !== 'ok') alerts.push({ cls: zoomH.cls, what: camName + ' zoom', text: zoomH.text, hint: zoomH.hint, since: zoomH.since });
     if (battery && battery.cls !== 'ok') alerts.push({ cls: battery.cls, what: camName, text: battery.text, hint: battery.hint, since: battery.since });
     const isProgram = s.programCamera === cam.id;
     const isPreview = s.previewCamera === cam.id;
@@ -2413,6 +2448,7 @@ function renderStatus(s, c) {
         sleepHtml(cam, motion, s) +
         (camera ? '<span class="cam-card__status cam-card__line--' + camera.cls + '" title="' + esc(camera.hint) + '">Camera: ' + esc(camera.text) + '</span>' +
           (camera.hint && camera.cls !== 'ok' ? '<span class="cam-card__hint">' + esc(camera.hint) + '</span>' : '') : '') +
+        (zoomH && zoomH.cls !== 'ok' ? '<span class="cam-card__status cam-card__line--' + zoomH.cls + '" title="' + esc(zoomH.hint) + '">Zoom: ' + esc(zoomH.text) + '</span><span class="cam-card__hint">' + esc(zoomH.hint) + '</span>' : '') +
         '<div class="cam-card__roles">' + roles + '</div>' +
       '</div>';
   }
@@ -2572,7 +2608,7 @@ async function refreshHealthLog() {
 setInterval(refreshHealthLog, 5000); refreshHealthLog();
 
 // ---- Sony dashboard (all browser traffic remains on /api/sony/*) ----
-var SONY_PROPERTIES = ['aperture','shutter-speed','iso','white-balance','focus-mode','focus-area'];
+var SONY_PROPERTIES = ['aperture','shutter-speed','iso','white-balance','focus-mode','focus-area','zoom-setting'];
 var sonyWidgets = {};
 var sonyDiscovered = [];
 var sonySidecar = null;
@@ -2658,7 +2694,82 @@ function renderSonyCameras(cameras, rigs) {
   // Put the cards in rig order, moving only those out of place (a moved card keeps its preview and settings).
   nodes.forEach(function(node, i) { if (root.children[i] !== node) root.insertBefore(node, root.children[i] || null); });
   // Tracking controls are an add-on: a fault there must never blank the Sony cameras.
+  applySonyZoomNotices();
   if (window.fpsTracking) { try { window.fpsTracking.renderWidgets(); } catch (error) { console.error('tracking controls', error); } }
+}
+
+// ---- Desk hold-to-zoom. Down starts, up / leave / cancel / blur / hidden tab stop. The server also stops the camera
+// on its own if the refreshes stop (dead-man), so a lost stop can never leave a camera zooming.
+var sonyZoomHold = null;
+var ZOOM_DESK_SPEED = 0.6;
+function sonyZoomStatus(id, text, bad) {
+  var article = sonyWidgets[id] && sonyWidgets[id].article; if (!article) return;
+  var line = article.querySelector('.sony-zoom__status'); if (!line) return;
+  line.className = 'sony-zoom__status' + (bad ? ' error-state' : ''); line.textContent = text;
+}
+function sonyZoomPost(id, speed) {
+  return fetch('/api/sony/cameras/' + encodeURIComponent(id) + '/zoom', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ speed:speed }), keepalive:true });
+}
+function sonyZoomTick() {
+  var hold = sonyZoomHold; if (!hold || hold.inflight) return;
+  hold.inflight = true;
+  sonyZoomPost(hold.id, hold.dir * ZOOM_DESK_SPEED).then(function(response) {
+    if (response.ok) { if (sonyZoomHold === hold) sonyZoomStatus(hold.id, hold.dir > 0 ? 'Zooming in' : 'Zooming out'); return; }
+    return response.json().catch(function() { return {}; }).then(function(body) {
+      sonyZoomStatus(hold.id, (body && body.error) || ('Zoom failed (HTTP ' + response.status + ')'), true);
+      if (sonyZoomHold === hold) sonyZoomStop();
+    });
+  }).catch(function() { sonyZoomStatus(hold.id, 'Zoom request failed', true); if (sonyZoomHold === hold) sonyZoomStop(); })
+    .then(function() { hold.inflight = false; });
+}
+function sonyZoomStart(button) {
+  if (sonyZoomHold) sonyZoomStop();
+  sonyZoomHold = { id: button.dataset.id, dir: Number(button.dataset.dir), button: button, inflight: false, timer: null };
+  button.classList.add('is-held');
+  sonyZoomTick();
+  sonyZoomHold.timer = setInterval(sonyZoomTick, 200);
+}
+function sonyZoomStop() {
+  var hold = sonyZoomHold; if (!hold) return;
+  sonyZoomHold = null;
+  clearInterval(hold.timer);
+  hold.button.classList.remove('is-held');
+  var tries = 0;
+  (function sendStop() {
+    sonyZoomPost(hold.id, 0).then(function(response) { if (!response.ok && tries++ < 2) setTimeout(sendStop, 150); }).catch(function() { if (tries++ < 2) setTimeout(sendStop, 150); });
+  })();
+  sonyZoomStatus(hold.id, '', false);
+}
+(function wireSonyZoom() {
+  var area = document.getElementById('sony-cameras');
+  area.addEventListener('pointerdown', function(event) {
+    var button = event.target.closest && event.target.closest('.sony-zoom__btn'); if (!button) return;
+    event.preventDefault(); sonyZoomStart(button);
+  });
+  ['pointerup', 'pointercancel'].forEach(function(name) { window.addEventListener(name, function() { sonyZoomStop(); }); });
+  area.addEventListener('pointerout', function(event) {
+    var button = event.target.closest && event.target.closest('.sony-zoom__btn');
+    if (button && sonyZoomHold && sonyZoomHold.button === button && !(event.relatedTarget && button.contains(event.relatedTarget))) sonyZoomStop();
+  });
+  area.addEventListener('contextmenu', function(event) { if (event.target.closest && event.target.closest('.sony-zoom__btn')) event.preventDefault(); });
+  window.addEventListener('blur', function() { sonyZoomStop(); });
+  window.addEventListener('pagehide', function() { sonyZoomStop(); });
+  document.addEventListener('visibilitychange', function() { if (document.hidden) sonyZoomStop(); });
+})();
+
+// The refused-zoom reason (from /api/status zoomNotices) on the matching Sony card.
+var sonyZoomNotices = {};
+function applySonyZoomNotices() {
+  Object.keys(sonyWidgets).forEach(function(id) {
+    var article = sonyWidgets[id].article; if (!article) return;
+    var line = article.querySelector('.sony-zoom__notice'); if (!line) return;
+    var found = '';
+    Object.keys(sonyZoomNotices).forEach(function(cam) {
+      var n = sonyZoomNotices[cam];
+      if (n && String(n.sonyId).toUpperCase() === String(id).toUpperCase()) found = n.message;
+    });
+    if (line.textContent !== found) line.textContent = found;
+  });
 }
 
 function sonyDashboardStatus(message, error) {
@@ -2898,6 +3009,11 @@ function sonyWidgetHtml(camera) {
     '<div class="sony-widget__head"><div><h3 class="sony-widget__title" id="sony-heading-' + esc(key) + '">' + esc(camera.name || camera.model || 'Sony camera') + '</h3><small class="sony-widget__id">' + esc(camera.id) + '</small></div><div><span class="sony-widget__transport">' + esc(camera.connectionType || 'Unknown transport') + '</span><br><span class="sony-widget__connection" style="color:var(--ok-text)">' + esc(camera.status || 'Connected') + '</span>' + sonyBatteryHtml(camera) + '</div></div>' +
     '<div class="sony-preview sony-preview-loading" id="sony-preview-' + esc(key) + '" role="region" aria-labelledby="sony-heading-' + esc(key) + '"><img alt="Live preview from ' + esc(camera.model || camera.id) + '" data-id="' + esc(camera.id) + '"><span class="sony-crosshair" aria-hidden="true"></span></div>' +
     '<div class="sony-roll" id="sony-roll-' + esc(key) + '" data-rig="' + esc(camera.gimbalRig && camera.gimbalRig.rollAdjustable ? camera.gimbalRig.id + '|' + camera.gimbalRig.label : '') + '">' + sonyRollHtml(camera) + '</div>' +
+    '<div class="sony-zoom"><span class="sony-zoom__label">Zoom (hold)</span>' +
+      '<button type="button" class="btn-sm sony-zoom__btn" data-id="' + esc(camera.id) + '" data-dir="-1" title="Hold to zoom out" aria-label="Zoom out (hold)">&minus;</button>' +
+      '<button type="button" class="btn-sm sony-zoom__btn" data-id="' + esc(camera.id) + '" data-dir="1" title="Hold to zoom in" aria-label="Zoom in (hold)">+</button>' +
+      '<span class="sony-zoom__status" aria-live="polite"></span></div>' +
+    '<div class="sony-zoom__notice error-state" role="status"></div>' +
     '<div class="sony-controls">' + controls + '</div>' +
     '<div class="sony-touch-controls"><label>X (0–1)<input class="cfg-input" id="sony-x-' + esc(key) + '" type="number" min="0" max="1" step="0.01" value="0.5"></label><label>Y (0–1)<input class="cfg-input" id="sony-y-' + esc(key) + '" type="number" min="0" max="1" step="0.01" value="0.5"></label><button class="btn-sm" data-id="' + esc(camera.id) + '" onclick="applySonyTouchInputs(this.dataset.id)">Apply touch point</button><button class="btn-sm sony-clear-focus" data-id="' + esc(camera.id) + '" onclick="clearSonyFocus(this.dataset.id)" title="Clear the touch-focus point (like the cancel button on the camera)">&#x2715; Clear focus</button></div>' +
     '<p>Camera Touch Function determines focus vs tracking.</p><div id="sony-status-' + esc(key) + '" aria-live="polite">Live preview loading. Loading camera controls…</div></article>';
@@ -3267,14 +3383,15 @@ refreshControllers();
 refreshSony();
 
 // ---- Controllers Tab ----
+var INPUT_NAMES = { rightTrigger: 'Right Trigger', leftTrigger: 'Left Trigger' };
 var remappingAction = null;
 var wsController = null;
 var hidDebugEnabled = false;
 
 var ACTION_LABELS = {
   panTilt: 'Pan / Tilt',
-  zoomIn: 'Zoom In (RT, hold)',
-  zoomOut: 'Zoom Out (LT, hold)',
+  zoomIn: 'Zoom In (hold)',
+  zoomOut: 'Zoom Out (hold)',
   cameraSelectLeft: 'Camera Select Left',
   cameraSelectRight: 'Camera Select Right',
   autoTransition: 'Take Live (Auto Transition)',
@@ -3349,7 +3466,7 @@ function renderControllers(controllers, active, mappings) {
     var isListening = remappingAction === action;
     html += '<tr>';
     html += '<td>' + label + '</td>';
-    html += '<td id="map-val-' + action + '">' + esc(assignment) + '</td>';
+    html += '<td id="map-val-' + action + '" data-value="' + esc(assignment) + '">' + esc(INPUT_NAMES[assignment] || assignment) + '</td>';
     html += '<td><button class="btn' + (isListening ? ' listening' : '') + '" data-action="' + action + '" onclick="startRemap(this.dataset.action)">' + (isListening ? 'Listening…' : 'Remap') + '</button></td>';
     html += '</tr>';
   }
@@ -3493,7 +3610,7 @@ function assignRemap(action, input) {
   remappingAction = null;
   disconnectControllerWS();
   var el = document.getElementById('map-val-' + action);
-  if (el) el.textContent = input;
+  if (el) { el.dataset.value = input; el.textContent = INPUT_NAMES[input] || input; }
   if (!window._pendingMappings) window._pendingMappings = {};
   window._pendingMappings[action] = input;
   refreshControllers();
@@ -3505,7 +3622,7 @@ async function saveMappingsUI() {
   for (var i = 0; i < actionKeys.length; i++) {
     var action = actionKeys[i];
     var el = document.getElementById('map-val-' + action);
-    if (el) mappings[action] = el.textContent;
+    if (el) mappings[action] = el.dataset.value || el.textContent;
   }
   try {
     var r = await fetch('/api/mappings', {

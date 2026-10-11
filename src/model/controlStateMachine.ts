@@ -13,8 +13,8 @@ import { emergencyStopAll } from '../safety/emergencyStop';
 import { ActivityLog } from '../app/activityLog';
 import { logger } from '../index';
 import { trackingFor } from '../app/trackingHooks';
-import { SonyZoom, ZoomTarget, sonyZoomSpeed, zoomTarget } from './zoomTarget';
-import { SonyRetryableError } from '../sony/sonyManager';
+import { SonyZoom, ZoomTarget, sonyZoomSpeed } from './zoomTarget';
+import { SonyZoomRouter, zoomRouterFor } from './sonyZoomRouter';
 
 const TRIGGER_DEADZONE = 0.05;
 // LB on its own is a hard cut, fired on release so LB still works as the chord modifier (LB+RB recenter,
@@ -35,8 +35,6 @@ const GIMBAL_MIN_SEND_MS = 50;    // ceiling of ~20 commands/sec per gimbal
 const GIMBAL_HEARTBEAT_MS = 150;
 // Sony zoom goes over HTTP to the sidecar: at most 5 sends/s, on change only (the camera holds a speed until told 0).
 const SONY_ZOOM_MIN_SEND_MS = 200;
-// After the Sony camera refuses zoom (no power zoom, Clear Image Zoom off), zoom the head for this long, then retry.
-const SONY_ZOOM_FALLBACK_MS = 30000;
 
 /**
  * Whether a motion frame should go out on this tick.
@@ -70,6 +68,7 @@ const INPUT_LABELS: Record<string, string> = {
   rightStick: 'Right Stick',
   leftStickX: 'Left Stick X',
   rightTrigger: 'Right Trigger',
+  leftTrigger: 'Left Trigger',
   RB: 'RB Button',
   A: 'A Button',
   B: 'B Button',
@@ -102,8 +101,8 @@ export class ControlStateMachine {
   private lastZoom = new Map<CameraId, { speed: number; ts: number; to: ZoomTarget['kind'] }>();
   // The Sony camera currently told to zoom (non-zero), so every stop path can tell it 0.
   private sonyZooming: { cameraId: CameraId; sonyId: string } | null = null;
-  // Sony camera id -> until when its zoom falls back to the head (it refused or failed).
-  private sonyZoomUnsupported = new Map<string, number>();
+  // Shared with the desk page's zoom buttons: refusal memory, head fallback (only where the head can zoom), notices.
+  private zoomRouter: SonyZoomRouter;
   private activityLog: ActivityLog | null;
   // Who is driving, for the activity log ('iPad: Front'); null = the desk controller's profile name.
   private sourceLabel: string | null = null;
@@ -120,6 +119,7 @@ export class ControlStateMachine {
     private sony: SonyZoom | null = null
   ) {
     this.activityLog = activityLog;
+    this.zoomRouter = zoomRouterFor(state, config, sony, devices, (level, msg, extra) => logger[level](extra ?? {}, msg));
     this.cameraSelector = new CameraSelector(state, config.cameras, atem, devices);
     this.presetManager = new PresetManager(state, config, devices);
     this.speedManager = new SpeedManager(state, config);
@@ -256,10 +256,8 @@ export class ControlStateMachine {
     if (this.sonyZooming && this.sonyZooming.cameraId !== this.state.controlledCamera) this.stopSonyZoom();
     const rightX = applyDeadzone(input.axes.rightStickX ?? 0);
     const rightY = applyDeadzone(input.axes.rightStickY ?? 0);
-    const rightTrigger = input.triggers.rightTrigger ?? 0;
-    const leftTrigger = input.triggers.leftTrigger ?? 0;
-    const zoomAxis = (rightTrigger > TRIGGER_DEADZONE ? rightTrigger : 0)
-      - (leftTrigger > TRIGGER_DEADZONE ? leftTrigger : 0);
+    const zoomAxis = this.mappedZoom(input, this.config.mappings?.zoomIn ?? 'rightTrigger')
+      - this.mappedZoom(input, this.config.mappings?.zoomOut ?? 'leftTrigger');
     const movingPT = rightX !== 0 || rightY !== 0;
     const movingZoom = zoomAxis !== 0;
 
@@ -292,7 +290,8 @@ export class ControlStateMachine {
       }
 
       if (movingZoom && !this.wasMovingZoom) {
-        this.activityLog?.setContext(controller, zoomAxis > 0 ? 'Right Trigger' : 'Left Trigger', zoomAxis > 0 ? 'Zoom In' : 'Zoom Out');
+        const mapping = zoomAxis > 0 ? this.config.mappings?.zoomIn ?? 'rightTrigger' : this.config.mappings?.zoomOut ?? 'leftTrigger';
+        this.activityLog?.setContext(controller, INPUT_LABELS[mapping] ?? mapping, zoomAxis > 0 ? 'Zoom In' : 'Zoom Out');
       } else if (!movingZoom && this.wasMovingZoom) {
         this.activityLog?.setContext(controller, 'Triggers', 'Zoom Stop');
         if (this.lastZoom.get(cameraId)?.to === 'sony') this.stopSonyZoom(); else device.setZoom(0);
@@ -415,23 +414,23 @@ export class ControlStateMachine {
     }
   }
 
-  private zoomTargetFor(cameraId: CameraId): ZoomTarget {
-    const target = zoomTarget(cameraId, this.config, this.sony);
-    if (target.kind === 'sony' && (this.sonyZoomUnsupported.get(target.sonyId) ?? 0) > Date.now()) return { kind: 'head' };
-    return target;
+  /** A zoom direction's analog value (0..1) from the mapped input: a trigger by name, or a button as full speed. */
+  private mappedZoom(input: NormalizedInput, name: string): number {
+    const trigger = input.triggers[name];
+    if (typeof trigger === 'number') return trigger > TRIGGER_DEADZONE ? trigger : 0;
+    return input.buttons[name] === true ? 1 : 0;
   }
 
-  /** Fire and forget: a failure never reaches the input loop; a refusal sends zoom to the head for a while. */
+  private zoomTargetFor(cameraId: CameraId): ZoomTarget {
+    return this.zoomRouter.targetFor(cameraId);
+  }
+
+  /** Fire and forget: a failure never reaches the input loop. The router decides the fallback and records the notice. */
   private sendSonyZoom(cameraId: CameraId, sonyId: string, speed: number): void {
     if (!this.sony) return;
     this.sonyZooming = speed === 0 ? null : { cameraId, sonyId };
-    this.sony.zoom(sonyId, speed).catch((err) => {
-      if (err instanceof SonyRetryableError) return; // busy lane: the next change or the stop gets through
-      if (this.sonyZooming?.sonyId === sonyId) this.sonyZooming = null;
-      if ((this.sonyZoomUnsupported.get(sonyId) ?? 0) > Date.now()) return; // already logged
-      this.sonyZoomUnsupported.set(sonyId, Date.now() + SONY_ZOOM_FALLBACK_MS);
-      logger.warn({ err, sonyId }, 'Sony zoom failed: zooming the PTZ head instead for 30 s');
-    });
+    // sonyZooming stays set after a refusal on purpose: the release still sends the camera a stop (zoom stop is always sent).
+    void this.zoomRouter.send(cameraId, sonyId, speed);
   }
 
   private stopSonyZoom(): void {
