@@ -25,7 +25,12 @@ export class FakeAtemClient extends AtemClient {
 
   async changePreviewInput(inputId: number): Promise<void> { this.preview = inputId; }
   async cut(): Promise<void> { const was = this.program; this.program = this.preview; this.preview = was; }
-  async autoTransition(): Promise<void> { await this.cut(); }
+  async autoTransition(): Promise<void> { this.autos++; await this.cut(); }
+  /** Test hooks: how many auto transitions ran, and the mix rate the fake switcher holds. */
+  autos = 0;
+  mixFrames = 30;
+  transitionInfo(): { style: string; frames: number | null } | undefined { return this.connected ? { style: 'mix', frames: this.mixFrames } : undefined; }
+  async setTransitionFrames(frames: number): Promise<void> { this.mixFrames = frames; }
   // No picture to key over, but the key's on-air state is kept and reported like the real switcher's.
   private keyOnAir = false;
   graphicsOnAir(): boolean | undefined { return this.connected ? this.keyOnAir : undefined; }

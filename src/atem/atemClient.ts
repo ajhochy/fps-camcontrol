@@ -195,6 +195,30 @@ export class AtemClient extends EventEmitter {
     await this.atem.cut(meIndex);
   }
 
+  /** The current transition style and its rate in frames, as the switcher reports them (undefined until known). */
+  transitionInfo(meIndex = 0): { style: string; frames: number | null } | undefined {
+    const me = this.atem.state?.video?.mixEffects?.[meIndex];
+    if (!me) return undefined;
+    const style = me.transitionProperties?.style;
+    const s = me.transitionSettings;
+    const names = ['mix', 'dip', 'wipe', 'dve', 'sting'];
+    const frames = style === 0 ? s?.mix?.rate : style === 1 ? s?.dip?.rate : style === 2 ? s?.wipe?.rate : style === 3 ? s?.DVE?.rate : undefined;
+    return { style: names[style ?? -1] ?? 'unknown', frames: typeof frames === 'number' ? frames : null };
+  }
+
+  /** Set the rate of the current transition style (MIX / DIP / WIPE / DVE); a stinger has no rate to set. */
+  async setTransitionFrames(frames: number, meIndex = 0): Promise<void> {
+    if (!this.connected) return;
+    const info = this.transitionInfo(meIndex);
+    if (!info || info.frames === frames) return;
+    if (info.style === 'mix') await this.atem.setMixTransitionSettings({ rate: frames }, meIndex);
+    else if (info.style === 'dip') await this.atem.setDipTransitionSettings({ rate: frames }, meIndex);
+    else if (info.style === 'wipe') await this.atem.setWipeTransitionSettings({ rate: frames }, meIndex);
+    else if (info.style === 'dve') await this.atem.setDVETransitionSettings({ rate: frames }, meIndex);
+    else return;
+    logger.info({ style: info.style, from: info.frames, to: frames }, 'ATEM transition rate set');
+  }
+
   async autoTransition(meIndex = 0): Promise<void> {
     const disconnected = !this.connected;
     this.activityLog?.addEntry({

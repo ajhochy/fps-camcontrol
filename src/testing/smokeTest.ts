@@ -481,6 +481,54 @@ async function runTests(): Promise<void> {
   assert('Y with no 4th camera is a no-op (controlled unchanged)', state.controlledCamera === beforeY);
   assert('Y with no 4th camera does not touch ATEM preview', virtualAtem.log.length === 0);
 
+  // Test 10b: LB tap = hard cut (on release); LB as a chord modifier or held long never cuts.
+  console.log('\nTest 10b: LB tap cuts; LB chords and long holds do not');
+  {
+    const settle = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+    const lbCuts = () => virtualAtem.log.filter(l => l.startsWith('cut()')).length;
+    press('LB', false);
+    virtualAtem.log = [];
+    press('LB', true); press('LB', false);
+    await settle(20);
+    assert('an LB tap cuts the controlled camera to program (hard cut, no auto)', lbCuts() === 1 && !virtualAtem.log.some(l => l.startsWith('autoTransition')));
+    virtualAtem.log = [];
+    press('LB', true);
+    csm.updateInput({ axes: {}, buttons: { LB: true, A: true }, triggers: {} }); csm.tick();
+    csm.updateInput({ axes: {}, buttons: { LB: true, A: false }, triggers: {} }); csm.tick();
+    press('LB', false);
+    await settle(20);
+    assert('LB used as a chord (LB+A preset save) does not cut', lbCuts() === 0);
+    virtualAtem.log = [];
+    press('LB', true);
+    await settle(650);
+    press('LB', false);
+    await settle(20);
+    assert('LB held longer than a tap does not cut', lbCuts() === 0);
+  }
+
+  // Test 10c: the configured transition length is set on the switcher before an auto transition.
+  console.log('\nTest 10c: atem.transitionFrames sets the ATEM rate before an auto transition');
+  {
+    const settle = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+    virtualAtem.mixFrames = 30;
+    (config.atem as { transitionFrames?: number }).transitionFrames = 20;
+    virtualAtem.log = [];
+    press('RB', false); press('RB', true); press('RB', false);
+    await settle(20);
+    const rateAt = virtualAtem.log.findIndex(l => l === 'setTransitionFrames(20)');
+    const autoAt = virtualAtem.log.findIndex(l => l.startsWith('autoTransition'));
+    assert('RB sets the transition to 20 frames, then transitions', rateAt >= 0 && autoAt > rateAt && virtualAtem.mixFrames === 20);
+    virtualAtem.log = [];
+    press('RB', true); press('RB', false);
+    await settle(20);
+    assert('an unchanged rate is not re-sent', !virtualAtem.log.some(l => l.startsWith('setTransitionFrames')) && virtualAtem.log.some(l => l.startsWith('autoTransition')));
+    delete (config.atem as { transitionFrames?: number }).transitionFrames;
+    virtualAtem.mixFrames = 30; virtualAtem.log = [];
+    press('RB', true); press('RB', false);
+    await settle(20);
+    assert('with no transitionFrames configured the ATEM rate is left alone', !virtualAtem.log.some(l => l.startsWith('setTransitionFrames')) && virtualAtem.mixFrames === 30);
+  }
+
   // Test 11: KEY (lower thirds) toggle fades instead of hard-cutting.
   console.log('\nTest 11: KEY toggle uses a fade (auto), not a hard cut');
   state.lowerThirdsActive = false;
