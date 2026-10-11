@@ -70,7 +70,7 @@ export interface AppState {
   /** Whether VISCA replies sent to port 52381 can be heard (the app holds that port); null before it binds. */
   viscaRepliesHeard: boolean | null;
   /** Per-rig health (motion side, and the Sony camera on it), recomputed every second; see app/health.ts. */
-  health: { rigs: Record<string, unknown>; cameras: Record<string, unknown>; batteries?: Record<string, unknown> } | null;
+  health: { rigs: Record<string, unknown>; cameras: Record<string, unknown>; batteries?: Record<string, unknown>; zoom?: Record<string, unknown> } | null;
   /** Who is driving (desk controller or an iPad) and whether iPad control is switched on; see input/remoteControl.ts. */
   remoteControl: RemoteControlStatus;
   controllerConnected: boolean;
@@ -79,6 +79,10 @@ export interface AppState {
   // Why a detected controller is not delivering input, if that is the case.
   controllerStatusDetail: string | null;
   lastPresetNotification: string | null;
+  /** Why a rig's last zoom did nothing (its Sony camera refused and the head cannot zoom); cleared by the next good zoom. */
+  zoomNotices?: Record<string, { cameraId: string; sonyId: string; message: string; at: number }>;
+  /** The newest of zoomNotices, or null. */
+  zoomNotice?: { cameraId: string; sonyId: string; message: string; at: number } | null;
   presetSaveProgress: PresetSaveProgress | null;
 }
 
@@ -111,6 +115,8 @@ export const defaultState: AppState = {
   activeConnectionType: null,
   controllerStatusDetail: null,
   lastPresetNotification: null,
+  zoomNotices: {},
+  zoomNotice: null,
   presetSaveProgress: null,
 };
 
@@ -138,6 +144,8 @@ export function createInitialState(overrides: Partial<AppState> = {}): AppState 
     viscaRepliesHeard: null,
     health: null,
     remoteControl: { ...defaultState.remoteControl },
+    zoomNotices: {},
+    zoomNotice: null,
     ...overrides,
   };
 }

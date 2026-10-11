@@ -61,6 +61,8 @@ export interface FakeSonyCameraSpec {
   battery?: number;
   /** Answer actions/zoom with "not supported" (no power zoom, Clear Image Zoom off). The ILCE-7M4 always does. */
   noZoom?: boolean;
+  /** No power zoom (a prime / non-power lens): zoom is refused while Zoom Setting is Optical Zoom Only, accepted with Clear Image / Digital. */
+  noPowerZoom?: boolean;
 }
 
 interface FakeCamera extends Required<FakeSonyCameraSpec> {
@@ -94,7 +96,7 @@ export class FakeSonySidecar {
     this.connectDelayMs = options.connectDelayMs ?? 0;
     for (const spec of specs) {
       this.cameras.set(spec.id.toUpperCase(), {
-        powered: true, needsPairing: false, readOnlyAperture: false, battery: 82, noZoom: false, ...spec, id: spec.id.toUpperCase(),
+        powered: true, needsPairing: false, readOnlyAperture: false, battery: 82, noZoom: false, noPowerZoom: false, ...spec, id: spec.id.toUpperCase(),
         connected: false, pairingOpen: false, props: makeProps(!!spec.readOnlyAperture), frames: 0, zoomSpeed: 0, zoomCalls: 0,
       });
     }
@@ -305,6 +307,9 @@ ${bars(['#0000bf', '#131313', '#bf00bf', '#131313', '#00bfbf', '#131313', '#bfbf
         const { speed } = await this.readBody(req);
         if (!Number.isInteger(speed) || speed < -10 || speed > 10) return this.json(res, 400, { success: false, message: 'speed must be an integer from -10 to 10', camera: this.info(camera) });
         if (camera.noZoom || camera.model === 'ILCE-7M4') return this.json(res, 400, { success: false, message: 'Zoom operation not supported for this camera/lens', camera: this.info(camera) });
+        if (camera.noPowerZoom && camera.props.find((p) => p.name === 'zoom-setting')?.current === 1 && speed !== 0) {
+          return this.json(res, 400, { success: false, message: 'Zoom operation not supported for this camera/lens', camera: this.info(camera) });
+        }
         camera.zoomSpeed = speed;
         camera.zoomCalls++;
         return this.json(res, 200, { success: true, message: 'Zoom accepted', camera: this.info(camera) });

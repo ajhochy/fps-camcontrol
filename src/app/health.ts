@@ -25,6 +25,14 @@ export function gimbalBatteryHealth(percent: number | null | undefined): Health 
 }
 export interface Health { level: HealthLevel; text: string; hint: string }
 
+/** How long a refused-zoom notice keeps a rig on CHECK without another attempt (a fixed camera setting clears it sooner, on the next zoom). */
+export const ZOOM_NOTICE_ALERT_MS = 10 * 60 * 1000;
+/** A rig's zoom verdict: CHECK while its camera refused the last zoom and the head could not take over. */
+export function zoomHealth(notice: { message: string; at: number } | null | undefined, now: number): Health {
+  if (!notice || now - notice.at > ZOOM_NOTICE_ALERT_MS) return { level: 'ready', text: 'Zoom OK', hint: '' };
+  return { level: 'check', text: 'Zoom Refused', hint: notice.message };
+}
+
 export interface RigCamera { id: string; label: string; protocol: string }
 
 /** A rig's motion side: the VISCA head or the DJI gimbal behind a Pi bridge. */
