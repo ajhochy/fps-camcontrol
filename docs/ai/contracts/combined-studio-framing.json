@@ -1,0 +1,87 @@
+{
+  "issue": "combined-studio-framing",
+  "date": "2026-10-07",
+  "test_command": "CAMCONTROL_NO_CONTROLLER=1 node --test --test-concurrency=1 -r ts-node/register/transpile-only tests/tracking/combined-studio-framing.test.cjs tests/tracking/keep-this-framing.test.cjs",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "task-combined-studio-framing-c1",
+      "text": "preserved Studio/integration product paths",
+      "mode": "manual",
+      "test": null,
+      "status": "pass",
+      "reason": "Integration base aea1f13 includes deployed Studio HEAD8862d99; nine-file framing contextual diff retained Clear Focus/slides; current-root provenance and diff inspected by manager. Manager execution/review; Independent bounded gate PASS: build, syntax, 24 tests, provenance and scoped diff; physical/full-main exclusions remain."
+    },
+    {
+      "criterion_id": "task-combined-studio-framing-c2",
+      "text": "exact deployed phone baseline provenance",
+      "mode": "unit",
+      "test": "tests/tracking/combined-studio-framing.test.cjs",
+      "status": "pass",
+      "reason": "Four exact deployed iPhone assets fetched read-only and SHA-verified; combined baseline test PASS; unchanged final assets. Manager execution/review; Independent bounded gate PASS: build, syntax, 24 tests, provenance and scoped diff; physical/full-main exclusions remain."
+    },
+    {
+      "criterion_id": "task-combined-studio-framing-c3",
+      "text": "framing both surfaces no zoom",
+      "mode": "manual",
+      "test": null,
+      "status": "pass",
+      "reason": "Current combined desk/iPad framing browser checks and source review pass; no phone Hold feature claimed; no zoom/inference changes. Manager execution/review; Independent bounded gate PASS: build, syntax, 24 tests, provenance and scoped diff; physical/full-main exclusions remain."
+    },
+    {
+      "criterion_id": "task-combined-studio-framing-c4",
+      "text": "strict capture/resume/reset/safety",
+      "mode": "integration",
+      "test": "tests/tracking/keep-this-framing.test.cjs",
+      "status": "pass",
+      "reason": "Manager serial48/48 and final combined24/24 passed; strict real manager/API capture, safety, reset and browser paths exercised. Manager execution/review; Independent bounded gate PASS: build, syntax, 24 tests, provenance and scoped diff; physical/full-main exclusions remain."
+    },
+    {
+      "criterion_id": "task-combined-studio-framing-c5",
+      "text": "Clear focus route present",
+      "mode": "manual",
+      "test": null,
+      "status": "pass",
+      "reason": "Current browser now clicks exact encoded POST touch-cancel, tests200/409feedback and program-feed exclusion; real-camera Sony execution remains manual. Manager execution/review; Independent bounded gate PASS: build, syntax, 24 tests, provenance and scoped diff; physical/full-main exclusions remain."
+    },
+    {
+      "criterion_id": "task-combined-studio-framing-c6",
+      "text": "Slides retained",
+      "mode": "manual",
+      "test": null,
+      "status": "pass",
+      "reason": "Current browser asserts no-seat Slides lowerThirds WebSocket consumption; real ATEM behavior remains manual. Manager execution/review; Independent bounded gate PASS: build, syntax, 24 tests, provenance and scoped diff; physical/full-main exclusions remain."
+    },
+    {
+      "criterion_id": "task-combined-studio-framing-c7",
+      "text": "streaming excluded",
+      "mode": "manual",
+      "test": null,
+      "status": "pass",
+      "reason": "Manager inspected new diff: no broadcast source/test/checks additions. Inherited streaming planning docs unchanged. Manager execution/review; Independent bounded gate PASS: build, syntax, 24 tests, provenance and scoped diff; physical/full-main exclusions remain."
+    },
+    {
+      "criterion_id": "task-combined-studio-framing-c8",
+      "text": "operator config untouched",
+      "mode": "manual",
+      "test": null,
+      "status": "pass",
+      "reason": "No operator config or presets copied/changed; Studio operations read-only; target diff config empty. Manager execution/review; Independent bounded gate PASS: build, syntax, 24 tests, provenance and scoped diff; physical/full-main exclusions remain."
+    }
+  ],
+  "not_tested": [
+    "Physical framing placement, override/deadman stability and iPad/iPhone Safari touch are MANUAL_PENDING.",
+    "Full bundled-runtime/inference/packaged and full repository PR suites are not accepted by this scoped gate: missing staged pinned runtime; previously reported broader fixture/startup assertions unclassified on combined base. No broad-green claim."
+  ],
+  "excluded": [
+    "keyboard person selection; native Hold/Resume keyboard focus retained",
+    "streaming implementation",
+    "hardware/deployment/publication",
+    "project-state edits"
+  ],
+  "phase_0": "COMPLETE: manager executed CAMCONTROL_NO_CONTROLLER=1 node --test -r /Users/ajhochhalter/Documents/fps-camcontrol/node_modules/ts-node/register/transpile-only tests/tracking/combined-studio-framing.test.cjs before implementation; 2 tests, 1 pass (four phone hashes), 1 fail (setFraming expected function actual undefined, framing implementation must be assembled). No behavioral waiver.",
+  "assembly_status": "PASS FOR BOUNDED COMBINED DRAFT GATE",
+  "run": "docs/ai/runs/2026-10-07-combined-studio-framing.md",
+  "evidence": "docs/ai/runs/keep-this-framing-evidence/2026-10-07T23-53-38-625Z/report.json",
+  "verification_session": "9817ea23-7861-40b2-af37-c418c1b76f2a"
+}

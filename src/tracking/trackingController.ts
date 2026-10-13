@@ -3,6 +3,7 @@ import type { TrackingControlConfig } from './types';
 export interface TrackingObservation { cx: number; cy: number; w: number; h: number; conf: number; frameTs: number; state?: string }
 export interface ControlOutput { pan: number; tilt: number; state: 'tracking'|'holding'|'idle' }
 export class TrackingController {
+  private framing = [.5, .5];
   private filtered = [0, 0];
   private derivative = [0, 0];
   private active = [false, false];
@@ -11,6 +12,11 @@ export class TrackingController {
   constructor(private readonly config: TrackingControlConfig) {}
   /** The operator's cap (the Track speed slider); the config object is this controller's own copy. */
   setMaxSpeed(value: number): void { (this.config as { maxSpeed: number }).maxSpeed = value; }
+  /** Session-local composition; changing it discards derivative and smoothing history. */
+  setFraming(cx: number, cy: number): void {
+    if (![cx, cy].every(value => Number.isFinite(value) && value >= 0 && value <= 1)) throw new RangeError('Invalid framing center');
+    this.framing = [cx, cy]; this.reset();
+  }
   reset(): void { this.filtered = [0, 0]; this.derivative = [0, 0]; this.active = [false, false]; this.frameTs = null; this.lostAt = null; }
   update(observation: TrackingObservation | null, now: number): ControlOutput {
     const v = observation;
@@ -22,7 +28,7 @@ export class TrackingController {
       return { pan: 0, tilt: 0, state: now - this.lostAt < this.config.lostHoldMs ? 'holding' : 'idle' };
     }
     this.lostAt = null;
-    const error = [v.cx - .5, .5 - v.cy];
+    const error = [v.cx - this.framing[0], this.framing[1] - v.cy];
     if (this.frameTs === null || v.frameTs > this.frameTs) {
       const dt = this.frameTs === null ? 0 : (v.frameTs - this.frameTs) / 1000;
       for (let axis = 0; axis < 2; axis++) {

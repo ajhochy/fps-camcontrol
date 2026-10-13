@@ -198,14 +198,15 @@ p { margin: 0; }
 .stick, .zoom-btn, .seg, .seg-btn, .btn-transition, .btn-stop, .track-btn { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 
 /* ---- tracking controls in the big pane header */
-.track-bar { display: flex; align-items: center; gap: 6px; }
+.track-bar { display: flex; flex-wrap: wrap; flex: 1 1 280px; min-width: 0; align-items: center; gap: 6px; }
 .track-bar + .pane-menu { margin-left: 0; }
 .clear-focus[hidden] { display: none; }
 .track-bar[hidden], .track-bar [hidden] { display: none; }
-.track-btn { height: 44px; min-width: 44px; padding: 0 12px; font-size: 15px; font-weight: 700; }
+.track-btn { flex: none; min-height: 44px; min-width: 44px; padding: 0 12px; font-size: 15px; font-weight: 700; }
 .track-btn.on { background: var(--ok); border-color: var(--ok); color: var(--ink); }
 .track-stop { color: var(--bad); }
-.track-state { padding: 6px 10px; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.track-state { flex: 1 0 100%; box-sizing: border-box; padding: 6px 10px; font-size: 13px; font-weight: 600; white-space: normal; overflow-wrap: anywhere; }
+.pane-head { flex-wrap: wrap; }
 .track-state:empty { display: none; }
 .track-state.tracking { color: var(--ok); }
 .track-state.operator_override, .track-state.lost, .track-state.stale, .track-state.sidecar_offline { color: var(--accent); }
