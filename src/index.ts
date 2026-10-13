@@ -1,4 +1,5 @@
 import pino from 'pino';
+import { loadRemoteEnabled } from './app/remoteEnabledStore';
 import crypto from 'node:crypto';
 
 export const logger = (global as any).__testLogger ?? pino({
@@ -203,7 +204,8 @@ export async function startApplication(
     },
   });
   // A suspended-input (second, non-owning Electron variant) instance never starts with remote control on.
-  remoteHub.setEnabled(!controlsPaused && (config.remoteControl?.enabled ?? false));
+  // The desk's last on/off choice wins over the config default, so a restart does not switch the iPad off.
+  remoteHub.setEnabled(!controlsPaused && (loadRemoteEnabled() ?? config.remoteControl?.enabled ?? false));
   remoteHub.start();
 
   const frameToken = process.env.CAMCONTROL_EMBEDDED !== '1' && process.env.TRACKER_WS_TOKEN && process.env.TRACKER_FRAME_TOKEN ? process.env.TRACKER_FRAME_TOKEN : crypto.randomBytes(32).toString('base64url');

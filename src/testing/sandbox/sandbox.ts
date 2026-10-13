@@ -64,6 +64,7 @@ function sandboxEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
     CAMCONTROL_GIMBAL_SWEEP: '0', // never sweep the real network: probing a live bridge makes it stop its gimbal
     VISCA_LOCAL_PORT: '0', // never take port 52381 from the live app (it would get the live V-BOT's replies)
     HEALTH_LOG_FILE: path.join(runDir, 'health-events.jsonl'),
+    REMOTE_CONTROL_STATE_FILE: path.join(runDir, 'remote-control.json'),
     LOG_LEVEL: process.env.LOG_LEVEL ?? 'info',
     ...extra,
   };

@@ -1,4 +1,5 @@
 import express from 'express';
+import { saveRemoteEnabled } from '../app/remoteEnabledStore';
 import http from 'http';
 import path from 'path';
 import crypto from 'node:crypto';
@@ -1123,6 +1124,7 @@ export function createStatusServer(
     if (!remoteHub) { res.status(503).json({ error: 'Remote control is not available' }); return; }
     if (typeof enabled !== 'boolean') { res.status(400).json({ error: 'enabled must be true or false' }); return; }
     remoteHub.setEnabled(enabled);
+    saveRemoteEnabled(enabled);
     activityLog.setContext('Desk', 'Remote control', enabled ? 'Enable' : 'Disable');
     activityLog.addSystemEntry('Remote control', enabled ? 'iPad control switched on' : 'iPad control switched off');
     res.json({ ok: true, remoteControl: state.remoteControl });
