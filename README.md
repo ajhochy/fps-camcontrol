@@ -42,6 +42,18 @@ Edit `config/devices.yaml` with your actual network IPs and ATEM input IDs befor
 | LB + RB | Recenter gimbal *(DJI bridge devices only)* |
 | Back | Emergency stop |
 
+## Live program feed (optional)
+
+> **DRAFT — BLOCKED / NOT READY. DO NOT RUN `scripts/setup-ffmpeg-decklink.sh` before
+> driver/SDK compatibility and script safety review.** This is preserved SDK 16 material;
+> historical Studio Desktop Video 14.2 was incompatible. The currently installed driver
+> has not been checked. The script is preview-only (no network or H.264/AAC encoding),
+> not a streaming runtime. See [preservation receipt](docs/ai/runs/2026-10-13-decklink-preservation.md).
+
+The iPad remote can show the switcher's program output in its PGM pane from a capture device on the CamControl
+machine. UVC cards work with Homebrew's ffmpeg; Blackmagic devices need Desktop Video plus the small ffmpeg built by
+`scripts/setup-ffmpeg-decklink.sh`. See `docs/program-feed.md`.
+
 ## Smoke Tests
 
 ```bash

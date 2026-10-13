@@ -1,5 +1,17 @@
 # Live program feed (iPad PGM pane)
 
+> **DECKLINK DRAFT — BLOCKED / NOT READY. DO NOT RUN `scripts/setup-ffmpeg-decklink.sh`
+> before driver/SDK compatibility and script safety review.** The instructions below
+> are historical preserved material, not current qualification. SDK 16 versus historical
+> Studio Desktop Video 14.2 is unresolved; the actual current driver was not checked.
+> Prerequisites for later authorized qualification: actual macOS Apple Silicon host,
+> Xcode Command Line Tools, and Desktop Video verified compatible with the chosen SDK.
+> Major-version matching alone is not a compatibility guarantee. The script has unchecked
+> downloads, unsafe version/path handling and fixed scratch-directory cleanup risks.
+> Its preview-only build disables network and lacks H.264/AAC encoding: unsuitable for
+> streaming. Preserved license/bundling statements below are not independent EULA or
+> release qualification. See [receipt](ai/runs/2026-10-13-decklink-preservation.md).
+
 The switcher's PROGRAM output is fed into a capture device on the Mac Studio in the broadcast rack that runs CamControl.
 With the feed on, the iPad's **PGM pane only** shows that real program picture (lower thirds and all) instead of the
 program camera's Sony live view; PVW and the small panes keep their Sony views. Off by default.
@@ -27,13 +39,27 @@ never outlives the app.
 
 ## Blackmagic (DeckLink) capture
 
-The rack's UltraStudio Recorder 3G is a DeckLink device, not AVFoundation. Blackmagic **Desktop Video** must be
-installed. Homebrew's ffmpeg has **no** DeckLink support (the status error says so and the feed stays stopped). Build
-ffmpeg with the Blackmagic DeckLink SDK (download it yourself from Blackmagic; it is not redistributed), e.g. the
-`homebrew-ffmpeg/ffmpeg` tap with `--with-decklink`, set `program.ffmpegPath` to that binary, and check with
-`ffmpeg -sources decklink`. `program.formatCode` (e.g. `Hp30`, see `/api/program/formats`) pins the video mode.
+The rack's UltraStudio Recorder 3G is a DeckLink device, not AVFoundation, so the stock Homebrew ffmpeg cannot read
+it (the status error says so and the feed stays stopped). First-time setup on the machine that runs CamControl:
 
-The Mac also has NDI Tools and Wirecast, so an NDI or virtual-camera route is a possible alternative — **not implemented**.
+1. Install Blackmagic **Desktop Video** (driver + `DeckLinkAPI.framework`) from Blackmagic and plug in the device.
+2. Build the small LGPL ffmpeg that CamControl uses for the feed:
+   ```bash
+   scripts/setup-ffmpeg-decklink.sh            # -> ~/Developer/ffmpeg-decklink/bin/ffmpeg
+   ```
+   It compiles ffmpeg 8.x from ffmpeg.org (about 12 MB download, a few minutes on Apple silicon) with the DeckLink
+   and AVFoundation inputs and the MJPEG encoder only, against the SDK headers vendored in
+   `third_party/decklink-sdk/include` (Blackmagic's own licence header permits that; see the NOTICE there). Nothing
+   GPL is built and Homebrew's ffmpeg is left alone.
+3. Point the app at it: `program.ffmpegPath: ~/Developer/ffmpeg-decklink/bin/ffmpeg` (devices.yaml, or
+   `PUT /api/program`), then check `~/Developer/ffmpeg-decklink/bin/ffmpeg -sources decklink` lists the device.
+4. `program.formatCode` (e.g. `Hp30`, see `/api/program/formats`) pins the video mode when autodetect does not.
 
-Sandbox: `CAMCONTROL_FAKE_PROGRAM=1` (set by `pnpm sandbox` and the self-test) serves an SVG test frame with a lower
-third while the fake ATEM's key is up; no ffmpeg runs.
+The vendored SDK headers must match the installed Desktop Video **major version** (the rack runs Desktop Video 14.2;
+an ffmpeg built against SDK 16 says "Installed DeckLink drivers are too old" and cannot list the device). To change
+SDK version: download that SDK from Blackmagic, replace `third_party/decklink-sdk/include` with its `Mac/include`,
+update the NOTICE, re-run the script. The script also works around two macOS build quirks (ffmpeg's `VERSION` file
+shadowing libc++'s `<version>` on a case-insensitive disk; SDK 16 dropping the `IID_IUnknown` define).
+
+The built binary could be bundled with a packaged release later (LGPL notice + source offer); Desktop Video itself
+always stays an operator install.
