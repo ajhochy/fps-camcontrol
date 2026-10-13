@@ -6,31 +6,29 @@ type: project
 
 ## Current focus
 
-2026-10-07 delivery checkpoint: draft [PR #91](https://github.com/ajhochy/fps-camcontrol/pull/91) combines the integration baseline, exact deployed Studio iPhone assets, and desktop/iPad Hold this framing. Bounded independent gate passed; physical framing/safety/Safari and broad packaged/runtime qualification remain pending. No automatic zoom or phone Hold feature. Streaming implementation is separate in draft [PR #90](https://github.com/ajhochy/fps-camcontrol/pull/90). Local active branches are limited to `feat/combined-studio-framing` and `feat/streaming-s1-media-proof`; old working copies are superseded. No merge/deployment or Studio config change.
-
-Program streaming is planned, not implemented. The user accepted both plan reviews: real capture proof first, conditional media architecture, coupled sessions, MP4 default, Electron-only new streaming, OS audio routing, explicit queue-age/signal/clock behavior. See [plan](plans/2026-10-06-program-streaming-core.md) and [26-step backlog](generated-issues/streaming-core/README.md).
+Original product checks used `1e7e1ad`; another owner subsequently rewrote PR #91 to `ce2a951` and merged PR #60 to main `ce98b2d`. This manager performed neither action and moved its handoff to separate branch `docs/camcontrol-preservation-handoff`, based on `ce2a951`, instead of overwriting the active feature branch. Draft [PR #90](https://github.com/ajhochy/fps-camcontrol/pull/90) keeps streaming S1 separate. See [development handoff](../camcontrol-development-handoff.md) and [dated inventory](runs/2026-10-13-preservation-inventory.md).
 
 ## Active branch / PR
 
-Open integration PR #60 (`integration/combine-open-prs`), verified planning base `dd224d0`; PR #62 is merged. This revision changes docs and GitHub planning metadata only. The primary checkout's unrelated changes are preserved. Historical integration/release/tracking receipts and previous snapshot are retained in [pre-revision context](runs/2026-10-06-pre-streaming-revision-context.md); those are historical evidence, not new qualification.
+PR #91 targets `main`; the docs handoff targets its feature branch. PR #90 targets integration at `1c94e68`; its original merge-base is `aea1f13`. Integration is now in main through externally merged #60. DeckLink preservation uses `preserve/decklink-sdk16-checkpoint`, based on `3f719b0`, targeting integration. Publication receipts provide final documentation/fixture SHAs. No manager merge, rebase, force-push, deployment or cleanup.
 
 ## In progress
 
-Six streaming milestones (#11–#16) with 26 atomic new issues (#64–#89); existing #63 is assigned to the first milestone and owns the DeckLink SDK/driver prerequisite. New output sessions use Record only or Stream + record, with shared start/stop; arbitrary output attachment and a Node TS relay are deferred. Existing CLI/iPad camera/preview operation remains; new broadcast administration is Electron-local.
+Preserved 53 DeckLink stash files plus two tiny referenced synthetic fixtures; separate draft publication, not compatibility remediation. Current delivery includes desktop/iPad Hold this framing, not phone Hold or automatic zoom. PR #90 full S1 remains NOT READY. Independent DeckLink static preservation review passed; execution remains blocked by documented script/SDK risks.
 
 ## Risks / known issues
 
-- Existing iPad remote is CLI-only; Electron is authenticated loopback-only. This scope preserves that boundary, not simultaneous iPad access to Electron. If needed for rollout, address separately without competing capture owners.
-
-- #63 reports SDK 16 versus Desktop Video 14.2 incompatibility and preview-only FFmpeg; refresh versions before work. No driver change is authorized. Actual program format/audio and streaming-capable runtime remain unqualified.
-- Static tee/fifo must prove failure isolation and one-second application media-age bounds before selection; failed evidence requires a recorded architecture revision, not silent custom relay work.
-- MP4 recovery, shutdown budget, content sync and monitoring clocks require measured evidence. Google setup/consent and operator-authorized rig/account access are external gates.
-- Existing physical camera/tracking/clean-Mac and hosted-release qualification gaps remain in the preserved prior context. Protect rig configurations and retain rollback artifacts.
+- Physical framing, direction/gain, override/dead-man/e-stop soaks, Safari, HID/TCC, Sony/ATEM, captured driver/format/audio, and clean-Mac packaged acceptance are unverified and require later operator-approved manual qualification.
+- SDK 16 versus historical Desktop Video 14.2 remains blocked under #63; preview-only FFmpeg is not streaming-capable. Target device OS/driver/runtime were not queried.
+- Never use operator config/secrets for tests. `CAMCONTROL_NO_CONTROLLER=1` disables real HID only; it does not isolate startup networking/config access. No live rig smoke or deployment is authorized.
+- Initial worktree review found two clean registered worktrees and no local unpushed commits, but no global writer-quiescence guarantee; manager must recheck immediately before any commit.
 
 ## Test status
 
-This revision: documentation consistency, dependency/link and diff checks only. No implementation tests, build, app/server launch, capture, account access or broadcasting run. Past package/synthetic receipts do not qualify streaming or the physical rig.
+Fresh independent checks: both TypeScript builds pass; primary page parsing passes; bounded framing/controller/security checks 32/32 pass; pure broadcast arguments/relay 3/3 pass. Contracts: 22/23 pass, issue-23-c4 fails. Manager suite fails on missing `config.speeds['rig-one']` and times out at 180 seconds; isolated c1 fails exit 1. Full PR whitespace check fails on inherited Sony patch files. Full sandbox/packaged/model/hardware gates are not passed. See [exact commands and limits](runs/2026-10-13-safe-verification.md).
+
+Fresh rewritten-head re-gate at `ce2a951`: build/page-JS and 32/32 focused tests pass, no source drift. Broader failures remain earlier-head unresolved evidence, not a claim of current full-suite acceptance. Streaming 3/3 and build use unchanged product head `f708df3`; restored fixture bytes are not fresh media/recovery proof.
 
 ## Next step
 
-Resolve/refresh #63, then S01/S02 qualify actual capture/runtime; S03–S05 prove architecture, MP4 and timing before dependent media implementation. S16 credential storage can proceed separately. Compact before starting implementation; execute one issue at a time and record separate synthetic, physical, hosted and installed acceptance.
+Continue on the appropriate published draft, repair/classify disclosed fixture/configuration test blockers, and qualify runtimes before later operator-approved physical tests. Keep candidates separate. No merge or deployment.
