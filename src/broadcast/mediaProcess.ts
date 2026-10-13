@@ -9,9 +9,9 @@ export class MediaProcess {
   readonly done: Promise<MediaResult>;
   stderr = Buffer.alloc(0);
   private timer: NodeJS.Timeout;
-  constructor(binary: string, args: string[], deadlineMs: number, capture = false, onStderr?: (chunk: Buffer) => void) {
+  constructor(binary: string, args: string[], deadlineMs: number, capture = false, onStderr?: (chunk: Buffer) => void, extraFds: number[] = []) {
     const started = Date.now();
-    this.child = spawn(binary, args, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, CAMCONTROL_NO_CONTROLLER: '1' } });
+    this.child = spawn(binary, args, { stdio: ['pipe', 'pipe', 'pipe', ...extraFds], env: { ...process.env, CAMCONTROL_NO_CONTROLLER: '1' } }) as ChildProcessWithoutNullStreams;
     owned.add(this);
     this.child.stdin.on('error', () => {});
     this.child.stderr.on('data', (chunk: Buffer) => { this.stderr = Buffer.concat([this.stderr, chunk]).subarray(-8192); onStderr?.(chunk); });
@@ -63,4 +63,13 @@ export function syntheticPipeline(binary: string, format: SyntheticFormat) {
     return output;
   };
   return { encoder, relay, attach };
+}
+
+/** Resource-friendly wrapper for proof runs: run an FFmpeg child under nice(1), optionally with a per-process file-size limit. */
+export function niceFfmpeg(binary: string, args: string[], options: { fileSizeLimitBlocks?: number } = {}): { binary: string; args: string[] } {
+  if (options.fileSizeLimitBlocks) {
+    // Ignore SIGXFSZ so that exceeding the limit surfaces as a write error (EFBIG) instead of killing the process.
+    return { binary: '/bin/sh', args: ['-c', `trap '' XFSZ; ulimit -f ${Math.floor(options.fileSizeLimitBlocks)}; exec nice -n 15 "$0" "$@"`, binary, ...args] };
+  }
+  return { binary: '/usr/bin/nice', args: ['-n', '15', binary, ...args] };
 }

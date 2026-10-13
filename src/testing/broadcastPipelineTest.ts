@@ -198,7 +198,12 @@ async function main() {
       evidence.status = 'PASS'; return;
     }
     await runtimeProbe(path.join(root, 'capability'));
-    if (process.argv.includes('--soak')) {
+    if (process.argv.includes('--soak-smoke')) {
+      // Short, CPU-friendly exercise of the soak runner (60-minute acceptance soak stays deferred to an operator-approved window).
+      const seconds = Number(process.env.BROADCAST_SOAK_SMOKE_SECONDS || '30');
+      assert.ok(seconds >= 10 && seconds <= 40, 'Soak smoke is limited to 10-40 s');
+      await runCase('30000/1001', 3, seconds, true);
+    } else if (process.argv.includes('--soak')) {
       const minutes = Number(process.env.BROADCAST_SOAK_MINUTES);
       assert.equal(minutes, 60, 'Acceptance soak requires explicit BROADCAST_SOAK_MINUTES=60');
       await runCase('30000/1001', 3, minutes * 60, true);

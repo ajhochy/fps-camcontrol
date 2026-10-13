@@ -1,3 +1,5 @@
+// SUPERSEDED (2026-10-13, docs/ai/decisions/2026-10-13-streaming-session-architecture.md): the product session is one static FFmpeg tee/fifo process.
+// Kept only as S1 historical evidence in draft PR #90; product code must not import this relay.
 import { Writable } from 'node:stream';
 
 export const MAX_SUBSCRIBER_BYTES = 16 * 1024 * 1024;

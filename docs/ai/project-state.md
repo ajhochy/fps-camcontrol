@@ -6,6 +6,8 @@ type: project
 
 ## Current focus
 
+2026-10-13 #66 progress: synthetic proof that one static FFmpeg `tee` + `fifo` process meets the stream+record isolation contract (recording 1020/1020 frames across publisher outages; stalled publisher never blocks the encoder; reconnect at a key frame with no stale replay; L/R channel content intact; initial recording failure needs a supervisor-owned recording descriptor). Decision: [static tee/fifo, S1 Node TS relay superseded](decisions/2026-10-13-streaming-session-architecture.md); evidence in [run note](runs/2026-10-13-streaming-s03-tee-proof.md). Developer runtime/synthetic only: #66 stays open (pinned runtime, rig, TLS/YouTube, AJ approval).
+
 2026-10-13 preservation only: restored the two existing synthetic recovery fixtures (13,976 bytes total), with exact historical SHA-256 matches. `--recovery-contract` now has its referenced fixtures present in this worktree; no recovery/pipeline tests or builds reran, and runtime qualification/full S1 remain unresolved. See [preservation inventory](runs/2026-10-13-streaming-fixture-preservation.md). The Oct7 receipt below is retained as historical context, not the current fixture-presence state.
 
 2026-10-07: streaming code is preserved in draft [PR #90](https://github.com/ajhochy/fps-camcontrol/pull/90), branch `feat/streaming-s1-media-proof`. Bounded WIP publication verification passed; **full S1 is NOT READY**. Recorded developer 20-case matrix, 44 decoded comparisons and 60-minute soak passed; broad checks failed/hung. Actual publisher reconnect, channel-1 content, network/internal queues, architecture reconciliation and independent full S1 qualification remain pending. `--recovery-contract` requires unpublished local synthetic fixtures; it is not fresh-checkout self-contained. See [current handoff](runs/2026-10-07-streaming-s1.md), [checkpoint results](runs/2026-10-07-streaming-checkpoint-results.json) and [publication contract](contracts/streaming-wip-publication.json). Physical Blackmagic installation/tests remain AJ's separate handoff.
@@ -25,7 +27,7 @@ Six streaming milestones (#11–#16) with 26 atomic new issues (#64–#89); exis
 - Existing iPad remote is CLI-only; Electron is authenticated loopback-only. This scope preserves that boundary, not simultaneous iPad access to Electron. If needed for rollout, address separately without competing capture owners.
 
 - #63 reports SDK 16 versus Desktop Video 14.2 incompatibility and preview-only FFmpeg; refresh versions before work. No driver change is authorized. Actual program format/audio and streaming-capable runtime remain unqualified.
-- Static tee/fifo must prove failure isolation and one-second application media-age bounds before selection; failed evidence requires a recorded architecture revision, not silent custom relay work.
+- Static tee/fifo passed synthetic failure-isolation and one-second application-queue tests (2026-10-13 ADR); loopback kernel socket buffering (~3 s) is outside the fifo and bounded only by `rw_timeout`. Rig, pinned-runtime and YouTube confirmation remain open.
 - MP4 recovery, shutdown budget, content sync and monitoring clocks require measured evidence. Google setup/consent and operator-authorized rig/account access are external gates.
 - Existing physical camera/tracking/clean-Mac and hosted-release qualification gaps remain in the preserved prior context. Protect rig configurations and retain rollback artifacts.
 
