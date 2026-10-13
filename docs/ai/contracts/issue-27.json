@@ -1,0 +1,67 @@
+{
+  "issue": 27,
+  "generated": "2026-10-01",
+  "criteria": [
+    {
+      "criterion_id": "issue-27-c1",
+      "text": "Client connects lazily only when tracking is enabled; reconnects with capped exponential backoff + jitter; surfaces `connected/disconnected` events.",
+      "mode": "integration",
+      "test_file": "tests/tracking/protocol.spec.cjs",
+      "test_id": "issue-27-c1: disabled client is inert and enabled loopback client reconnects with bounded backoff",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-27-c2",
+      "text": "Every inbound message is validated; malformed, oversized, unknown-type, or out-of-range (`cx`,`cy` outside 0–1, NaN) messages are dropped and counted, never forwarded, never crash the client.",
+      "mode": "integration",
+      "test_file": "tests/tracking/protocol.spec.cjs",
+      "test_id": "issue-27-c2: malformed binary oversized unknown nonfinite geometry and future frames are dropped and counted",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-27-c3",
+      "text": "`track` for an unconfigured `sourceId` is ignored.",
+      "mode": "integration",
+      "test_file": "tests/tracking/protocol.spec.cjs",
+      "test_id": "issue-27-c3: unconfigured source and obsolete session or nonincreasing seq never reach consumers",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-27-c4",
+      "text": "Heartbeat: missing `pong` for N seconds ⇒ treated as disconnected (manager's stale logic then stops the gimbal).",
+      "mode": "integration",
+      "test_file": "tests/tracking/protocol.spec.cjs",
+      "test_id": "issue-27-c4: missing matching pong disconnects within3seconds and drops active selections",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-27-c5",
+      "text": "`configure` is re-sent after every reconnect, and any active `select` is **not** silently replayed (operator must re-select after a sidecar restart).",
+      "mode": "integration",
+      "test_file": "tests/tracking/protocol.spec.cjs",
+      "test_id": "issue-27-c5: reconnect reconfigures allowlist but never replays a prior select",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-27-c6",
+      "text": "Virtual sidecar can: complete handshake, emit a scripted `track` sequence, go silent, drop the connection, and send malformed frames.",
+      "mode": "integration",
+      "test_file": "tests/tracking/protocol.spec.cjs",
+      "test_id": "issue-27-c6: virtual sidecar scripts ordered trajectories and supports cancel silent drop and malformed frames",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-27-c7",
+      "text": "Protocol schema is versioned (`protocol: 1`) and documented in the plan.",
+      "mode": "integration",
+      "test_file": "tests/tracking/protocol.spec.cjs",
+      "test_id": "issue-27-c7: versioned strict schemas reject extra fields invalid boxes and unsafe frame configuration",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [],
+  "test_command": "node --test -r ts-node/register/transpile-only tests/tracking/protocol.spec.cjs",
+  "red_evidence": "All7 executable criterion tests failed assertions on absent implementation before code was created.",
+  "green_evidence": "Owned suite28/28 passed including all23 criterion tests and5 additional adversarial safety cases. pnpm build exit0; actual bundled Python integration exit0. Root fullgate and composed app/package verification remain required."
+}

@@ -60,18 +60,23 @@ fi
 
 # Sidecar fix: make /api/server/status answer from the last scan instead of running
 # discovery (which blocks behind Sony's SDK and races with connect). Idempotent.
-patch_file="$(cd "$(dirname "$0")" && pwd)/sony-sidecar-status-fix.patch"
-[ -f "$patch_file" ] || { printf 'Missing patch file: %s\n' "$patch_file" >&2; exit 1; }
-if git -C "$checkout" apply --check --reverse "$patch_file" >/dev/null 2>&1; then
-  printf 'Sidecar status-fix patch already applied.\n'
-elif git -C "$checkout" apply --check "$patch_file" >/dev/null 2>&1; then
-  git -C "$checkout" apply "$patch_file"
-  printf 'Applied sidecar status-fix patch.\n'
-else
-  printf 'The status-fix patch does not apply to this checkout (upstream changed?): %s\n' "$checkout" >&2
-  printf 'Check out the tested revision or refresh scripts/sony-sidecar-status-fix.patch; no build was run.\n' >&2
-  exit 1
-fi
+# Every scripts/sony-sidecar-*.patch is applied in name order (status fix, live-view rate, ...).
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+set -- "$script_dir"/sony-sidecar-*.patch
+[ -f "$1" ] || { printf 'Missing patch files: %s/sony-sidecar-*.patch\n' "$script_dir" >&2; exit 1; }
+for patch_file in "$@"; do
+  name="$(basename "$patch_file")"
+  if git -C "$checkout" apply --check --reverse "$patch_file" >/dev/null 2>&1; then
+    printf 'Sidecar patch already applied: %s\n' "$name"
+  elif git -C "$checkout" apply --check "$patch_file" >/dev/null 2>&1; then
+    git -C "$checkout" apply "$patch_file"
+    printf 'Applied sidecar patch: %s\n' "$name"
+  else
+    printf 'The patch %s does not apply to this checkout (upstream changed?): %s\n' "$name" "$checkout" >&2
+    printf 'Check out the tested revision or refresh scripts/%s; no build was run.\n' "$name" >&2
+    exit 1
+  fi
+done
 
 (
   cd "$checkout"

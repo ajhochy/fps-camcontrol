@@ -1,0 +1,16 @@
+{
+  "issue": "foundation-electron-v1",
+  "date": "2026-09-30",
+  "test_command": "node scripts/test-electron-foundation.cjs",
+  "waiver": null,
+  "criteria": [
+    {"criterion_id":"f0-preserve","text":"preservePR36rigs+sandbox; mainc9098d8 four-file license/docs/package metadata workingtree integration+ADR","mode":"integration","test":"scripts/test-electron-foundation.cjs","status":"pass"},
+    {"criterion_id":"f2a-pins","text":"pinarm64Electron/rebuild/builder hoistedpnpm","mode":"integration","test":"scripts/test-electron-foundation.cjs","status":"pass"},
+    {"criterion_id":"f2a-native","text":"build actual.app/DMG correctABI node-hidload/enumeration FROMpackage noHIDopen/hardware, sandboxedrenderer","mode":"integration","test":"scripts/test-electron-foundation.cjs","status":"pass"},
+    {"criterion_id":"f2a-timing","text":"packagedtiminghistogram p50p95p99max150/250msbudget attempt30minidle","mode":"integration","test":"scripts/test-electron-foundation.cjs","status":"failing","reason":"Two preserved 30-minute runs exceed 150/250ms budgets. Latest corrected-minimum-OS artifact has only a 10-second smoke, not a replacement soak. See run note dated 2026-09-30, continuation 2026-10-01."},
+    {"criterion_id":"f2a-hermetic","text":"emptyHOME/minimalPATH/randomcwd noexternalruntime; crashquit noOWNEDorphans","mode":"integration","test":"scripts/run-electron-probe.cjs","status":"pass"},
+    {"criterion_id":"f0-baseline","text":"baselinebuild/isolatedsmoke/sandbox/pageJS/diffchecks serial","mode":"manual","test":null,"status":"pass","reason":"Serial build, isolated smoke 268/268, sandbox 104/104, page-JS and diff checks passed on 2026-10-01; exact commands in run note."},
+    {"criterion_id":"future-foundation","text":"futurecriteriaNOT_RUN no wholefoundationpass","mode":"manual","test":null,"status":"UNVERIFIED","reason":"F1/F2b/F3-F7 including final production app, notarization, genuine clean OS/Gatekeeper/TCC/physical/tailnet and tracking deliverable NOT_RUN in this slice."}
+  ],
+  "not_tested": ["f0-baseline", "future-foundation"]
+}

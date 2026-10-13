@@ -1,0 +1,134 @@
+--- a/api/server/src/CameraWebController.cpp
++++ b/api/server/src/CameraWebController.cpp
+@@ -5,6 +5,9 @@
+ #include <iostream>
+ #include <fstream>
+ #include <chrono>
++#include <arpa/inet.h>
++#include <cstdio>
++#include <map>
+ #include <cstdlib>
+ #include <thread>
+ #include <iomanip>
+@@ -375,6 +378,46 @@
+         return std::string((char*)info->GetMACAddressChar());
+     }
+     return std::string((char*)info->GetId());
++}
++
++// A camera object for a network camera at a known address, without discovery. cameraId is its MAC address
++// ("10:32:2C:7D:84:31"), ip a dotted IPv4 address, model the model name the camera reports ("ILME-FX3A").
++std::shared_ptr<CameraDevice> CameraWebController::makeDirectCamera(const std::string& cameraId, const std::string& ip, const std::string& model, ApiResponse& response) {
++    static const std::map<std::string, SDK::CrCameraDeviceModelList> models = {
++        {"ILCE-7SM3", SDK::CrCameraDeviceModel_ILCE_7SM3},
++        {"ILME-FX3", SDK::CrCameraDeviceModel_ILME_FX3},
++        {"ILME-FX3A", SDK::CrCameraDeviceModel_ILME_FX3A},
++    };
++    auto m = models.find(model);
++    if (m == models.end()) {
++        response.success = false;
++        response.message = "Direct connect: unsupported model '" + model + "'";
++        return nullptr;
++    }
++    struct in_addr addr {};
++    if (inet_pton(AF_INET, ip.c_str(), &addr) != 1) {
++        response.success = false;
++        response.message = "Direct connect: invalid IP address '" + ip + "'";
++        return nullptr;
++    }
++    CrInt8u mac[6] = {0};
++    unsigned int b[6];
++    if (std::sscanf(cameraId.c_str(), "%2x:%2x:%2x:%2x:%2x:%2x", &b[0], &b[1], &b[2], &b[3], &b[4], &b[5]) != 6) {
++        response.success = false;
++        response.message = "Direct connect: camera id must be its MAC address";
++        return nullptr;
++    }
++    for (int i = 0; i < 6; ++i) mac[i] = static_cast<CrInt8u>(b[i]);
++    SDK::ICrCameraObjectInfo* info = nullptr;
++    auto err = SDK::CreateCameraObjectInfoEthernetConnection(&info, m->second, static_cast<CrInt32u>(addr.s_addr), mac, 0);
++    if (CR_FAILED(err) || !info) {
++        response.success = false;
++        response.message = "Direct connect: the SDK could not create a camera object for " + ip;
++        return nullptr;
++    }
++    auto camera = std::make_shared<CameraDevice>(static_cast<CrInt32u>(m_availableCameras.size()) + 1, info);
++    info->Release();
++    return camera;
+ }
+ 
+ void CameraWebController::discoverCameras() {
+@@ -550,7 +593,7 @@
+ 
+ }  // namespace
+ 
+-ApiResponse CameraWebController::connectCamera(const std::string& connectionMode, const std::string& cameraId, const std::string& username, const std::string& password, const std::string& reconnecting, const std::string& fingerprint) {
++ApiResponse CameraWebController::connectCamera(const std::string& connectionMode, const std::string& cameraId, const std::string& username, const std::string& password, const std::string& reconnecting, const std::string& fingerprint, const std::string& directIp, const std::string& directModel) {
+     std::lock_guard<std::mutex> lock(m_discoveryMutex);
+ 
+     ApiResponse response;
+@@ -593,7 +636,7 @@
+     // Discover available cameras
+     discoverCameras();
+ 
+-    if (m_availableCameras.empty()) {
++    if (m_availableCameras.empty() && directIp.empty()) {
+         response.success = false;
+         response.message = "No cameras found. Please connect a camera and try again.";
+         response.camera.connected = false;
+@@ -612,6 +655,15 @@
+             }
+         }
+ 
++        // fps-camcontrol: discovery is a network broadcast, which a weak Wi-Fi link drops, so a camera that is up and
++        // listening can still be missed. When the caller knows the camera's address (cameraId is its MAC, plus
++        // directIp and directModel), connect to it directly with the SDK's Ethernet object instead of giving up.
++        if (!targetCamera && !directIp.empty()) {
++            targetCamera = makeDirectCamera(cameraId, directIp, directModel, response);
++            if (!targetCamera) return response;
++            m_availableCameras.push_back(targetCamera);
++            std::cout << "📷 Not found by discovery; connecting directly to " << directIp << " (" << cameraId << ")" << std::endl;
++        }
+         if (!targetCamera) {
+             response.success = false;
+             response.message = "Camera with ID '" + cameraId + "' not found";
+--- a/api/server/src/CameraWebController.h
++++ b/api/server/src/CameraWebController.h
+@@ -192,7 +192,9 @@
+     ApiResponse getStatus();
+     // username/password/fingerprint are only needed by bodies with access
+     // authentication switched on; leave empty for USB and unauthenticated bodies.
+-    ApiResponse connectCamera(const std::string& connectionMode = "remote-transfer", const std::string& cameraId = "", const std::string& username = "", const std::string& password = "", const std::string& reconnecting = "off", const std::string& fingerprint = "");
++    // Connect to a network camera at a known address when discovery misses it (fps-camcontrol).
++    std::shared_ptr<CameraDevice> makeDirectCamera(const std::string& cameraId, const std::string& ip, const std::string& model, ApiResponse& response);
++    ApiResponse connectCamera(const std::string& connectionMode = "remote-transfer", const std::string& cameraId = "", const std::string& username = "", const std::string& password = "", const std::string& reconnecting = "off", const std::string& fingerprint = "", const std::string& directIp = "", const std::string& directModel = "");
+     ApiResponse disconnectCamera();
+     ApiResponse disconnectCamera(const std::string& cameraId);  // Per-camera overload
+     ApiResponse getStatus(const std::string& cameraId);          // Per-camera overload
+--- a/api/server/src/CameraWebServer.cpp
++++ b/api/server/src/CameraWebServer.cpp
+@@ -2221,6 +2221,8 @@
+     std::string password = "";
+     std::string fingerprint = "";
+     std::string reconnecting = "off"; // default to off for backward compatibility
++    std::string directIp = "";    // fps-camcontrol: connect directly when discovery misses the camera
++    std::string directModel = "";
+ 
+     if (!request.body.empty()) {
+         Json::Value root;
+@@ -2246,13 +2248,15 @@
+                 if (auth.isMember("password")) password = auth["password"].asString();
+                 if (auth.isMember("fingerprint")) fingerprint = auth["fingerprint"].asString();
+             }
++            if (root.isMember("ip") && root["ip"].isString()) directIp = root["ip"].asString();
++            if (root.isMember("model") && root["model"].isString()) directModel = root["model"].asString();
+             if (root.isMember("reconnecting")) {
+                 reconnecting = root["reconnecting"].asString();
+             }
+         }
+     }
+ 
+-    auto result = m_cameraController->connectCamera(connectionMode, cameraId, username, password, reconnecting, fingerprint);
++    auto result = m_cameraController->connectCamera(connectionMode, cameraId, username, password, reconnecting, fingerprint, directIp, directModel);
+     response.body = m_cameraController->toJson(result);
+     response.statusCode = result.success ? 200 : 400;
+ 

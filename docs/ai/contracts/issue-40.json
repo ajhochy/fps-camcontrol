@@ -1,0 +1,39 @@
+{
+  "issue": 40,
+  "generated": "2026-10-01",
+  "criteria": [
+    {
+      "criterion_id": "issue-40-c1",
+      "text": "Smoke: default = cwd",
+      "mode": "unit",
+      "test_file": "tests/contract/issue-40.spec.ts",
+      "test_id": "issue-40-c1: development app home defaults to the current working directory",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-40-c2",
+      "text": "env override",
+      "mode": "unit",
+      "test_file": "tests/contract/issue-40.spec.ts",
+      "test_id": "issue-40-c2: CAMCONTROL_HOME overrides the app home",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-40-c3",
+      "text": "all config/profile/doc reads resolve under the home",
+      "mode": "unit",
+      "test_file": "tests/contract/issue-40.spec.ts",
+      "test_id": "issue-40-c3: config, controller-profile, and documentation paths resolve under the app home",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-40-c4",
+      "text": "pnpm build",
+      "mode": "manual",
+      "reason": "Run the repository build as a separate implementation gate; this contract test file is scoped to the app-home behaviors.",
+      "status": "UNVERIFIED"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": ["issue-40-c4"]
+}

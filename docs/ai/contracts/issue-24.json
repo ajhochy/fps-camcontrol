@@ -1,0 +1,49 @@
+{
+  "issue": 24,
+  "generated": "2026-10-01",
+  "criteria": [
+    {
+      "criterion_id": "issue-24-c1",
+      "text": "`SonyFrame` has `capturedAt: number` (epoch ms, set when the upstream response body is fully received).",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-24.spec.ts",
+      "test_id": "issue-24-c1",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-24-c2",
+      "text": "The frame route sets `X-Frame-Captured-At` (epoch ms) and `Cache-Control: no-store`; body/content-type unchanged.",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-24.spec.ts",
+      "test_id": "issue-24-c2",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-24-c3",
+      "text": "Two concurrent callers of `liveViewFrame` receive the **same** `capturedAt` (coalesced) — documented by a test.",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-24.spec.ts",
+      "test_id": "issue-24-c3",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-24-c4",
+      "text": "`503`/`Retry-After` busy-lane and error paths are unchanged.",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-24.spec.ts",
+      "test_id": "issue-24-c4",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-24-c5",
+      "text": "Existing Sony preview polling in the browser keeps working (it ignores the new header).",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-24.spec.ts",
+      "test_id": "issue-24-c5",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [],
+  "verification": "Root ai-workflow checks --level pr exit0 (2026-10-01, tracking changes atop133ae8d); physical/finalDMG gates separate."
+}

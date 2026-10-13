@@ -1,0 +1,29 @@
+diff --git a/api/server/src/CameraWebController.cpp b/api/server/src/CameraWebController.cpp
+index f27f04c..1a46102 100644
+--- a/api/server/src/CameraWebController.cpp
++++ b/api/server/src/CameraWebController.cpp
+@@ -5,6 +5,7 @@
+ #include <iostream>
+ #include <fstream>
+ #include <chrono>
++#include <cstdlib>
+ #include <thread>
+ #include <iomanip>
+ #include <sys/stat.h>
+@@ -4446,8 +4447,14 @@ void LiveViewOSDWorker::workerLoop() {
+             std::this_thread::sleep_for(std::chrono::milliseconds(100));
+         }
+ 
+-        // Control frame rate - aim for ~15fps
+-        std::this_thread::sleep_for(std::chrono::milliseconds(66));
++        // Control frame rate. LIVEVIEW_INTERVAL_MS sets the pause between frames (default 66 ms, about 15 fps);
++        // fps-camcontrol runs it at 200 ms (5 fps) to keep camera Wi-Fi and processor load, and heat, down.
++        static const int intervalMs = [] {
++            const char* raw = std::getenv("LIVEVIEW_INTERVAL_MS");
++            const int value = raw ? std::atoi(raw) : 0;
++            return (value >= 20 && value <= 5000) ? value : 66;
++        }();
++        std::this_thread::sleep_for(std::chrono::milliseconds(intervalMs));
+     }
+ 
+     std::cout << "LiveViewOSDWorker thread ended for camera: " << m_cameraId << std::endl;

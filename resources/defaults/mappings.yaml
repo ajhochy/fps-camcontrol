@@ -1,0 +1,15 @@
+panTilt: rightStick
+zoomIn: rightTrigger
+zoomOut: leftTrigger
+cameraSelectLeft: leftStickLeft
+cameraSelectRight: leftStickRight
+autoTransition: RB
+precisionMode: LS
+selectCam1: X
+selectCam2: A
+selectCam3: B
+selectCam4: Y
+speedUp: dpadUp
+speedDown: dpadDown
+lowerThirds: dpadLeft
+emergencyStop: back

@@ -1,19 +1,27 @@
 [Unit]
+# Single-instance unit: one Pi per gimbal, next to it, one bridge on port 7878. Installed by
+# scripts/install-pi-bridge.sh (system mode), which rewrites User= and /home/pi/dji-bridge for another account.
+# The template dji-bridge@.service remains for a Pi that drives several gimbals.
 Description=DJI RS gimbal bridge for fps-camcontrol
-After=network-online.target
-Wants=network-online.target
+After=network-online.target bluetooth.target
+Wants=network-online.target bluetooth.target
 
 [Service]
 Type=simple
-User=worship
-WorkingDirectory=/home/worship/dji-bridge
+User=pi
+WorkingDirectory=/home/pi/dji-bridge
 Environment=PYTHONUNBUFFERED=1
-# Target deployment convention: /home/worship/dji-bridge -> repo pi-bridge/.
-# Create /etc/default/dji-bridge with DJI_RS3_BLE_ADDRESS and optional
-# DJI_RS3_MAX_JOYSTICK=200 (safe range 1..1000; tune while viewing camera video).
+# /var/lib/dji-bridge (owned by User=) holds gimbal.json: the Bluetooth gimbal this bridge drives, chosen in
+# Device Config (rig -> Choose gimbal...) or the strongest DJI gimbal found on first start. It overrides
+# DJI_RS3_BLE_ADDRESS.
+StateDirectory=dji-bridge
+Environment=DJI_BRIDGE_STATE_DIR=/var/lib/dji-bridge
+# Optional DJI_RS3_BLE_ADDRESS (fallback gimbal; empty = strongest DJI gimbal in range) and
+# DJI_RS3_MAX_JOYSTICK=200 (safe range 1..1000; tune while viewing camera video). See dji-bridge.env.example.
 EnvironmentFile=-/etc/default/dji-bridge
-ExecStart=/home/worship/dji-bridge/.venv/bin/python3 /home/worship/dji-bridge/dji_bridge.py --host 0.0.0.0 --port 7878 --driver dji-rs3-ble
-Restart=on-failure
+ExecStart=/home/pi/dji-bridge/.venv/bin/python3 /home/pi/dji-bridge/dji_bridge.py --host 0.0.0.0 --port 7878 --driver dji-rs3-ble
+# The bridge does not exit when the gimbal is absent (it serves and retries), so a restart means a real crash.
+Restart=always
 RestartSec=2
 
 [Install]

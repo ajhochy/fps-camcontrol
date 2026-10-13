@@ -1,0 +1,102 @@
+# Sandbox device config: every address points at a fake on this machine, so the
+# app can be run, clicked through and broken without touching the real ATEM,
+# cameras, gimbals or controller. `pnpm sandbox` copies this file to
+# sandbox/.run/ at start; edit this template, not the copy.
+#
+# Fakes (scripts/sandbox.ts): VISCA cameras on UDP 52391-52393, DJI bridges on
+# 17878-17880, the Sony service on 8191. The ATEM is deliberately absent, so the
+# switcher shows as disconnected, as it does with the real one powered off.
+
+atem:
+  ip: 127.0.0.1
+  defaultTransition: cut
+  meIndex: 0
+
+graphics:
+  type: dsk
+  dskIndex: 0
+  uskIndex: 0
+  meIndex: 0
+  fadeFrames: 15
+
+sony:
+  enabled: true
+  apiUrl: "http://127.0.0.1:8191"
+
+# iPad remote control (/remote): off until switched on from the desk page or POST /api/remote/enabled.
+remoteControl:
+  enabled: false
+
+devices:
+  vbot:
+    label: "V-BOT"
+    protocol: "visca"
+    cameraType: "vbot"
+    viscaIp: "127.0.0.1"
+    viscaPort: 52391
+    cameraAddress: 1
+    speedScale: 2
+  birddog1:
+    label: "BirdDog 1"
+    protocol: "visca"
+    cameraType: "birddog"
+    viscaIp: "127.0.0.1"
+    viscaPort: 52392
+    cameraAddress: 1
+  birddog2:
+    label: "BirdDog 2"
+    protocol: "visca"
+    cameraType: "birddog"
+    viscaIp: "127.0.0.1"
+    viscaPort: 52393
+    cameraAddress: 1
+  rs3:
+    label: "DJI RS3"
+    protocol: "dji-bridge"
+    bridge: { host: "127.0.0.1", port: 17878, gimbalModel: "RS3", safetyTimeoutMs: 250, rollEnabled: false }
+  rs3pro-a:
+    label: "DJI RS3 Pro A"
+    protocol: "dji-bridge"
+    bridge: { host: "127.0.0.1", port: 17879, gimbalModel: "RS3Pro", safetyTimeoutMs: 250, rollEnabled: false }
+  rs3pro-b:
+    label: "DJI RS3 Pro B"
+    protocol: "dji-bridge"
+    bridge: { host: "127.0.0.1", port: 17880, gimbalModel: "RS3Pro", safetyTimeoutMs: 250, rollEnabled: false }
+
+  # Sony cameras (protocol: sony). The ids match the fake cameras in scripts/sandbox.ts.
+  # "Stage left" and "Stage right" are bound to cameras that exist; "Spare" is bound to a
+  # camera that is powered off at start; "Not yet bound" has no camera id yet.
+  sony-stage-left:
+    label: "a7S III — stage left"
+    protocol: "sony"
+    sonyCameraId: "AA:00:00:00:00:01"
+  sony-stage-right:
+    label: "FX3A — stage right"
+    protocol: "sony"
+    sonyCameraId: "AA:00:00:00:00:02"
+  sony-spare:
+    label: "a7S III — spare"
+    protocol: "sony"
+    sonyCameraId: "AA:00:00:00:00:03"
+  sony-unbound:
+    label: "New camera (not yet bound)"
+    protocol: "sony"
+
+activeProfile: production
+
+profiles:
+  production:
+    label: "Production"
+    slots:
+      - { device: vbot, inputId: 6, camera: sony-stage-left }
+      - { device: birddog1, inputId: 7 }
+      - { device: birddog2, inputId: 8 }
+      - { device: rs3, inputId: 2, camera: sony-stage-right }
+  test:
+    label: "Test — V-BOT + 3 gimbals"
+    slots:
+      - { device: vbot, inputId: 6, camera: sony-stage-left }
+      - { device: rs3, inputId: 4, camera: sony-stage-right }
+      # No camera assigned yet: the rig inspector should warn about this.
+      - { device: rs3pro-a }
+      - { device: rs3pro-b, camera: sony-spare }

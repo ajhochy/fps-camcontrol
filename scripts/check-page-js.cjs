@@ -63,4 +63,21 @@ blocks.forEach((js, i) => {
   }
   total += js.split('\n').length;
 });
-console.log('OK: all ' + blocks.length + ' page script block(s) parse as emitted (' + total + ' lines)');
+// Standalone UI scripts (ui/**/*.js) are plain files, so a plain syntax check is enough.
+function uiFiles(dir) {
+  return fs.existsSync(dir) ? fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const full = path.join(dir, entry.name);
+    return entry.isDirectory() ? uiFiles(full) : entry.name.endsWith('.js') ? [full] : [];
+  }) : [];
+}
+const standalone = uiFiles(path.join(__dirname, '..', 'ui'));
+standalone.forEach((file) => {
+  try {
+    execFileSync(process.execPath, ['--check', file], { stdio: 'inherit' });
+  } catch (e) {
+    console.error('FAIL: ' + path.relative(path.join(__dirname, '..'), file) + ' does not parse');
+    process.exit(1);
+  }
+});
+console.log('OK: all ' + blocks.length + ' page script block(s) parse as emitted (' + total + ' lines)' +
+  (standalone.length ? ' and ' + standalone.length + ' standalone ui file(s) parse' : ''));

@@ -1,3 +1,6 @@
 allowBuilds:
   '@julusian/freetype2': true
+  electron-winstaller: false
+  electron: true
   node-hid: true
+nodeLinker: hoisted

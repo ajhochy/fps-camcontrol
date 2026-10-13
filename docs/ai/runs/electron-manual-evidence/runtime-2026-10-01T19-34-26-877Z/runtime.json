@@ -1,0 +1,42 @@
+{
+  "criteria": {},
+  "screenshots": [
+    {
+      "path": "/Users/ajhochhalter/.local/share/opencode/worktree/ec2e0fe3fdd54c2e9ab53bfa4cc75c91e40568ed/fps-electron-two-pr-plan/docs/ai/runs/electron-manual-evidence/runtime-2026-10-01T19-34-26-877Z/mounted-dmg-dashboard.png",
+      "sha256": "8c6273a8d9014d2cf17213c1de80fca6e11f4cba200d091857bf6f3aaa086401"
+    },
+    {
+      "path": "/Users/ajhochhalter/.local/share/opencode/worktree/ec2e0fe3fdd54c2e9ab53bfa4cc75c91e40568ed/fps-electron-two-pr-plan/docs/ai/runs/electron-manual-evidence/runtime-2026-10-01T19-34-26-877Z/mounted-dmg-restart.png",
+      "sha256": "09c9e5e477675cc469f8f4607525f064106049bb9c6f0dfd08630f062c736799"
+    },
+    {
+      "path": "/Users/ajhochhalter/.local/share/opencode/worktree/ec2e0fe3fdd54c2e9ab53bfa4cc75c91e40568ed/fps-electron-two-pr-plan/docs/ai/runs/electron-manual-evidence/runtime-2026-10-01T19-34-26-877Z/mounted-dmg-startup-failure.png",
+      "sha256": "6c184e5f90786275238c09e192b8697917287a12102f8a1a606462c87253b5a9",
+      "state": "FAILED startup, not dashboard evidence"
+    }
+  ],
+  "consoleErrors": [],
+  "networkErrors": [],
+  "appErrors": [],
+  "evidenceBoundary": "Developer host fresh HOME/minimal PATH, not clean OS/TCC/hardware/Gatekeeper/notarization.",
+  "startupMs": 4815,
+  "url": "http://127.0.0.1:64260/",
+  "runtime": {
+    "versions": {
+      "electron": "44.5.1",
+      "node": "24.21.0",
+      "modules": "149"
+    },
+    "userData": "/var/folders/f0/kwf9lqtx57qgt3j4rbtvg1ym0000gn/T/fps manual runtime K9gfX0/fresh HOME/Library/Application Support/FPS CamControl",
+    "sandbox": true,
+    "contextIsolation": true,
+    "nodeIntegration": false
+  },
+  "hungUtility": "PASS actual blocked-loop utility force-terminated and exit awaited",
+  "injectedFaultObservations": {
+    "appErrors": [],
+    "consoleErrors": [],
+    "networkErrors": []
+  },
+  "failure": "ENOENT: no such file or directory, open '/var/folders/f0/kwf9lqtx57qgt3j4rbtvg1ym0000gn/T/fps manual runtime K9gfX0/sidecar-fixture.json'"
+}

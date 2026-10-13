@@ -1,0 +1,27 @@
+{
+  "run_id": "2026-10-01-electron-manual-corrected",
+  "issue": "electron-manual-package-v1",
+  "date": "2026-10-01",
+  "smoke_result": "pass",
+  "verification_claimed": "candidate-only",
+  "divergence": false,
+  "criteria_results": [
+    {"criterion_id":"c1","smoke_status":"pass","notes":"Actual manual ARM64 app/DMG package gate; committed final rebuild pending."},
+    {"criterion_id":"c2","smoke_status":"pass","notes":"Bundled resources and native HID loaded in actual utility process."},
+    {"criterion_id":"c3","smoke_status":"pass","notes":"Artifact inspection excludes tracker, Python, model and Sony SDK."},
+    {"criterion_id":"c4","smoke_status":"pass","notes":"No-controller test flag and real competing instance; kernel lease tests pass."},
+    {"criterion_id":"c5","smoke_status":"pass","notes":"Actual ephemeral ready and offline startup4657ms."},
+    {"criterion_id":"c6","smoke_status":"pass","notes":"Actual sandbox, authentication, origin/navigation and IPC guards."},
+    {"criterion_id":"c7","smoke_status":"pass","notes":"Asserted temporary HOME containment before API save and actual relaunch."},
+    {"criterion_id":"c8","smoke_status":"pass","notes":"Actual import validator/consent/backup/sanitization; native chooser responses injected."},
+    {"criterion_id":"c9","smoke_status":"pass","notes":"Actual owned-process fault paths; simulated power events only, physical movement untested."},
+    {"criterion_id":"c10","smoke_status":"pass","notes":"Actual mounted candidate, screenshots and strict empty error arrays."},
+    {"criterion_id":"c11","smoke_status":"pass","notes":"Independent full repository gate49 focused,268smoke,104sandbox exit0."},
+    {"criterion_id":"c12","smoke_status":"not_checked","notes":"Candidate Developer ID verifies; final Apple Accepted and staples pending."},
+    {"criterion_id":"c13","smoke_status":"not_checked","notes":"Final immutable artifact/PR handoff pending; cleanOS/TCC/hardware unavailable."}
+  ],
+  "overall_category": "none",
+  "evidence": "docs/ai/runs/electron-manual-evidence/runtime-2026-10-01T19-44-46-301Z/runtime.json",
+  "limitations": ["Developer host is not clean macOS", "No physical controller/camera/gimbal proof", "Not the final notarized bytes"],
+  "previous_failures_preserved": true
+}

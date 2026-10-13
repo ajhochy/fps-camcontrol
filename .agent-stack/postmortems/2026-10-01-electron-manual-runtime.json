@@ -1,0 +1,38 @@
+{
+  "run_id": "2026-10-01-electron-manual-runtime",
+  "issue": "electron-manual-package-v1",
+  "date": "2026-10-01",
+  "smoke_result": "fail",
+  "verification_claimed": "FAIL",
+  "divergence": false,
+  "criteria_results": [
+    {"criterion_id":"c1","text":"Actual FULL manual arm64.app/DMG ID com.ajhochhalter.fpscamcontrol minOS13","contract_status":"fail","smoke_status":"not_checked","category":"none","notes":"Package assertions are separate from this stopped runtime run."},
+    {"criterion_id":"c2","text":"Includes existing backend/UI/runtime/nativeHID/pinoprettyworkers/UI/controllerdefs/docs and legal notices; no user Node/Python/pnpm/Homebrew/CLT","contract_status":"untested","smoke_status":"not_checked","category":"none","notes":"Runtime stopped before complete resource/native checks."},
+    {"criterion_id":"c3","text":"NOT probe; no Python/model/Track/SonySDK/CameraWebApp","contract_status":"fail","smoke_status":"not_checked","category":"none","notes":"Separate artifact gate, no result inferred from startup."},
+    {"criterion_id":"c4","text":"Test CAMCONTROL_NO_CONTROLLER=1 only; normal production HID preserved; one production instance/owned backend lock","contract_status":"untested","smoke_status":"not_checked","category":"none","notes":"Independent source review found import could bypass denied ownership; repair in progress."},
+    {"criterion_id":"c5","text":"Actual ready ephemeral 127 port + timeout/error banner not blocked missing ATEM","contract_status":"untested","smoke_status":"not_checked","category":"none","notes":"Dashboard reached at loopback ephemeral port in 4899ms; failure-banner branch not reached."},
+    {"criterion_id":"c6","text":"Sandbox/context isolation/no Node integration/narrow validated IPC/no arbitrary commands/navigation/popups protected","contract_status":"untested","smoke_status":"not_checked","category":"none","notes":"Stopped before runtime security assertions."},
+    {"criterion_id":"c7","text":"Mutable config/mappings/presets/approvals userData; exclusive atomic generic seeds without real production IPs/approval IDs; offline empty hardware usable; second launch preserves edits","contract_status":"untested","smoke_status":"fail","category":"C3","notes":"Correct runtime assertion caught Electron macOS default userData outside supplied temporary HOME. Only safe generic seeds, no controller access; process closed, user files preserved. Explicit home-derived appData/userData repair in progress."},
+    {"criterion_id":"c8","text":"Minimal first setup/import chooser validates backup/no overwrite without consent; no UI redesign; missing Sony/Tailscale/cameras honest states","contract_status":"untested","smoke_status":"not_checked","category":"none","notes":"Not reached."},
+    {"criterion_id":"c9","text":"Quit/crash/sleep stops before close/bounded owned cleanup/no replay motion/no user-owned Sony kill/deadman unchanged","contract_status":"untested","smoke_status":"not_checked","category":"none","notes":"Independent review found missing owned-Sony crash guardian and graceful-only timeout. Repair and actual process tests in progress; disabled-Sony test cannot prove helper ownership."},
+    {"criterion_id":"c10","text":"Actual mounted DMG random cwd spaces/temp HOME/minimal PATH/offline dashboard/assets/API/persist restart; Electron Playwright durable screenshots/keyboard/console/network, no fixtures","contract_status":"untested","smoke_status":"not_checked","category":"none","notes":"Mounted app reached dashboard but isolation gate failed; do not call this a fresh-HOME pass."},
+    {"criterion_id":"c11","text":"Build268 baseline/isolated smoke104/sandbox/pageJS/diff retest serial FPS sandbox isolated ports and CAMCONTROL_NO_CONTROLLER=1, no live hardware/config","contract_status":"untested","smoke_status":"not_checked","category":"none","notes":"Earlier source gates are not package-runtime proof and must rerun after repair."},
+    {"criterion_id":"c12","text":"Inside-out Developer ID signing team56Q69NYP9H timestamp/strict verify/final notary Accepted/staple/rebuild ZIP; no release publication or credential logging","contract_status":"untested","smoke_status":"not_checked","category":"none","notes":"Credential access succeeds after agreement propagation; actual Accepted evidence remains separate."},
+    {"criterion_id":"c13","text":"Independent gate before final claim; artifact absolute path/hash/bytes/versions/commands/per criterion pending; preserve baseline/probe/controller drafts","contract_status":"untested","smoke_status":"not_checked","category":"none","notes":"No final acceptance/PR-open claim yet."}
+  ],
+  "process_issues": [
+    {"process_category":"ownership-handoff","description":"Earlier shipping wrapper and entrypoint work overlapped before original session completion was actually checked. Runtime entrypoint mismatch was preserved as failure and owners were reconciled.","detected_by":"Original SDK session results and failed mounted-DMG startup evidence."},
+    {"process_category":"P4","description":"After teardown began awaiting navigation to a local stopping page, the fake shell test immediately asserted shutdown IPC instead of awaiting that asynchronous boundary.","detected_by":"Root ai-workflow checks --level pr: 41/42 focused tests passed; shell.spec.cjs:126 failed before the array was asynchronously populated. Repair awaits the production boundary, not a fixed sleep."}
+  ],
+  "workflow_adherence": {
+    "overall_score":"strict",
+    "expected_chain":["workflow-orchestrator","acceptance-contract","coding-agent","verification-gate","failure-triage","project-state-updater","failure-postmortem"],
+    "observed_chain":["workflow-orchestrator","acceptance-contract","coding-agent","verification-gate","failure-triage","project-state-updater","failure-postmortem"],
+    "skipped_skills":[],
+    "issues":[]
+  },
+  "implementation_files":["electron/main.cjs","src/embed.ts","src/index.ts","src/sony/sonyManager.ts","scripts/test-electron-manual-runtime.cjs"],
+  "failure_output":"c7: app must not read/write the actual account home",
+  "overall_category":"C3",
+  "suggested_follow_up":"Repair and rerun in this delivery; assert actual Electron userData is inside the disposable home before treating any launch as isolated, and exercise real owned-helper fault paths. No new issue is filed because the user explicitly requires in-scope repair."
+}

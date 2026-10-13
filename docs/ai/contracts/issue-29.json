@@ -1,0 +1,56 @@
+{
+  "issue": 29,
+  "generated": "2026-10-01",
+  "criteria": [
+    {
+      "criterion_id": "issue-29-c1",
+      "text": "`python3 tracker-sidecar/tracker_sidecar.py --source mock --port 7900` starts, binds **127.0.0.1** by default, and completes the `hello` handshake with `capabilities:[\"person\"]`, `detector:\"mock\"`.",
+      "mode": "integration",
+      "test_file": "tracker-sidecar/tests/test_issue_29.py",
+      "test_id": "test_issue29_c1",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-29-c2",
+      "text": "`select` starts a scripted trajectory (configurable: stationary, sine sweep, exit-frame); `cancel` ends it; `lost` and `idle` are emitted per script.",
+      "mode": "integration",
+      "test_file": "tracker-sidecar/tests/test_issue_29.py",
+      "test_id": "test_issue29_c2",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-29-c3",
+      "text": "Invalid/oversized/unknown messages produce an `error` frame, not a crash; the server survives client disconnects.",
+      "mode": "integration",
+      "test_file": "tracker-sidecar/tests/test_issue_29.py",
+      "test_id": "test_issue29_c3",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-29-c4",
+      "text": "Emits `frameTs`/`processedAt` from a clock it controls so the app can test latency logic.",
+      "mode": "integration",
+      "test_file": "tracker-sidecar/tests/test_issue_29.py",
+      "test_id": "test_issue29_c4",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-29-c5",
+      "text": "The real TypeScript `TrackingClient` (#27) connects to it and the manager (#26) drives `virtualDjiBridge` from its scripted output in one smoke scenario or a documented manual script.",
+      "mode": "integration",
+      "test_file": "src/testing/trackingIntegrationTest.ts",
+      "test_id": "issue-29-c5: real TS to Python to virtual bridge",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-29-c6",
+      "text": "No imports of any vision library at this stage.",
+      "mode": "unit",
+      "test_file": "tracker-sidecar/tests/test_issue_29.py",
+      "test_id": "test_issue29_c6",
+      "status": "pass"
+    }
+  ],
+  "stack": "python",
+  "not_tested": []
+}

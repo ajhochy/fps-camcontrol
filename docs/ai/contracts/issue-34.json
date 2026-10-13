@@ -1,0 +1,60 @@
+{
+  "issue": 34,
+  "generated": "2026-10-01",
+  "stack": "typescript",
+  "criteria": [
+    {
+      "criterion_id": "issue-34-c1",
+      "text": "Procedure: command a short, **capped** pan step (≤ 0.15, ≤ 1 s) through the normal device path, pull frames from the live-view endpoint, and detect motion onset by frame differencing; report onset delay and steady angular-rate per unit velocity (from frame displacement).",
+      "mode": "integration",
+      "test_file": "tests/tracking/calibration.spec.cjs",
+      "test_id": "issue-34-c1: real grayscale registration measures onset and motion uses bounded normal device commands",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-34-c2",
+      "text": "Runs against the mock/virtual stack in a dry-run mode that prints a plausible report without hardware.",
+      "mode": "integration",
+      "test_file": "tests/tracking/calibration.spec.cjs",
+      "test_id": "issue-34-c2: dry run uses actual VirtualDjiBridge with synthetic in-memory frames and prints a report",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-34-c3",
+      "text": "Refuses to run unless tracking/gimbal are connected, the operator passes an explicit `--yes-move` flag, and always ends with `stop()` (also on Ctrl-C/exceptions).",
+      "mode": "integration",
+      "test_file": "tests/tracking/calibration.spec.cjs",
+      "test_id": "issue-34-c3: no consent or detached devices refuse movement; abort errors and blocked frame capture always stop",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-34-c4",
+      "text": "Output is a recommended config snippet plus raw numbers; it does **not** edit `devices.yaml` automatically.",
+      "mode": "integration",
+      "test_file": "tests/tracking/calibration.spec.cjs",
+      "test_id": "issue-34-c4: report contains recommendations and raw numbers without implicit config access or writes",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-34-c5",
+      "text": "Repeats N trials and reports median/spread; flags high variance as \"unreliable rig\".",
+      "mode": "integration",
+      "test_file": "tests/tracking/calibration.spec.cjs",
+      "test_id": "issue-34-c5: N trials report median and spread and flag unreliable high variance",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-34-c6",
+      "text": "A results table (delay, rate, recommended gains) is added to a `docs/ai/runs/` note after a human-run on the real rig.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "MANUAL_PENDING: physical calibration is not authorized/available. No synthetic result represents measured real-rig delay/gain."
+    }
+  ],
+  "not_tested": [
+    "issue-34-c6"
+  ],
+  "test_command": "node --test -r ts-node/register/transpile-only tests/tracking/calibration.spec.cjs",
+  "red_evidence": "All5 executable tests fail assertions on missing calibration implementation. Added CLI existence test fails before CLI exists. Quantization regression fails actual20px/s vs expected8px/s before correction.",
+  "green_evidence": "9 calibration tests pass, including actual CLI/HTTP JPEG/bundled Pillow/VirtualDjiBridge, SIGINT, video loss, ownership, bounded independent stop and quantization regression. Combined owned37-test suite, typed CLI dry-run3, pnpm build and diffcheck exit0 at branch codex/electron-tracking atop133ae8d. Physical criterion6 remains MANUAL_PENDING."
+}

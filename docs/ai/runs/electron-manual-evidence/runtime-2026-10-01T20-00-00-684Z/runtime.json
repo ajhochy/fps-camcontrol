@@ -1,0 +1,51 @@
+{
+  "criteria": {
+    "c2": "PASS runtime resources/native HID/no external tools",
+    "c4": "PASS real second instance exits without replacing backend",
+    "c5": "PASS offline ephemeral ready",
+    "c6": "PASS sandbox/auth/popup/navigation/setup IPC guard",
+    "c7": "PASS fresh HOME/API save/read/restart",
+    "c8": "PASS cancel/invalid/consent/backup/import next consumer (native chooser response injected)",
+    "c9": "PASS normal quit/actual child crash/bounded paused recovery/desktop SIGKILL; simulated power events stop without wake replay, physical motion pending",
+    "c10": "PASS mounted DMG/dashboard/assets/keyboard/console/network/restart"
+  },
+  "screenshots": [
+    {
+      "path": "/Users/ajhochhalter/.local/share/opencode/worktree/ec2e0fe3fdd54c2e9ab53bfa4cc75c91e40568ed/fps-electron-two-pr-plan/docs/ai/runs/electron-manual-evidence/runtime-2026-10-01T20-00-00-684Z/mounted-dmg-dashboard.png",
+      "sha256": "10b3b539c9b7e50ffa5c5151241cb17c3395e72605753a94bbe5974cf5511d61"
+    },
+    {
+      "path": "/Users/ajhochhalter/.local/share/opencode/worktree/ec2e0fe3fdd54c2e9ab53bfa4cc75c91e40568ed/fps-electron-two-pr-plan/docs/ai/runs/electron-manual-evidence/runtime-2026-10-01T20-00-00-684Z/mounted-dmg-restart.png",
+      "sha256": "ed80d0edba14dd04b6e842b11a5c9adf6c4f35e155020b5f8f1d9183f6f93b78"
+    }
+  ],
+  "consoleErrors": [],
+  "networkErrors": [],
+  "appErrors": [],
+  "evidenceBoundary": "Developer host fresh HOME/minimal PATH, not clean OS/TCC/hardware/Gatekeeper/notarization.",
+  "startupMs": 4653,
+  "url": "http://127.0.0.1:54914/",
+  "runtime": {
+    "versions": {
+      "electron": "44.5.1",
+      "node": "24.21.0",
+      "modules": "149"
+    },
+    "userData": "/var/folders/f0/kwf9lqtx57qgt3j4rbtvg1ym0000gn/T/fps manual runtime JGgRTw/fresh HOME/Library/Application Support/FPS CamControl",
+    "sandbox": true,
+    "contextIsolation": true,
+    "nodeIntegration": false
+  },
+  "hungUtility": "PASS actual blocked-loop utility force-terminated and exit awaited",
+  "injectedFaultObservations": {
+    "appErrors": [],
+    "consoleErrors": [],
+    "networkErrors": []
+  },
+  "sonyOwnership": "PASS actual bundled-node guardian cleans managed fixture after backend and desktop SIGKILL; adopted external fixture survives normal quit",
+  "dmg": {
+    "path": "/Users/ajhochhalter/.local/share/opencode/worktree/ec2e0fe3fdd54c2e9ab53bfa4cc75c91e40568ed/fps-electron-two-pr-plan/release/manual-delivery-133ae8d/2026-10-01-final/FPS CamControl-0.1.0-arm64-notarized.dmg",
+    "bytes": 172838600,
+    "sha256": "da02312a0e65e9bfd440090cf6f7cbc0b29764a5f71685182922806855c98f11"
+  }
+}

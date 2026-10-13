@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FPS CamControl</title>
+<style>body{font:18px system-ui,sans-serif;max-width:42rem;margin:18vh auto;padding:0 2rem;color:#17212b}button{font:inherit;padding:.5rem .8rem}</style>
+<main><h1>FPS CamControl</h1><p id="status" role="alert">Starting the local control service…</p><button id="retry" type="button">Restart controls</button></main>
+<script>
+  const message = new URLSearchParams(location.search).get('message');
+  if (message) document.querySelector('#status').textContent = message;
+  document.querySelector('#retry').addEventListener('click', () => window.fpsShell.restart());
+</script>
+</html>

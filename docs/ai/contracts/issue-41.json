@@ -1,0 +1,64 @@
+{
+  "issue": 41,
+  "generated": "2026-10-01",
+  "criteria": [
+    {
+      "criterion_id": "issue-41-c1",
+      "text": "Free-port + ready/shutdown messages",
+      "mode": "unit",
+      "test_file": "tests/contract/issue-41.spec.ts",
+      "test_id": "issue-41-c1: embedded lifecycle binds an ephemeral port and reports readiness after startup",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-41-c2",
+      "text": "process.parentPort handling",
+      "mode": "unit",
+      "test_file": "tests/contract/issue-41.spec.ts",
+      "test_id": "issue-41-c2: embedded lifecycle uses Electron utility process parentPort for IPC",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-41-c3",
+      "text": "log to app home",
+      "mode": "unit",
+      "test_file": "tests/contract/issue-41.spec.ts",
+      "test_id": "issue-41-c3: embedded lifecycle writes logs under the configured app home",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-41-c4",
+      "text": "flag to disable HID for tests",
+      "mode": "unit",
+      "test_file": "tests/contract/issue-41.spec.ts",
+      "test_id": "issue-41-c4: embedded lifecycle honors the no-controller test flag",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-41-c5",
+      "text": "ready message carries actual port",
+      "mode": "unit",
+      "test_file": "tests/contract/issue-41.spec.ts",
+      "test_id": "issue-41-c5: ready message reports the actual bound port",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-41-c6",
+      "text": "shutdown message runs graceful shutdown and exits 0",
+      "mode": "unit",
+      "test_file": "tests/contract/issue-41.spec.ts",
+      "test_id": "issue-41-c6: validated shutdown message completes cleanup and exits successfully",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-41-c7",
+      "text": "unchanged behavior when not embedded",
+      "mode": "unit",
+      "test_file": "tests/contract/issue-41.spec.ts",
+      "test_id": "issue-41-c7: non-embedded startup retains the existing developer behavior",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

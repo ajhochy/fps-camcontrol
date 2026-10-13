@@ -79,7 +79,8 @@ export async function autoTransitionControlledCamera(
   atem: AtemClient,
   state: AppState,
   cameras: CameraConfig[],
-  devices: Map<CameraId, MotionDevice>
+  devices: Map<CameraId, MotionDevice>,
+  transitionFrames?: number
 ): Promise<void> {
   const cam = cameras.find(c => c.id === state.controlledCamera);
   if (!cam) return;
@@ -89,9 +90,23 @@ export async function autoTransitionControlledCamera(
   }
   warnIfGimbalDetached(cam, devices);
   await atem.changePreviewInput(cam.inputId);
+  // A failed rate change must never block the take: the ATEM then simply uses its own rate.
+  if (transitionFrames) await atem.setTransitionFrames(transitionFrames).catch((err) => logger.warn({ err }, 'could not set the ATEM transition rate'));
   await atem.autoTransition();
   armPreviousProgramAsStandby(state, cameras, devices);
   logger.info({ program: state.programCamera, standby: state.previewCamera }, 'auto transition');
+}
+
+/**
+ * Mirror the switcher: set state.lowerThirdsActive from the key's real on-air state, so the buttons are right even
+ * when someone takes the slides on or off at the ATEM panel. Returns true when it changed.
+ */
+export function syncLowerThirdsFromAtem(atem: AtemClient, state: AppState, config: AppConfig): boolean {
+  const gfx = config.graphics;
+  const onAir = atem.graphicsOnAir({ ...gfx, type: gfx.type === 'auto' ? 'dsk' : gfx.type });
+  if (onAir === undefined || onAir === state.lowerThirdsActive) return false;
+  state.lowerThirdsActive = onAir;
+  return true;
 }
 
 export async function toggleLowerThirds(

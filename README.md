@@ -78,3 +78,17 @@ in this repository and is never redistributed**: each user downloads it from Son
 (see [docs/sony-sidecar-setup.md](docs/sony-sidecar-setup.md)).
 Product and company names (Sony, DJI, Blackmagic Design/ATEM, BirdDog, V-BOT, Raspberry Pi) are used only to
 describe compatibility; this project is not affiliated with or endorsed by them.
+
+## Electron feasibility probe (not the production app)
+
+`pnpm electron:probe:package` builds an arm64 probe app/DMG under `dist/electron-probe/`.
+`pnpm test:electron:probe -- --duration-ms=1800000` runs the packaged app with an empty
+test HOME, minimal PATH and random cwd; it enumerates HID without opening any device.
+Node and Electron native builds are separate. This does not prove real controller permission,
+production control-loop timing, a clean OS, Gatekeeper, or the unfinished foundation features.
+# Tracking installer
+
+The separate experimental tracking variant and its setup/safety limits are in
+[docs/tracking.md](docs/tracking.md). It includes its Python/model runtime,
+defaults to disabled, and requires the recorded physical safety drill before
+live operation. The manual installer contains no tracker.

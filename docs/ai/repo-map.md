@@ -18,17 +18,20 @@ fps-camcontrol/
 │   ├── atem/                 ← atemClient (atem-connection wrapper), switcherActions
 │   ├── config/               ← configLoader (YAML + Zod)
 │   ├── devices/              ← motionDevice interface, viscaDevice, djiBridgeDevice, deviceFactory
-│   ├── input/                ← gamepad (node-hid), normalizers, profileDetector, edgeTriggers, calibrationWizard
+│   ├── input/                ← gamepad (node-hid), normalizers, profileDetector, edgeTriggers, calibrationWizard, inputArbiter, remoteControl (iPad hub), remoteFrame, browserGamepad
 │   ├── model/                ← controlStateMachine, cameraSelector, presetManager, speedManager
 │   ├── safety/               ← emergencyStop, watchdog (VISCA reconnect + 30s probe)
 │   ├── testing/              ← smokeTest, virtualAtem, virtualController, virtualVisca, virtualDjiBridge
 │   ├── ui/                   ← statusServer (Express status + config web UI), routes/
 │   ├── visca/                ← viscaClient (UDP + VISCA-IP header + inquiry parser), ptzActions, speedCurves
 │   └── index.ts              ← startup, wiring, connectivity probe summary
+├── ui/                       ← static pages served at /ui: rigs/ (Device Config), remote/ (iPad remote: index.html, remote.js, remoteModel.js, remote.css)
 ├── pi-bridge/                ← Python WebSocket→RS3 Bluetooth LE bridge (runs on a Raspberry Pi)
 │   ├── dji_bridge.py         ← async websockets server; 250ms safety watchdog
 │   ├── drivers/              ← base.py (GimbalDriver protocol), mock_driver.py, RS3 BLE driver
-│   └── systemd/              ← dji-bridge.service production unit
+│   ├── gimbal_select.py      ← which Bluetooth gimbal the bridge drives (saved gimbal.json, AUTO, /gimbals, /gimbal)
+│   ├── system/               ← persistent journal + pi-power-log (as on bridge 1)
+│   └── systemd/              ← dji-bridge.service (system), dji-bridge.user.service (no sudo), dji-bridge@.service
 ├── docs/                     ← dji-gimbal-spec.md, pi-implementation.md, Visca_command_list_new.pdf, ai/
 ├── AGENTS.md                 ← agent guidance
 └── package.json / tsconfig.json / pnpm-workspace.yaml
@@ -38,9 +41,32 @@ fps-camcontrol/
 - App: `src/index.ts` (`pnpm start` runs `dist/index.js`; `pnpm dev` runs via ts-node).
 - Smoke suite: `src/testing/smokeTest.ts` (`pnpm test:smoke`).
 - Pi bridge: `pi-bridge/dji_bridge.py --driver mock --port 7878`.
-- Status / config UI: Express on port 8080 (`STATUS_PORT`), bound to `0.0.0.0` for LAN access.
+- Status / config UI: Express on loopback port 8080 (`STATUS_PORT`); packaged app
+  uses an authenticated OS-assigned port, reported after listening.
+- Electron shell: `electron/main.cjs`; `electron/manual/main.cjs` is the shipping
+  entrypoint into that same shell. Backend: explicit `src/embed.ts` lifecycle.
+- Safe first-run files: `resources/defaults/`; never copy developer `config/`
+  into an installer. `src/config/paths.ts` separates user data and resources.
+- Packaging/runtime: `scripts/package-electron-manual.cjs`,
+  `scripts/test-electron-manual-package.cjs`, `scripts/test-electron-manual-runtime.cjs`.
+- Workflow/checks: `scripts/run_ai_workflow.py`, `scripts/checks.cjs`.
+- GitHub testing releases: `.github/workflows/electron_release.yml`, exact app
+  sources in `.github/electron-release-sources.json`, public receipt validation
+  in `scripts/electron-release.cjs`; operator instructions: `docs/releasing.md`.
 
 ## Dependencies
+
+Tracking: `src/tracking/` owns config/protocol/control/manager/client,
+`MotionLedger`, helper supervision and calibration. `src/app/trackingRuntime.ts`
+and `trackingHooks.ts` provide lifecycle/non-serialized capabilities;
+`src/ui/trackingRoutes.ts` and `trackingCalibrationRoutes.ts` are authenticated
+adapters; `ui/tracking/` extends existing Sony previews. `tracker-sidecar/` holds
+the Python service, frame puller, ONNX detector and identity association.
+`src/testing/trackingSim.ts` and `trackingIntegrationTest.ts` test synthetic
+control and actual TS/Python/virtual bridge. The exact redistributable payload
+is pinned in `scripts/tracking-runtime-manifest.json`. Staging/tracking packaging
+are independent of manual packaging. Operator guide: `docs/tracking.md`.
+
 **Runtime:** `atem-connection`, `node-hid`, `express`, `js-yaml`, `zod`, `pino`, `pino-pretty`, `ws`
 **Dev:** `@types/express`, `@types/js-yaml`, `@types/node`, `@types/node-hid`, `@types/ws`, `ts-node`, `typescript`
 **Pi bridge:** Python `websockets`, `bleak` (for the RS3 BLE driver)
@@ -51,6 +77,11 @@ fps-camcontrol/
 - `PRESETS_FILE` — path to presets.json (default `config/presets.json`)
 - `SPEEDS_FILE` — path to speeds.json (default `config/speeds.json`)
 - `STATUS_PORT` — Express status UI port (default `8080`)
+- `CAMCONTROL_HOME` — mutable application data root; CLI defaults to cwd
+- `CAMCONTROL_RESOURCES` — immutable resource root; CLI defaults to cwd
+- `CAMCONTROL_NO_CONTROLLER=1` — disable real HID access during isolated checks
+- `CAMCONTROL_EMBEDDED` / `CAMCONTROL_SESSION` — shell-owned private runtime
+  settings; never expose the session in URLs, logs, or committed evidence
 - `DJI_RS3_BLE_ADDRESS` — RS3 Linux BLE address (overridden by `--ble-address`)
 
 ## Hot files (auto-generated — snapshot)

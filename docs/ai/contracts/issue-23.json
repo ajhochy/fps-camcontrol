@@ -1,0 +1,64 @@
+{
+  "issue": 23,
+  "generated": "2026-10-01",
+  "criteria": [
+    {
+      "criterion_id": "issue-23-c1",
+      "text": "Absent `tracking` block ⇒ `config.tracking` is `{ enabled: false, … defaults }` and nothing else changes.",
+      "mode": "unit",
+      "test_file": "tests/contract/issue-23.spec.ts",
+      "test_id": "issue-23-c1",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-23-c2",
+      "text": "Schema fields: `enabled`, `sidecarUrl` (ws/wss URL, default `ws://127.0.0.1:7900`), `maxSpeed` (0.05–1, default 0.35), `deadzone` (0–0.3, default 0.04), `lostHoldMs` (default 3000), `sources[]` = `{ sonyCameraId, device, invertPan=false, invertTilt=false }`.",
+      "mode": "unit",
+      "test_file": "tests/contract/issue-23.spec.ts",
+      "test_id": "issue-23-c2",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-23-c3",
+      "text": "Env overrides `TRACKING_ENABLED` (true/false/1/0, else throws like `SONY_ENABLED`) and `TRACKING_SIDECAR_URL` take precedence over YAML.",
+      "mode": "unit",
+      "test_file": "tests/contract/issue-23.spec.ts",
+      "test_id": "issue-23-c3",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-23-c4",
+      "text": "`sources[].device` must exist in `devices:` inventory and be a `dji-bridge` device (v1); otherwise config load fails with a message naming the source.",
+      "mode": "unit",
+      "test_file": "tests/contract/issue-23.spec.ts",
+      "test_id": "issue-23-c4",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-23-c5",
+      "text": "`CameraConfig` gains `deviceKey` (set by `resolveProfile`; unset for the legacy `cameras:` form). Existing config behavior, saved YAML, and the UI config editor are unaffected.",
+      "mode": "unit",
+      "test_file": "tests/contract/issue-23.spec.ts",
+      "test_id": "issue-23-c5",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-23-c6",
+      "text": "A pure helper `resolveTrackingSources(config)` returns, per source, the active `cameraId` or `null` when the device is not in the active profile. A source whose device is absent is **not an error**.",
+      "mode": "unit",
+      "test_file": "tests/contract/issue-23.spec.ts",
+      "test_id": "issue-23-c6",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-23-c7",
+      "text": "Comments in `devices.yaml` document the block and stay intact across a UI save (see `writeDevicesYaml`).",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Acceptance-placement review pending: shipped generic resources/defaults/devices.yaml documents tracking and the UI-save comment-preservation test passes, but the protected operator config/devices.yaml was not edited. No closing keyword for #23."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": ["issue-23-c7"],
+  "verification": "Root ai-workflow checks --level pr exit0 (2026-10-01, tracking changes atop133ae8d); physical/finalDMG gates separate."
+}

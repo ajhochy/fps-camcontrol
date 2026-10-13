@@ -1,0 +1,31 @@
+--- a/api/server/src/CameraWebController.cpp
++++ b/api/server/src/CameraWebController.cpp
+@@ -89,6 +89,9 @@
+     {"movie-file-format", PropertyMapping("movie-file-format", SDK::CrDevicePropertyCode::CrDeviceProperty_Movie_File_Format, "", false)},
+     {"movie-recording-setting", PropertyMapping("movie-recording-setting", SDK::CrDevicePropertyCode::CrDeviceProperty_Movie_Recording_Setting, "", false)},
+     {"movie-recording-frame-rate", PropertyMapping("movie-recording-frame-rate", SDK::CrDevicePropertyCode::CrDeviceProperty_Movie_Recording_FrameRateSetting, "", false)},
++
++    // Live view (remote preview) image quality: Low / High. Only the remote preview; HDMI out and recording are unaffected.
++    {"live-view-image-quality", PropertyMapping("live-view-image-quality", SDK::CrDevicePropertyCode::CrDeviceProperty_LiveView_Image_Quality, "", false)},
+ 
+     // Thermal (read-only)
+     {"overheating-state", PropertyMapping("overheating-state", SDK::CrDevicePropertyCode::CrDeviceProperty_DeviceOverheatingState, "", false)},
+@@ -2922,6 +2925,9 @@
+     }
+     else if (propertyName == "recording-state") {
+         switch(data.currentValue) { case 0: data.currentFormatted = "Not Recording"; break; case 1: data.currentFormatted = "Recording"; break; case 2: data.currentFormatted = "Recording Failed"; break; default: data.currentFormatted = "Unknown"; }
++    }
++    else if (propertyName == "live-view-image-quality") {
++        data.currentFormatted = (data.currentValue == 0) ? "Low" : (data.currentValue == 1) ? "High" : "Unknown";
+     }
+     else if (propertyName == "overheating-state") {
+         switch(data.currentValue) { case 0: data.currentFormatted = "Normal"; break; case 1: data.currentFormatted = "Pre-Overheating"; break; case 2: data.currentFormatted = "Overheating"; break; default: data.currentFormatted = "Unknown"; }
+@@ -4795,6 +4801,8 @@
+             return "movie-recording-frame-rate";
+ 
+         // Thermal
++        case SDK::CrDevicePropertyCode::CrDeviceProperty_LiveView_Image_Quality:
++            return "live-view-image-quality";
+         case SDK::CrDevicePropertyCode::CrDeviceProperty_DeviceOverheatingState:
+             return "overheating-state";
+ 

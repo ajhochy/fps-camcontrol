@@ -86,6 +86,9 @@ export class SonyStateStore {
     if (state.version !== 1 || !Array.isArray(state.approvedCameras)) throw new Error('invalid Sony state schema');
     const ids = new Set<string>();
     for (const camera of state.approvedCameras) {
+      // `gimbalDevice` was a short-lived field (a camera's gimbal is now the rig that names the camera). Drop it
+      // quietly rather than treating the whole approval file as corrupt.
+      if (camera && typeof camera === 'object') delete (camera as unknown as Record<string, unknown>).gimbalDevice;
       this.validateCamera(camera);
       if (ids.has(camera.id)) throw new Error('duplicate Sony camera ID');
       ids.add(camera.id);

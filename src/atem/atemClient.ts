@@ -37,7 +37,9 @@ export class AtemClient extends EventEmitter {
   constructor(ip: string) {
     super();
     this.ip = ip;
-    this.atem = new Atem();
+    // The Electron utility process already provides isolation; no unowned Node
+    // subprocess may outlive it when the desktop is force-quit.
+    this.atem = new Atem({ disableMultithreaded: process.env.CAMCONTROL_EMBEDDED === '1' });
 
     this.atem.on('connected', () => {
       this.connecting = false;
@@ -63,6 +65,10 @@ export class AtemClient extends EventEmitter {
       throttledLog.warn('atem-disconnected', 5000, { ip: this.ip, nextRetryMs: this.backoff }, 'ATEM disconnected, reconnecting');
       this.scheduleReconnect();
     });
+
+    // Anything the switcher reports (including a key taken on or off at the ATEM panel): listeners re-read what
+    // they mirror, e.g. whether the slides / lower-third key is on air.
+    this.atem.on('stateChanged', () => this.emit('stateChanged'));
 
     this.atem.on('error', (err: unknown) => {
       throttledLog.error('atem-error', 5000, { err, ip: this.ip }, 'ATEM error');
@@ -139,6 +145,14 @@ export class AtemClient extends EventEmitter {
     }, delay);
   }
 
+  /** Whether the slides / lower-third key is on air at the switcher, or undefined when it is not known yet. */
+  graphicsOnAir(gfx: { type: string; dskIndex: number; meIndex: number; uskIndex: number }): boolean | undefined {
+    const video = this.atem.state?.video;
+    if (!video) return undefined;
+    if (gfx.type === 'usk') return video.mixEffects?.[gfx.meIndex]?.upstreamKeyers?.[gfx.uskIndex]?.onAir;
+    return video.downstreamKeyers?.[gfx.dskIndex]?.onAir;
+  }
+
   getProgramInput(meIndex = 0): number | undefined {
     return this.atem.state?.video?.mixEffects?.[meIndex]?.programInput;
   }
@@ -179,6 +193,30 @@ export class AtemClient extends EventEmitter {
     });
     if (disconnected) { logger.warn('ATEM not connected, dropping cut'); return; }
     await this.atem.cut(meIndex);
+  }
+
+  /** The current transition style and its rate in frames, as the switcher reports them (undefined until known). */
+  transitionInfo(meIndex = 0): { style: string; frames: number | null } | undefined {
+    const me = this.atem.state?.video?.mixEffects?.[meIndex];
+    if (!me) return undefined;
+    const style = me.transitionProperties?.style;
+    const s = me.transitionSettings;
+    const names = ['mix', 'dip', 'wipe', 'dve', 'sting'];
+    const frames = style === 0 ? s?.mix?.rate : style === 1 ? s?.dip?.rate : style === 2 ? s?.wipe?.rate : style === 3 ? s?.DVE?.rate : undefined;
+    return { style: names[style ?? -1] ?? 'unknown', frames: typeof frames === 'number' ? frames : null };
+  }
+
+  /** Set the rate of the current transition style (MIX / DIP / WIPE / DVE); a stinger has no rate to set. */
+  async setTransitionFrames(frames: number, meIndex = 0): Promise<void> {
+    if (!this.connected) return;
+    const info = this.transitionInfo(meIndex);
+    if (!info || info.frames === frames) return;
+    if (info.style === 'mix') await this.atem.setMixTransitionSettings({ rate: frames }, meIndex);
+    else if (info.style === 'dip') await this.atem.setDipTransitionSettings({ rate: frames }, meIndex);
+    else if (info.style === 'wipe') await this.atem.setWipeTransitionSettings({ rate: frames }, meIndex);
+    else if (info.style === 'dve') await this.atem.setDVETransitionSettings({ rate: frames }, meIndex);
+    else return;
+    logger.info({ style: info.style, from: info.frames, to: frames }, 'ATEM transition rate set');
   }
 
   async autoTransition(meIndex = 0): Promise<void> {

@@ -5,6 +5,10 @@ export interface DeviceCapabilities {
   zoom: boolean;
   position: boolean;
   moveTo: boolean;
+  /** Can switch a sleeping gimbal's motors back on (DJI bridge 0.5.0+ advertises "wake"). */
+  wake?: boolean;
+  /** Can put a gimbal to sleep (DJI bridge 0.7.0+ advertises "sleep"). */
+  sleep?: boolean;
 }
 
 export type DevicePosition =
@@ -39,6 +43,8 @@ export interface MotionDevice {
   setPanTilt(panSpeed: number, tiltSpeed: number): void;
   setZoom(zoomSpeed: number): void;
   stop(): void;
+  /** Optional: stop pan/tilt only, leaving zoom alone (VISCA). Used by tracking so a stop never interrupts an operator's zoom. */
+  stopPanTilt?(): void;
 
   getPosition(): Promise<DevicePosition>;
   moveTo(pos: DevicePosition): Promise<void>;
@@ -47,6 +53,12 @@ export interface MotionDevice {
 
   /** Optional: only present on devices that advertise a recenter capability. */
   recenter?(): Promise<void>;
+  /** Optional: only present on devices that advertise a wake capability. Operator-initiated only. */
+  wake?(): Promise<void>;
+  /** Optional: only present on devices that advertise a sleep capability. Operator-initiated only. */
+  sleep?(): Promise<void>;
+  /** Optional: true when motion was commanded in the last `withinMs` (stick velocity or a move-to). */
+  recentlyDriven?(withinMs: number, now?: number): boolean;
 
   on(event: string, listener: (...args: unknown[]) => void): this;
 }

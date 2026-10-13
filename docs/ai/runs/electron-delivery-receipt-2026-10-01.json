@@ -1,0 +1,121 @@
+{
+  "createdAt": "2026-10-01T20:41:34.694Z",
+  "manual": {
+    "createdAt": "2026-10-01T19:59:09.678Z",
+    "variant": "manual",
+    "sourceCommit": "133ae8d9620665b1e87b799a765a619ccae06ebc",
+    "sourceDirty": true,
+    "appId": "com.ajhochhalter.fpscamcontrol",
+    "version": "0.1.0",
+    "architecture": "arm64",
+    "minimumMacOS": "13.0",
+    "team": "56Q69NYP9H",
+    "identity": "CF6C1EF1525E70E6E3324388A322938977779DB7",
+    "appAcceptance": {
+      "id": "bc481bd1-4a19-4400-a9d1-6c83e0a74d63",
+      "status": "Accepted",
+      "acceptedAt": "2026-10-01T19:54:59.659Z"
+    },
+    "dmgAcceptance": {
+      "id": "4dc7579f-483f-4d66-a50f-c09345dde698",
+      "status": "Accepted",
+      "acceptedAt": "2026-10-01T19:59:06.232Z"
+    },
+    "zip": {
+      "path": "/Users/ajhochhalter/.local/share/opencode/worktree/ec2e0fe3fdd54c2e9ab53bfa4cc75c91e40568ed/fps-electron-two-pr-plan/release/manual-delivery-133ae8d/2026-10-01-final/FPS CamControl-0.1.0-arm64-notarized.zip",
+      "bytes": 140100411,
+      "sha256": "643dbccae26fd8ecabbe8064ed7a4e775c976f87d80195701747210b6c4cb765"
+    },
+    "dmg": {
+      "path": "/Users/ajhochhalter/.local/share/opencode/worktree/ec2e0fe3fdd54c2e9ab53bfa4cc75c91e40568ed/fps-electron-two-pr-plan/release/manual-delivery-133ae8d/2026-10-01-final/FPS CamControl-0.1.0-arm64-notarized.dmg",
+      "bytes": 172838600,
+      "sha256": "da02312a0e65e9bfd440090cf6f7cbc0b29764a5f71685182922806855c98f11"
+    },
+    "codesign": "PASS",
+    "appStaple": "PASS",
+    "dmgStaple": "PASS",
+    "gatekeeper": "PASS",
+    "cleanOS": "NOT_TESTED",
+    "physicalHID": "NOT_TESTED"
+  },
+  "tracking": {
+    "createdAt": "2026-10-01T20:41:34.694Z",
+    "variant": "tracking",
+    "sourceCommit": "3711a9e6475633a6cf889850ba3a23843a12c450",
+    "sourceDirty": true,
+    "appId": "com.ajhochhalter.fpscamcontrol.tracking",
+    "version": "0.1.0",
+    "architecture": "arm64",
+    "minimumMacOS": "14.0",
+    "team": "56Q69NYP9H",
+    "identity": "CF6C1EF1525E70E6E3324388A322938977779DB7",
+    "appAcceptance": {
+      "id": "b8fbf315-f955-4154-bcbb-420eb0c48ed4",
+      "status": "Accepted",
+      "acceptedAt": "2026-10-01T20:35:58.100Z"
+    },
+    "dmgAcceptance": {
+      "id": "b908430e-b90f-4f6d-9cf5-996af25742a1",
+      "status": "Accepted",
+      "acceptedAt": "2026-10-01T20:41:31.086Z"
+    },
+    "zip": {
+      "path": "/Users/ajhochhalter/.local/share/opencode/worktree/ec2e0fe3fdd54c2e9ab53bfa4cc75c91e40568ed/fps-electron-two-pr-plan/release/tracking-delivery-3711a9e/2026-10-01-final/FPS CamControl Tracking-0.1.0-arm64-notarized.zip",
+      "bytes": 237697817,
+      "sha256": "bf7bdad21529957ad1e56b3c6808869398fabd2f0a78ae8841bed642b735da86"
+    },
+    "dmg": {
+      "path": "/Users/ajhochhalter/.local/share/opencode/worktree/ec2e0fe3fdd54c2e9ab53bfa4cc75c91e40568ed/fps-electron-two-pr-plan/release/tracking-delivery-3711a9e/2026-10-01-final/FPS CamControl Tracking-0.1.0-arm64-notarized.dmg",
+      "bytes": 288543586,
+      "sha256": "5c021b66d2433df630677c4cab95fc3019e5617e134afc5dd094f967e4c81652"
+    },
+    "codesign": "PASS",
+    "appStaple": "PASS",
+    "dmgStaple": "PASS",
+    "gatekeeper": "PASS",
+    "cleanOS": "NOT_TESTED",
+    "physicalHID": "NOT_TESTED"
+  },
+  "drafts": [
+    "https://github.com/ajhochy/fps-camcontrol/pull/57",
+    "https://github.com/ajhochy/fps-camcontrol/pull/58"
+  ],
+  "trackingRuntime": {
+    "path": "docs/ai/runs/electron-tracking-evidence/runtime-2026-10-01T20-47-24-065Z/runtime.json",
+    "status": "PASS",
+    "startupMs": 4018,
+    "criteria": {
+      "defaultDisabledNoHelper": "PASS",
+      "packagedNetworkDeniedModelAndProtocol": "PASS",
+      "packagedClickToTrack": "PASS",
+      "configuredLiveFrameIdleSafe": "PASS",
+      "helperCrashNoReplay": "PASS",
+      "backendCrashStopsHelperPausedRecovery": "PASS",
+      "sleepStopsHelperWakeInert": "PASS",
+      "parentCrashNoOrphans": "PASS",
+      "normalQuitStopsOwnedHelper": "PASS",
+      "uiErrorChecks": "PASS: no JS or unexpected HTTP/console/transport errors; identified Sony busy retries and injected disconnects recover"
+    },
+    "unexpectedConsoleErrors": [],
+    "unexpectedNetworkErrors": [],
+    "expectedRecoveryResponses": [
+      {
+        "phase": "restart-after-backend-crash",
+        "status": 503,
+        "url": "http://127.0.0.1:60178/api/sony/cameras/AA:BB/properties",
+        "retryAfter": "1",
+        "error": "Sony camera is busy; retry shortly"
+      }
+    ],
+    "expectedInjectedDisconnects": [
+      {
+        "phase": "injected-backend-crash",
+        "method": "GET",
+        "url": "http://127.0.0.1:60153/api/sony/cameras/AA:BB/live-view/frame",
+        "error": "net::ERR_CONNECTION_REFUSED"
+      }
+    ]
+  },
+  "sourceBoundary": "Both builds were from committed source with zero tracked changes at build. Three unrelated untracked drafts were excluded. Later tracking test/evidence/docs changes do not alter packaged production files. sourceDirty true is qualified by original build-provenance and signing source-freeze receipts.",
+  "hostedCI": "No checks configured on these PRs; local and artifact gates are not hosted CI."
+}

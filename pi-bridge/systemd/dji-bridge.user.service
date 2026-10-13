@@ -1,0 +1,22 @@
+[Unit]
+# Single-instance bridge as a systemd USER service, for a Pi where the install has no sudo
+# (scripts/install-pi-bridge.sh --user-service). Lingering (loginctl enable-linger <user>) makes it start at boot
+# without a login. Lives in ~/.config/systemd/user/dji-bridge.service; manage it with
+#   systemctl --user status dji-bridge     journalctl --user -u dji-bridge -f
+Description=DJI RS gimbal bridge for fps-camcontrol (user service)
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/dji-bridge
+Environment=PYTHONUNBUFFERED=1
+# gimbal.json (the Bluetooth gimbal this bridge drives; overrides DJI_RS3_BLE_ADDRESS) lives here.
+Environment=DJI_BRIDGE_STATE_DIR=%h/.local/state/dji-bridge
+# Optional DJI_RS3_BLE_ADDRESS and DJI_RS3_MAX_JOYSTICK; see dji-bridge.env.example.
+EnvironmentFile=-%h/.config/dji-bridge/env
+ExecStart=%h/dji-bridge/.venv/bin/python3 %h/dji-bridge/dji_bridge.py --host 0.0.0.0 --port 7878 --driver dji-rs3-ble
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target

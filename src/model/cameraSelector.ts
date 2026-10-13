@@ -3,6 +3,7 @@ import { CameraConfig } from '../config/configLoader';
 import { AtemClient } from '../atem/atemClient';
 import { MotionDevice } from '../devices/motionDevice';
 import { logger } from '../index';
+import { trackingFor } from '../app/trackingHooks';
 
 const FLICK_THRESHOLD = 0.75;
 const FLICK_NEUTRAL = 0.25;
@@ -37,18 +38,28 @@ export class CameraSelector {
    * side effects as a left-stick flick: stops the outgoing camera's PTZ,
    * updates controlled/preview state, and moves the ATEM preview bus.
    */
-  selectByIndex(index: number): void {
-    this.selectCamera(index);
+  selectByIndex(index: number, movePreview = true): void {
+    this.selectCamera(index, movePreview);
     this.stickReadyForSelection = true;
   }
 
-  private selectCamera(newIndex: number): void {
+  private selectCamera(newIndex: number, movePreview = true): void {
     const clamped = Math.max(0, Math.min(this.cameras.length - 1, newIndex));
     if (clamped === this.state.cameraIndex) return;
 
     // Stop old camera
     const oldDevice = this.devices.get(this.state.controlledCamera);
-    if (oldDevice) oldDevice.stop();
+    if (oldDevice) {
+      const tracking = trackingFor(this.state);
+      const autonomous = tracking && Object.values(tracking.manager.getStatus()).some(source =>
+        source.cameraId === this.state.controlledCamera && source.sessionId && source.state !== 'operator_override');
+      // Selecting a different manual camera does not revoke the other rig's
+      // autonomous session. Manual outgoing motion retains its normal stop.
+      if (!autonomous) {
+        tracking?.manager.operatorOverride(this.state.controlledCamera);
+        if (tracking) tracking.ledger.stop(oldDevice); else oldDevice.stop();
+      }
+    }
 
     const cam = this.cameras[clamped];
     this.state.cameraIndex = clamped;
@@ -59,6 +70,12 @@ export class CameraSelector {
       // its motion, but leave the preview bus alone — moving it to a dead input
       // would arm black for the next take.
       logger.info({ camera: cam.id, label: cam.label }, 'controlled camera changed (control-only: no ATEM input)');
+      return;
+    }
+
+    if (!movePreview) {
+      // Control only (the iPad's pane arrows): the ATEM preview bus and the PVW tag stay where the operator put them.
+      logger.info({ camera: cam.id, label: cam.label }, 'controlled camera changed (preview left alone)');
       return;
     }
 

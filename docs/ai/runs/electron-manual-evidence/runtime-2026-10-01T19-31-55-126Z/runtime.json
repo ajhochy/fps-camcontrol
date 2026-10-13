@@ -1,0 +1,28 @@
+{
+  "criteria": {},
+  "screenshots": [
+    {
+      "path": "/Users/ajhochhalter/.local/share/opencode/worktree/ec2e0fe3fdd54c2e9ab53bfa4cc75c91e40568ed/fps-electron-two-pr-plan/docs/ai/runs/electron-manual-evidence/runtime-2026-10-01T19-31-55-126Z/mounted-dmg-startup-failure.png",
+      "sha256": "6cb31d4f2736238bf89fed699315f68b6c23d5f93d73fdfb860f5668cbbaf44d",
+      "state": "FAILED startup, not dashboard evidence"
+    }
+  ],
+  "consoleErrors": [],
+  "networkErrors": [],
+  "appErrors": [],
+  "evidenceBoundary": "Developer host fresh HOME/minimal PATH, not clean OS/TCC/hardware/Gatekeeper/notarization.",
+  "startupMs": 4857,
+  "url": "http://127.0.0.1:63573/",
+  "runtime": {
+    "versions": {
+      "electron": "44.5.1",
+      "node": "24.21.0",
+      "modules": "149"
+    },
+    "userData": "/var/folders/f0/kwf9lqtx57qgt3j4rbtvg1ym0000gn/T/fps manual runtime qrTJ46/fresh HOME/Library/Application Support/FPS CamControl",
+    "sandbox": true,
+    "contextIsolation": true,
+    "nodeIntegration": false
+  },
+  "failure": "electronApplication.evaluate: ReferenceError: require is not defined\n    at eval (eval at evaluate (:290:30), <anonymous>:5:5)\n    at async <anonymous>:316:30"
+}

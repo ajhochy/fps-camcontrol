@@ -1,0 +1,49 @@
+{
+  "criteria": {},
+  "screenshots": [
+    {
+      "path": "/Users/ajhochhalter/.local/share/opencode/worktree/ec2e0fe3fdd54c2e9ab53bfa4cc75c91e40568ed/fps-electron-two-pr-plan/docs/ai/runs/electron-manual-evidence/runtime-2026-10-01T19-32-47-486Z/mounted-dmg-dashboard.png",
+      "sha256": "058cb6e84918c95824360d0dc628ab5e360182a388ee08441339fb522ec732fa"
+    },
+    {
+      "path": "/Users/ajhochhalter/.local/share/opencode/worktree/ec2e0fe3fdd54c2e9ab53bfa4cc75c91e40568ed/fps-electron-two-pr-plan/docs/ai/runs/electron-manual-evidence/runtime-2026-10-01T19-32-47-486Z/mounted-dmg-restart.png",
+      "sha256": "8561df83cb7f3ea2a88688cdc9913a848a6d008504dafbe13bfcf544b986836a"
+    },
+    {
+      "path": "/Users/ajhochhalter/.local/share/opencode/worktree/ec2e0fe3fdd54c2e9ab53bfa4cc75c91e40568ed/fps-electron-two-pr-plan/docs/ai/runs/electron-manual-evidence/runtime-2026-10-01T19-32-47-486Z/mounted-dmg-startup-failure.png",
+      "sha256": "1895703dd41ebd3d495713cd005f193ff393cc8c4e332ddb66b381979171264c",
+      "state": "FAILED startup, not dashboard evidence"
+    }
+  ],
+  "consoleErrors": [
+    "Failed to load resource: net::ERR_CONNECTION_REFUSED",
+    "Failed to load resource: net::ERR_CONNECTION_REFUSED"
+  ],
+  "networkErrors": [
+    {
+      "url": "http://127.0.0.1:63744/api/status",
+      "error": "net::ERR_CONNECTION_REFUSED"
+    },
+    {
+      "url": "http://127.0.0.1:63744/api/config",
+      "error": "net::ERR_CONNECTION_REFUSED"
+    }
+  ],
+  "appErrors": [],
+  "evidenceBoundary": "Developer host fresh HOME/minimal PATH, not clean OS/TCC/hardware/Gatekeeper/notarization.",
+  "startupMs": 2210,
+  "url": "http://127.0.0.1:63744/",
+  "runtime": {
+    "versions": {
+      "electron": "44.5.1",
+      "node": "24.21.0",
+      "modules": "149"
+    },
+    "userData": "/var/folders/f0/kwf9lqtx57qgt3j4rbtvg1ym0000gn/T/fps manual runtime 5UaXrf/fresh HOME/Library/Application Support/FPS CamControl",
+    "sandbox": true,
+    "contextIsolation": true,
+    "nodeIntegration": false
+  },
+  "hungUtility": "PASS actual blocked-loop utility force-terminated and exit awaited",
+  "failure": "c10: no browser console errors before fault injection\n+ actual - expected\n\n+ [\n+   'Failed to load resource: net::ERR_CONNECTION_REFUSED',\n+   'Failed to load resource: net::ERR_CONNECTION_REFUSED'\n+ ]\n- []\n"
+}

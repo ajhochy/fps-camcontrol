@@ -1,0 +1,56 @@
+{
+  "issue": 42,
+  "generated": "2026-10-01",
+  "criteria": [
+    {
+      "criterion_id": "issue-42-c1",
+      "text": "single-instance",
+      "mode": "unit",
+      "test_file": "tests/contract/issue-42.spec.ts",
+      "test_id": "issue-42-c1: a second launch is forwarded to the existing application instance",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-42-c2",
+      "text": "sandboxed constrained browser view/preload",
+      "mode": "unit",
+      "test_file": "tests/contract/issue-42.spec.ts",
+      "test_id": "issue-42-c2: the browser view is sandboxed and exposes only the preload bridge",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-42-c3",
+      "text": "supervised utility process uses #41 protocol actual URL/readiness",
+      "mode": "unit",
+      "test_file": "tests/contract/issue-42.spec.ts",
+      "test_id": "issue-42-c3: the supervised utility process publishes its actual ready URL using issue 41 protocol v1",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-42-c4",
+      "text": "bounded crash restart with visible non-secret status",
+      "mode": "unit",
+      "test_file": "tests/contract/issue-42.spec.ts",
+      "test_id": "issue-42-c4: child crashes restart only within a bound and report safe status to the operator",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-42-c5",
+      "text": "owned child cleanup on quit",
+      "mode": "unit",
+      "test_file": "tests/contract/issue-42.spec.ts",
+      "test_id": "issue-42-c5: quitting shuts down and reaps the shell-owned utility process",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-42-c6",
+      "text": "power blocker release",
+      "mode": "unit",
+      "test_file": "tests/contract/issue-42.spec.ts",
+      "test_id": "issue-42-c6: the power save blocker is released when the shell stops",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

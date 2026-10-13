@@ -1,0 +1,68 @@
+{
+  "run_id": "2026-10-01-tracking-candidate-process-alias",
+  "issue": 50,
+  "date": "2026-10-01",
+  "smoke_result": "fail",
+  "verification_claimed": "unknown",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-50-c4",
+      "text": "Actual bundled interpreter/model inference is input-dependent with network denied and isolated HOME/PATH/cwd; authenticated bundled helper owns heartbeat and exits before stop resolves.",
+      "contract_status": "untested",
+      "smoke_status": "fail",
+      "category": "C5",
+      "notes": "Model/protocol sub-proof passed, but full-app child discovery falsely reported zero children because macOS ps returned /private/var while harness used /var. Exact same failure reproduced; observed PPID confirmed correct ownership. Test-only canonical exact-interpreter repair retains PPID and one-child requirements; three fixture regressions pass."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "test-process-path-alias",
+      "description": "Filesystem aliases were compared as raw process-name prefixes; captured recon and independent review established the test assumption error.",
+      "detected_by": "Two failed runtime reports and read-only ps PID/PPID/comm recon."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "smoke-test-writer",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": [
+      {
+        "workflow_category": "W3",
+        "affected_skill": "workflow-orchestrator",
+        "description": "TodoWrite is unavailable; durable plan, contracts and commentary used.",
+        "detected_by": "tool catalog"
+      }
+    ]
+  },
+  "implementation_files": [
+    "scripts/test-electron-tracking-runtime.cjs",
+    "scripts/test-tracking-runtime-fixtures.cjs"
+  ],
+  "failure_output": "Exactly one Python belongs to the actual backend\n0 !== 1",
+  "overall_category": "C5",
+  "suggested_follow_up": "Use canonical executable identity plus exact parent ownership; retain failed evidence and require final-byte retest.",
+  "evidence": [
+    "docs/ai/runs/electron-tracking-evidence/runtime-2026-10-01T20-24-41-917Z/runtime.json",
+    "docs/ai/runs/electron-tracking-evidence/runtime-2026-10-01T20-25-33-524Z/runtime.json",
+    "docs/testing/results/recon-issue-50-process-path.md"
+  ],
+  "resolution": "Test-only repair independently reviewed; candidate runtime20-26-39-879Z passed. Subsequent review strengthened UI error, live-model outcome and explicit stop checks, pending final notarized-byte rerun. No remote follow-up substituted for in-scope repair."
+}

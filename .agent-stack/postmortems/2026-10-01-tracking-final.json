@@ -1,0 +1,107 @@
+{
+  "run_id": "2026-10-01-tracking-final",
+  "issue": 50,
+  "date": "2026-10-01",
+  "smoke_result": "pass",
+  "verification_claimed": "PASS",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-50-c1",
+      "text": "Stage exact relocatable ARM64 Python, pinned wheels, permissively licensed model and all component notices without host Python/pip; checksum every byte and preserve resume partials.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Exact source3711a9e artifact and final digest-bound runtime verified; see final delivery record. CleanOS/physical acceptance remains outside this automated claim."
+    },
+    {
+      "criterion_id": "issue-50-c2",
+      "text": "Missing/corrupt model fails closed before launch or inference; no silent first-run download.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Exact source3711a9e artifact and final digest-bound runtime verified; see final delivery record. CleanOS/physical acceptance remains outside this automated claim."
+    },
+    {
+      "criterion_id": "issue-50-c3",
+      "text": "Final tracking app contains runtime/model outside ASAR, minimum macOS covers all ARM64 native artifacts, exact model and notices retained, no Sony SDK.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Exact source3711a9e artifact and final digest-bound runtime verified; see final delivery record. CleanOS/physical acceptance remains outside this automated claim."
+    },
+    {
+      "criterion_id": "issue-50-c4",
+      "text": "Actual bundled interpreter/model inference is input-dependent with network denied and isolated HOME/PATH/cwd; authenticated bundled helper owns heartbeat and exits before stop resolves.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Exact source3711a9e artifact and final digest-bound runtime verified; see final delivery record. CleanOS/physical acceptance remains outside this automated claim."
+    },
+    {
+      "criterion_id": "issue-50-c5",
+      "text": "Final app and DMG independently Apple Accepted, logs match jobs, tickets staple/validate, strict nested signatures and Gatekeeper pass; final sizes/hashes recorded.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Exact source3711a9e artifact and final digest-bound runtime verified; see final delivery record. CleanOS/physical acceptance remains outside this automated claim."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "test-recovery-observation",
+      "description": "The strict all-phase console-empty assumption failed after otherwise successful final-byte flows. Recon isolated intentional Sony reconnect503 Retry-After and GET disconnect against a deliberately killed backend. Narrow actual-response/origin/phase classifiers plus negative fixtures preserve all raw observations and require preview recovery.",
+      "detected_by": "runtime20-42-03,20-43-23,20-45-20; final20-47-24 passes with exactly one expected503 and one injected disconnect."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "smoke-test-writer",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": [
+      {
+        "workflow_category": "W3",
+        "affected_skill": "workflow-orchestrator",
+        "description": "TodoWrite unavailable in tool environment; durable plans/contracts/commentary used.",
+        "detected_by": "tool catalog"
+      }
+    ]
+  },
+  "implementation_files": [
+    "scripts/test-electron-tracking-runtime.cjs",
+    "scripts/test-tracking-runtime-fixtures.cjs",
+    "scripts/test-tracking-sidecar-runtime.cjs"
+  ],
+  "failure_output": "Preserved earlier diagnostic failures: No console errors after recovery and relaunch (Sony503); No unexpected console errors (deliberately killed backend connection refused).",
+  "overall_category": "none",
+  "suggested_follow_up": "Witness clean-Mac and physical rig gates before live operational use; distinguish expected fault observations from unexpected runtime errors.",
+  "evidence": "docs/ai/runs/electron-tracking-evidence/runtime-2026-10-01T20-47-24-065Z/runtime.json",
+  "artifact": {
+    "sourceCommit": "3711a9e6475633a6cf889850ba3a23843a12c450",
+    "bytes": 288543586,
+    "sha256": "5c021b66d2433df630677c4cab95fc3019e5617e134afc5dd094f967e4c81652"
+  },
+  "limitations": [
+    "Genuinely clean macOS/TCC/download quarantine NOT_TESTED",
+    "Physical HID/camera/gimbal/ATEM, real sleep and 30-minute idle/active soaks NOT_TESTED",
+    "Installed-app fault tests begin idle; active-motion proof uses packaged TS modules under host Node, bundled Python and virtual gimbal.",
+    "Issue23 comment placement and issue26 AppState-storage wording remain open; no closing keywords."
+  ]
+}
