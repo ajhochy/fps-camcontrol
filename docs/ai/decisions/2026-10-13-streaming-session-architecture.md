@@ -7,7 +7,7 @@ index: "[[fps-camcontrol]]"
 
 # Streaming session architecture: one static FFmpeg process, `tee` + `fifo`
 
-Issue #66 (S03). Evidence: [results JSON](../runs/2026-10-13-streaming-s03-tee-proof-results.json), [run note](../runs/2026-10-13-streaming-s03-tee-proof.md), harness `src/testing/broadcastTeeProof.ts`. Developer runtime only (Homebrew FFmpeg 8.1.2, VideoToolbox, synthetic 640x360@30 lavfi + L=440 Hz / R=1000 Hz stereo, local 127.0.0.1 RTMP receiver). This is synthetic evidence: no UltraStudio/DeckLink, no pinned product runtime (#65 open), no YouTube. Status: proposed by the coding agent; AJ has not approved a product architecture.
+Issue #66 (S03). Evidence: [results JSON](../runs/2026-10-13-streaming-s03-tee-proof-results.json), [run note](../runs/2026-10-13-streaming-s03-tee-proof.md), harness `src/testing/broadcastTeeProof.ts`. Developer runtime only (Homebrew FFmpeg 8.1.2, VideoToolbox, synthetic 640x360@30 lavfi + L=440 Hz / R=1000 Hz stereo, local 127.0.0.1 RTMP receiver). This is synthetic evidence: no UltraStudio/DeckLink, no pinned product runtime (#65 open), no YouTube. Status: **accepted by AJ on 2026-10-15** (one static FFmpeg process per session). Real-capture evidence 2026-10-15: the UltraStudio Recorder 3G delivers 1080p30 (30.000 fps, not 29.97), YCbCr 4:2:2 10-bit; macOS 26 does not load the DeckLinkCMIO (DAL) plug-in, so capture is via a separate DeckLink SDK 14.2 helper feeding this FFmpeg, keeping the shipped FFmpeg free of nonfree DeckLink code.
 
 ## Decision
 
