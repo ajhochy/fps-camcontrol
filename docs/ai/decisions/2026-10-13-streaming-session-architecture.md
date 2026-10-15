@@ -1,0 +1,88 @@
+---
+date: 2026-10-13
+repo: fps-camcontrol
+tags: [decision, fps-camcontrol, streaming]
+index: "[[fps-camcontrol]]"
+---
+
+# Streaming session architecture: one static FFmpeg process, `tee` + `fifo`
+
+Issue #66 (S03). Evidence: [results JSON](../runs/2026-10-13-streaming-s03-tee-proof-results.json), [run note](../runs/2026-10-13-streaming-s03-tee-proof.md), harness `src/testing/broadcastTeeProof.ts`. Developer runtime only (Homebrew FFmpeg 8.1.2, VideoToolbox, synthetic 640x360@30 lavfi + L=440 Hz / R=1000 Hz stereo, local 127.0.0.1 RTMP receiver). This is synthetic evidence: no UltraStudio/DeckLink, no pinned product runtime (#65 open), no YouTube. Status: **accepted by AJ on 2026-10-15** (one static FFmpeg process per session). Real-capture evidence 2026-10-15: the UltraStudio Recorder 3G delivers 1080p30 (30.000 fps, not 29.97), YCbCr 4:2:2 10-bit; macOS 26 does not load the DeckLinkCMIO (DAL) plug-in, so capture is via a separate DeckLink SDK 14.2 helper feeding this FFmpeg, keeping the shipped FFmpeg free of nonfree DeckLink code.
+
+## Decision
+
+Use **one static FFmpeg process per output session**: one source, one encoder, `-f tee` with the local MP4 as slave 0 and the publisher as a `fifo` slave (`fifo_format=flv`, RTMP/RTMPS) that never blocks the tee. No Node MPEG-TS parser, relay, timestamp rewriter or independent remux workers. The S1 experimental `src/broadcast/tsRelay.ts` + remux pipeline is **superseded** and must not be imported by product code (#69+); it stays in this draft PR only as historical evidence and should be deleted when product implementation starts.
+
+Static tee/fifo met every invariant that matters for the plan's contract, with six concrete caveats below that the product must implement around it (none requires a custom media router, so the plan's "failed static proof" rule is not triggered; the plan's retry wording is narrowed, see Consequences).
+
+## Selected command shape (values proven)
+
+```
+ffmpeg ... -flags +global_header -map 0:v:0 -map 1:a:0 -f tee \
+ "[f=mp4:movflags=+frag_keyframe+hybrid_fragmented:flush_packets=1:onfail=ignore]/dev/fd/3|\
+  [f=fifo:fifo_format=flv:queue_size=60:drop_pkts_on_overflow=1:attempt_recovery=1:recover_any_error=1:restart_with_keyframe=1:recovery_wait_time=1:format_opts=rw_timeout\=3000000:onfail=ignore]rtmp://..."
+```
+
+(`format_opts` carries the TCP `rw_timeout`; a second option joined with `\:` failed to parse, so it must stay a single option. Builder: `src/broadcast/teeArgs.ts`.)
+
+## Measured results (all runs: serial, nice 15, <= 36 s wall, synthetic)
+
+| Requirement | Result |
+| --- | --- |
+| Concurrent decodable MP4 + local RTMP receive | 420/420 video frames and 658/658 AAC packets in both MP4 and received FLV; 0 decode errors; receiver arrival within +35 ms of steady state |
+| Stereo channel content | Distinct L/R tones intact: 140/140 100 ms windows in MP4 and in FLV, 0 swapped/mixed, min amplitude 0.77 (L440) / 0.75 (R1000); also 180/180 and 160/160 windows after a reconnect |
+| Publisher disconnect/reconnect (endpoint down 8.0 s to 15.0 s, and to 16.9 s) | Recording unaffected: 1020/1020 frames, 1595 audio packets, 0 gaps over 2 frames, 0 decode errors, max video gap 54.7 ms (same as the no-fault baseline). Publisher reconnected 0.13 s and 0.20 s after the endpoint returned; first media at the next key frame 1.2 s and 1.3 s after the restart request (excluding the receiver's own 1.2 s probe latency). Retries while down: constant 1.00 s interval (7 and 9 failed attempts). |
+| Reconnect freshness | New connection starts at a key frame (frame 480 = 16.02 s, 540 = 18.02 s), one contiguous run, outage content skipped (8.07 s, 10.07 s), nothing replayed; max frame age on arrival 138 ms and 170 ms |
+| Stalled (connected, not reading) publisher, 12 s, `drop_pkts_on_overflow=1` | Encoder/recorder never blocked (max 0.01 s, final wall-minus-media -0.39 s); recording 900/900 frames, 0 gaps, 0 errors; FFmpeg RSS flat (47.4 MB at stall, 48.0 MB at resume, 48.1 MB at end); FIFO logs `queue full` then `queue flushed`; every resume starts at a key frame, 0 undecodable frames |
+| Stalled publisher, `drop_pkts_on_overflow=0` (negative control) | Whole session back-pressured: encoder blocked 1.0 s per interval, ended 6.95 s behind real time. Recording is **not** independent in this mode. Forbidden. |
+| Application queue age/bytes | Worst case content of a full queue for the proof stream (any N consecutive packets): `queue_size=30` 388 ms / 103 KB; **`60` 788 ms / 190 KB**; `240` 3121 ms / 712 KB (violates the 1 s bound). Packets per second = fps + about 47 (AAC), so age is about `queue_size / (fps + 47)`; bytes scale with bitrate. |
+| Stale content after a stall | One frame older than 1 s (4.0 s) was delivered after resume: the packet the fifo thread was blocked on. Everything else queued was flushed. About 2.9 s (87 frames) of media already inside loopback kernel socket buffers was delivered stale on resume; the fifo cannot bound this (see caveat 3). |
+| `rw_timeout=3 s` on a stalled connection | Connection torn down by the write timeout, reconnect after the stall ended (connected 18.4 s, key frame 20.0 s), 0 stale frames after the gap (max age 133 ms); the old segment ends with a truncated tail (3 decode-error lines) |
+| Initial recording failure | Slave `onfail=abort`: FFmpeg exits 254 in 0.22 s, **0 publisher connections, 0 media tags**. Slave `onfail=ignore`: FFmpeg publishes the stream with no recording at all (466 tags, 1 connection). |
+| Recording write failure mid-session (EFBIG at about 1.2 MB) | `onfail=ignore`: stream continued to the end (17.97 s received), recording stopped at 365/540 frames with a truncated final fragment (6 decode-error lines; needs the #67 recovery path). `onfail=abort`: the whole session died at 14.0 s (exit 229). |
+| Supervisor-owned recording descriptor (`/dev/fd/3`) | Works with `hybrid_fragmented`: regular `ftyp/free/mdat/moov` at close, 240/240 frames, 0 errors. Supervisor `open(O_CREAT\|O_EXCL)` fails with ENOENT / EEXIST before any process or connection exists. |
+
+## Caveats the product must handle (all are supervisor behavior, not a media router)
+
+1. **Initial recording failure vs runtime survival cannot both be encoded in `onfail`.** `abort` gives "prevent publish" but kills the stream on any later write error; `ignore` is the reverse. Use `ignore` and make the supervisor open the recording itself (`O_CREAT|O_EXCL`, free-space check per the plan) and pass the descriptor as `/dev/fd/N`. Any failure to open the file then happens before FFmpeg and the publisher exist. A header-write failure after a successful open is not covered by `onfail`; the supervisor must also treat the stderr line `Slave muxer #0 failed` as fatal at start (terminate before Go Live completes). Residual window: the publisher can connect within about 0.2 s of start, so also keep media off the ingest until the recording slave is confirmed (decision for #70/#73; not proven here).
+2. **`drop_pkts_on_overflow=1` is mandatory**, and `queue_size` must keep the full-queue span under 1 s: use `queue_size = floor(0.9 * (fps + 47))` or less (60 at 30 fps; 96 at 60 fps). Byte bound = `queue_size` x largest packet (190 KB at 2.5 Mbps; re-measure at the 8/14/17 Mbps profiles on the rig).
+3. **Kernel socket buffers are outside the fifo.** Loopback measured about 2.9 s of media before the fifo even filled; a one-off, uncommitted Python probe (receiver window 4 KB, never reading, FFmpeg sending MPEG-TS over raw TCP) still left 472 KB sender-side (1.5 s of media at 2.5 Mbps), and FFmpeg's `send_buffer_size` only reduced that to 391 KB (about 17 %). Treat both numbers as indicative, not a qualified bound. This is "downstream" in the plan's wording and is measured separately, but it is the reason a stall is bounded by `rw_timeout` (tear down and reconnect from a fresh key frame) rather than by the queue. Recommended `rw_timeout` 3 s; confirm against YouTube behavior in the physical/hosted gate.
+4. **Retry is fixed-interval, not capped backoff.** `recovery_wait_time` (1 s measured) repeats indefinitely unless `max_recovery_attempts` is set. A capped backoff would need an FFmpeg restart, which would break recording continuity, so it is not available. The product accepts a fixed interval (recommend 2-5 s for real ingest; only 1 s was measured) and enforces "no retries after Stop/sleep/app restart/external completion" by ending the process, not by FFmpeg options.
+5. **Timestamps restart at 0 on every reconnect** (new FLV muxer, new RTMP connection). Content is fresh and A/V relative timing intact, but the receiver sees a new publish; YouTube behavior is unproven (hosted/physical gate).
+6. **Health is only stderr.** `FIFO queue full`/`flushed`, `Recovery failed`, `Slave muxer failed`, and the stats line are the only signals; the session service must parse them (bounded) to drive the sending/reconnecting/recording-failed states. Stderr text is not a stable API: pin the runtime (#65) and re-run `broadcastTeeProof` on every runtime change.
+
+## Alternatives considered
+
+- **S1 Node TS relay + independent remux children (`tsRelay.ts`)**: matches the original attach-anything design and did pass the S1 media matrix, but it adds an MPEG-TS parser, join logic, per-subscriber backpressure and a second/third FFmpeg process per output for requirements the plan now removed (arbitrary attachment, stream-only mode). It still needed the same supervisor handling for initial recording failure and stalled outputs. Not pre-approved and not needed.
+- **Two FFmpeg processes (record, publish) fed from one encoder**: requires a transport between them (the relay problem again) or two encodes (violates one encoder/one A/V origin).
+- **`tee` without `fifo`**: a failing/stalled publisher fails or blocks the recorder. Rejected by the negative control and the plan.
+- **Larger `queue_size`** for resilience: violates the 1 s application-age bound at 240.
+
+## Consequences
+
+- #69+ build on one `ffmpeg` child per session with a supervisor that owns the recording descriptor, parses stderr health, and ends the process on Stop/shutdown. Record-only is the same command with only the recording slave.
+- The plan's "capped backoff" retry sentence is narrowed to the measured fixed interval; MP4 finalization on forced termination, the 60-minute soak and rig-rate evidence remain separate gates (#67, #86-#89).
+- Still unproven and left open on #66: the same tests on the pinned DeckLink-capable runtime and the real rig, real RTMPS/TLS and YouTube ingest behavior, the app-level 1 s age bound at the production bitrates, and AJ's approval of this decision.
+- The S1 `-copyts`/remux evidence (A/V origin, delay offsets) is unaffected: delay is applied before the encoder, so every tee slave inherits it identically; re-verify delay content offsets (#68) through the tee path on the rig.
+
+## Addendum 2026-10-15: DeckLink capture helper and the helper -> FFmpeg transport
+
+Issues #63/#64/#65 delivery path. Code: `native/decklink-capture/` (C++17 helper `camcontrol-capture`), `src/broadcast/decklinkCapture.ts`, `captureTeeArgs` in `src/broadcast/teeArgs.ts`, harness `src/testing/decklinkCaptureRun.ts`. Run note: [2026-10-15-decklink-capture-helper](../runs/2026-10-15-decklink-capture-helper.md).
+
+**Decision.** macOS 26 does not load DeckLinkCMIO, so FFmpeg cannot see the card and the shipped FFmpeg stays free of DeckLink code (no `--enable-decklink`, no nonfree build). A separate native helper built against DeckLink SDK 14.2 (matches Desktop Video 14.2; the SDK is referenced through `DECKLINK_SDK_DIR` and never copied into the repository) captures video + audio and writes **Matroska to stdout, connected directly to the stdin of the single session FFmpeg** (Node connects the two file descriptors; frames never enter Node). One capture -> one encode -> the accepted tee/fifo (MP4 slave 0, FLV/RTMP publisher slave 1) command shape is unchanged.
+
+**Why a container, and why Matroska.** Raw pipes (rawvideo on stdout + PCM on another fd) carry no timestamps: any dropped or late frame, any backpressure stall and any signal loss silently shifts A/V sync, and a second fd needs a second FFmpeg input with its own clock. A container carries the DeckLink stream-time PTS for both tracks in one byte stream FFmpeg reads natively with one `-i`. NUT was considered (designed for pipes) but is more intricate to write correctly (syncpoints, frame-code tables, CRC32 variants); live Matroska needs only EBML elements: unknown-size Segment, one known-size Cluster per video frame holding that frame's video SimpleBlock and the audio for the same interval, no Cues/SeekHead/Duration. Tracks: raw UYVY via the VFW fourcc mapping (FFmpeg sees `rawvideo uyvy422`, BT.709 limited range tagged, progressive/field order tagged) and `A_PCM/INT/LIT` (`pcm_s32le`/`pcm_s16le`, 48 kHz, 2/8/16 channels). TimecodeScale is 10 us so the int16 block offset covers +-327 ms. The writer is SDK-free (`src/mkv.hpp`), unit-tested, and also driven by `--synthetic` (bars + moving marker + 440 Hz L / 1 kHz R) so CI exercises exactly the production output path without a card.
+
+**Video format.** The helper asks the card for 8-bit UYVY (`bmdFormat8BitYUV`) regardless of the 10-bit 4:2:2 signal: the card converts, it halves the pipe bandwidth (about 120 MB/s at 1080p30 instead of about 160 MB/s for v210) and the H.264 profile is 8-bit anyway. Cost: no 10-bit path (revisit for HEVC/10-bit). Interlaced modes are tagged and passed through; the product profile is progressive only and the supervisor must reject an interlaced `started` event (health exposes `interlaced`).
+
+**Timeline continuity.** PTS = DeckLink stream time minus the first frame. Audio is counter-driven from the same origin (real samples when the card delivers them, otherwise silence at the exact nominal sample count; drift beyond one frame is padded/trimmed and counted in `audio_resyncs`). Frames flagged `bmdFrameHasNoInputSource` are replaced by black so bars/stale content never reach the encoder; if the card stops calling back for 2.5 frame periods a watchdog emits black + silence at the nominal rate, so the MP4 and RTMP never stall. Signal lost/regained are events (`signal`), and a healthy process with no signal is `signal-lost`, never `failed` (#70). A changed input format after start cannot be expressed in a fixed container header: the helper exits 5 (`format-changed`) and the session restarts; format detection only re-enables the input when the display mode really changes (no re-enable loop).
+
+**Backpressure and shutdown.** stdout is non-blocking with a `poll` writer thread and a bounded queue (default 12 frames): when FFmpeg stops reading, new video frames are dropped and counted (`dropped_backpressure`), audio timeline kept, memory bounded (about 38 MB RSS during a 4 s reader stall in the synthetic test). SIGTERM/SIGINT stop streams, disable input, drain up to 1.5 s and exit 0 with an `exit` line; EPIPE exits 0 with `stdout-closed`. Stopping the helper (not FFmpeg) is the graceful session stop: FFmpeg then sees EOF and finalizes the hybrid MP4 itself.
+
+**Sole owner (#70).** The helper checks `bmdDeckLinkStatusBusy` and the `EnableVideoInput` result; a busy or unavailable input is a one-line JSON `error` (`device-busy`, exit 4) before any media is written. Exit codes: 0 clean, 2 usage, 3 no driver/device, 4 busy/enable failed, 5 format changed, 6 write failure. Status line (stderr, one JSON object per second): device, detected mode, nominal and measured fps, `signal_locked` (frame flags) plus `device_signal_locked` (status API), `audio_packets`, `audio_peak_dbfs`, `audio_present` (peak above -90 dBFS: the card delivers packets of digital silence when nothing is embedded), frames in/out, filler, drops, queue depth, blocked/max-blocked ms, bytes, source age.
+
+**Profile.** `PROGRAM_PROFILE` in `teeArgs.ts` is 1920x1080, `30/1` (UltraStudio measured exactly 30.000 fps; 30000/1001 is no longer the default), 6000 kbps, keyframe every 2 s, stereo AAC 128k, BT.709 tagged. `captureTeeArgs` builds the single-input command (`-f matroska -i pipe:0`, `fps=30/1`, `aresample=async=1000`); the publisher is still limited to local 127.0.0.1 until #69/#70 define real ingest configuration.
+
+**Redistribution (SDK 14.2 EULA, not legal advice).** Clause 0.1 exempts `/Mac/Include` (headers and `DeckLinkAPIDispatch.cpp`, which is all the helper compiles in) from clauses 1, 4.3, 4.4, 5, 7 and 8, so a compiled helper contains no restricted SDK content; it `dlopen`s the user's installed `DeckLinkAPI.framework` (Desktop Video, an operator install) and ships none of Blackmagic's binaries. What is not exempt: clause 1.4 sub-licensing only covers redistributing the **SDK in full**, so the SDK itself (headers, docs, EULA) must not be copied into this repository or packaged; clause 6 (Marks) is not exempt, so "DeckLink" may only appear in the forms "XXX compatible with Blackmagic Design DeckLink" / "XXX for Blackmagic Design DeckLink" (the directory/file names here are descriptive; user-facing product text should use the permitted wording); clauses 2/3 disclaim all warranty. Open for #65/#86: have AJ confirm with Blackmagic (or counsel) before shipping the compiled helper in a public release.
+
+**Still open.** Embedded-audio verification (needs a source with audio), real signal-loss/cable-pull and device-disconnect behavior on the card, the pinned-FFmpeg packaging (#65) and #67/#68 (MP4 finalization on forced kill; delay offsets) on this real path, an interlaced policy decision, and re-running `broadcastTeeProof` against the capture command at production bitrates.

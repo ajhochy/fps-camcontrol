@@ -154,3 +154,7 @@ Probe telemetry remains diagnostic and separate from the shipping app. The two
 historical idle-soak failures are preserved and are not declared repaired by a
 short instrumentation run. Do not repeat blind soaks or substitute probe results
 for production-app evidence.
+
+## DeckLink capture helper (native/decklink-capture)
+
+`make -C native/decklink-capture test` (or `pnpm capture:test`): SDK-free Matroska unit test plus a synthetic end-to-end (container decode, SIGTERM, EPIPE, backpressure, exit codes). `tests/broadcast/decklinkCapture.spec.ts` adds the parser/health/argument contracts and a helper -> ffmpeg -> MP4 + local RTMP run (synthetic, including signal loss). Real card: `DECKLINK_SDK_DIR=... pnpm capture:build`, then `node dist/testing/decklinkCaptureRun.js --real --seconds 20` only when `pgrep -il wirecast` is empty and the device is idle; the harness refuses otherwise, caps at 30 s, uses `nice`, and deletes the media. Never run it against the live rig while it is in use.

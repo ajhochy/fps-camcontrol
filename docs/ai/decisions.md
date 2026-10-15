@@ -17,3 +17,4 @@ Index of dated architecture/workflow decisions. Full records live in
 - [2026-10-01 — Dual-variant testing releases modeled on Rhythm](decisions/2026-10-01-electron-testing-release.md)
 - [2026-10-02 — One Pi per gimbal; the bridge saves which Bluetooth gimbal it drives](decisions/2026-10-02-pi-per-gimbal-and-gimbal-selection.md)
 - [2026-10-06 — Streaming core: rig proof and coupled sessions](decisions/2026-10-06-streaming-core-scope.md)
+- [2026-10-13 — Streaming session: one static FFmpeg tee/fifo process, no Node relay](decisions/2026-10-13-streaming-session-architecture.md)
