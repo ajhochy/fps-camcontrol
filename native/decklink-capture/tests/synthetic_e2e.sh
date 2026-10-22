@@ -36,6 +36,10 @@ else
   echo "skip ffmpeg/ffprobe not found: container decode checks skipped"
 fi
 
+# 3b. impulse mode (#68 timing source): one flash/click event per 2 s of stream time, at exact frame multiples
+"$BIN" --synthetic --synthetic-impulse --duration 5 --output /dev/null 2>"$TMP/i.err"; check "impulse run exits 0" $? 0
+grep -q '"event":"impulse","t_ms":[0-9]*,"n":0,"pts_ns":0}' "$TMP/i.err" && grep -q '"n":60,"pts_ns":2000000000}' "$TMP/i.err" && grep -q '"n":120,"pts_ns":4000000000}' "$TMP/i.err" && ok "impulse events at frames 0/60/120 (0 s, 2 s, 4 s)" || bad "impulse events: $(grep -c impulse "$TMP/i.err")"
+
 # 4. SIGTERM: clean, prompt shutdown with a final exit line (stdout drained by a real reader)
 ( "$BIN" --synthetic 2>"$TMP/t.err" | cat >/dev/null ) &
 sleep 2; pkill -TERM -f "camcontrol-capture --synthetic$" ; sleep 2

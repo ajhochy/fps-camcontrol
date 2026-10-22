@@ -1,6 +1,8 @@
 import { spawn, ChildProcess } from 'node:child_process';
+import os from 'node:os';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
+import { performance } from 'node:perf_hooks';
 import { MediaProcess } from './mediaProcess';
 import { captureTeeArgs, CaptureTeeSession } from './teeArgs';
 
@@ -76,7 +78,7 @@ export function isStale(h: CaptureHealth, now = Date.now(), maxAgeMs = 5000): bo
 
 export type CaptureHelperOptions = {
   device?: string; mode?: string; detectTimeoutSec?: number; channels?: 2 | 8 | 16; sampleBits?: 16 | 32; queueFrames?: number; durationSec?: number;
-  synthetic?: boolean; syntheticMode?: string; syntheticLoss?: string; statsIntervalMs?: number;
+  synthetic?: boolean; syntheticMode?: string; syntheticLoss?: string; syntheticImpulse?: boolean; statsIntervalMs?: number;
 };
 export function captureHelperArgs(o: CaptureHelperOptions = {}): string[] {
   const int = (n: unknown, lo: number, hi: number, what: string) => { if (typeof n !== 'number' || !Number.isFinite(n) || n < lo || n > hi) throw new Error(`${what} must be ${lo}-${hi}`); return String(n); };
@@ -92,6 +94,7 @@ export function captureHelperArgs(o: CaptureHelperOptions = {}): string[] {
   if (o.statsIntervalMs !== undefined) args.push('--stats-interval', int(o.statsIntervalMs, 100, 60000, 'statsIntervalMs'));
   if (o.synthetic) {
     args.push('--synthetic');
+    if (o.syntheticImpulse) args.push('--synthetic-impulse');
     if (o.syntheticMode !== undefined) { if (!/^[\w]+$/.test(o.syntheticMode)) throw new Error('syntheticMode contains unsupported characters'); args.push('--synthetic-mode', o.syntheticMode); }
     if (o.syntheticLoss !== undefined) { if (!/^\d+(\.\d+)?:\d+(\.\d+)?(:nosignal|:stall)?$/.test(o.syntheticLoss)) throw new Error('syntheticLoss must be AT:FOR[:nosignal|:stall]'); args.push('--synthetic-loss', o.syntheticLoss); }
   }
@@ -101,7 +104,9 @@ export function defaultHelperPath(): string {
   return process.env.CAMCONTROL_CAPTURE_BIN || path.resolve(__dirname, '../../native/decklink-capture/build/camcontrol-capture');
 }
 
-export type CaptureSessionOptions = { ffmpeg: string; helper?: string; helperOptions?: CaptureHelperOptions; session: CaptureTeeSession; nice?: boolean; deadlineMs?: number };
+export type CaptureSessionOptions = { ffmpeg: string; helper?: string; helperOptions?: CaptureHelperOptions; session: CaptureTeeSession; nice?: boolean; deadlineMs?: number; onFfmpegStderr?: (chunk: Buffer) => void;
+  /** Extra environment for the FFmpeg child only (e.g. the #67 write-fault interposer). nice(1) is a SIP binary that strips DYLD_*, so FFmpeg is then exec'd directly and re-niced by pid. */
+  ffmpegEnv?: NodeJS.ProcessEnv; ffmpegWrapper?: (binary: string, args: string[]) => { binary: string; args: string[] } };
 export type CaptureResult = { ffmpegCode: number | null; helperCode: number | null; helperSignal: string | null; health: CaptureHealth; ffmpegStderr: string; lines: CaptureLine[] };
 
 /** One helper piped into one tee/fifo ffmpeg. Emits 'line' (CaptureLine) and 'health' (CaptureHealth). */
@@ -109,6 +114,7 @@ export class DecklinkCapture extends EventEmitter {
   health: CaptureHealth = initialHealth();
   readonly lines: CaptureLine[] = [];
   private ffmpegProc?: MediaProcess; private helperProc?: ChildProcess;
+  helperExitedAt?: number; ffmpegExitedAt?: number;
   private helperDone?: Promise<{ code: number | null; signal: string | null }>;
   constructor(private options: CaptureSessionOptions) { super(); }
 
@@ -116,12 +122,16 @@ export class DecklinkCapture extends EventEmitter {
     const o = this.options;
     const helperArgs = captureHelperArgs(o.helperOptions);
     const ffmpegArgs = captureTeeArgs(o.session);
-    const nice = o.nice !== false;
-    this.ffmpegProc = new MediaProcess(nice ? '/usr/bin/nice' : o.ffmpeg, nice ? ['-n', '15', o.ffmpeg, ...ffmpegArgs] : ffmpegArgs, o.deadlineMs ?? 3_600_000);
+    const nice = o.nice !== false && !o.ffmpegEnv;
+    const wrapped = o.ffmpegWrapper ? o.ffmpegWrapper(o.ffmpeg, ffmpegArgs) : { binary: o.ffmpeg, args: ffmpegArgs };
+    this.ffmpegProc = new MediaProcess(nice ? '/usr/bin/nice' : wrapped.binary, nice ? ['-n', '15', wrapped.binary, ...wrapped.args] : wrapped.args, o.deadlineMs ?? 3_600_000, false, o.onFfmpegStderr, [], o.ffmpegEnv ?? {});
+    if (o.ffmpegEnv && o.nice !== false) { try { os.setPriority(this.ffmpegProc.child.pid!, 15); } catch { /* best effort */ } }
     const helper = o.helper ?? defaultHelperPath();
     // The helper's stdout IS the ffmpeg stdin socket: media bytes never enter Node.
-    this.helperProc = spawn(nice ? '/usr/bin/nice' : helper, nice ? ['-n', '15', helper, ...helperArgs] : helperArgs, { stdio: ['ignore', this.ffmpegProc.child.stdin, 'pipe'] });
+    const helperNice = o.nice !== false;
+    this.helperProc = spawn(helperNice ? '/usr/bin/nice' : helper, helperNice ? ['-n', '15', helper, ...helperArgs] : helperArgs, { stdio: ['ignore', this.ffmpegProc.child.stdin, 'pipe'] });
     this.ffmpegProc.child.stdin.destroy();  // drop Node's copy so ffmpeg sees EOF when the helper exits (destroy, not end: end() would shutdown the shared socket)
+    void this.ffmpegProc.done.then(() => { this.ffmpegExitedAt = performance.now(); }, () => {});
     const parser = new CaptureLineParser();
     this.helperProc.stderr!.on('data', (chunk: Buffer) => {
       for (const line of parser.push(chunk)) {
@@ -131,9 +141,13 @@ export class DecklinkCapture extends EventEmitter {
     });
     this.helperDone = new Promise(resolve => {
       this.helperProc!.once('error', err => { this.health = applyCaptureLine(this.health, { type: 'error', code: 'spawn-failed', message: String(err), exit: -1, t_ms: 0 }); resolve({ code: -1, signal: null }); });
-      this.helperProc!.once('close', (code, signal) => resolve({ code, signal }));
+      this.helperProc!.once('close', (code, signal) => { this.helperExitedAt = performance.now(); resolve({ code, signal }); });
     });
   }
+  get ffmpegPid(): number | undefined { return this.ffmpegProc?.child.pid; }
+  get helperPid(): number | undefined { return this.helperProc?.pid; }
+  signalHelper(signal: NodeJS.Signals): void { this.helperProc?.kill(signal); }
+  signalFfmpeg(signal: NodeJS.Signals): void { this.ffmpegProc?.child.kill(signal); }
   /** Graceful stop: SIGTERM to the helper only; ffmpeg then sees EOF and finalizes the MP4 itself. */
   async stop(graceMs = 5000): Promise<CaptureResult> {
     if (this.helperProc && this.helperProc.exitCode === null) this.helperProc.kill('SIGTERM');

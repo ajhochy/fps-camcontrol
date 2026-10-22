@@ -9,9 +9,9 @@ export class MediaProcess {
   readonly done: Promise<MediaResult>;
   stderr = Buffer.alloc(0);
   private timer: NodeJS.Timeout;
-  constructor(binary: string, args: string[], deadlineMs: number, capture = false, onStderr?: (chunk: Buffer) => void, extraFds: number[] = []) {
+  constructor(binary: string, args: string[], deadlineMs: number, capture = false, onStderr?: (chunk: Buffer) => void, extraFds: number[] = [], extraEnv: NodeJS.ProcessEnv = {}) {
     const started = Date.now();
-    this.child = spawn(binary, args, { stdio: ['pipe', 'pipe', 'pipe', ...extraFds], env: { ...process.env, CAMCONTROL_NO_CONTROLLER: '1' } }) as ChildProcessWithoutNullStreams;
+    this.child = spawn(binary, args, { stdio: ['pipe', 'pipe', 'pipe', ...extraFds], env: { ...process.env, CAMCONTROL_NO_CONTROLLER: '1', ...extraEnv } }) as ChildProcessWithoutNullStreams;
     owned.add(this);
     this.child.stdin.on('error', () => {});
     this.child.stderr.on('data', (chunk: Buffer) => { this.stderr = Buffer.concat([this.stderr, chunk]).subarray(-8192); onStderr?.(chunk); });

@@ -26,14 +26,15 @@ static void usage() {
     "  --duration SEC         stop cleanly SEC seconds after the first frame is written           --stats-interval MS (default 1000)\n"
     "  --output FILE|-        default '-' (stdout, must not be a terminal)\n"
     "  --list-devices         print devices as JSON on stdout and exit\n"
-    "  --synthetic [--synthetic-mode NAME] [--synthetic-loss AT:FOR[:nosignal]]   bars+tone through the same output path, no card needed\n"
+    "  --synthetic [--synthetic-mode NAME] [--synthetic-loss AT:FOR[:nosignal]] [--synthetic-impulse]   bars+tone through the same output path, no card needed;\n"
+    "                         --synthetic-impulse: black picture with a white flash frame, a 5 ms 1 kHz click on both channels at the same stream time every 2 s and a burnt-in 24-bit frame counter (A/V timing proofs)\n"
     "exit codes: 0 clean, 2 usage, 3 no driver/device, 4 device busy/enable failed, 5 input format changed (restart session), 6 write failure\n");
 }
 
 int main(int argc, char** argv) {
   jl::now_ms();
   std::string device, mode = "1080p30", output = "-", synth_mode = "1080p30", loss; double detect = 3, duration = 0; int channels = 2, bits = 32, queue = 12, stats_ms = 1000;
-  bool synthetic = false, list = false;
+  bool synthetic = false, list = false, impulse = false;
   for (int i = 1; i < argc; i++) {
     std::string a = argv[i]; auto next = [&]() -> std::string { if (i + 1 >= argc) { usage(); jl::fatal("usage", "missing value for " + a, 2); } return argv[++i]; };
     if (a == "--device") device = next(); else if (a == "--mode") mode = next(); else if (a == "--detect-timeout") detect = std::atof(next().c_str());
@@ -41,7 +42,7 @@ int main(int argc, char** argv) {
     else if (a == "--queue-frames") queue = std::atoi(next().c_str()); else if (a == "--duration") duration = std::atof(next().c_str());
     else if (a == "--stats-interval") stats_ms = std::atoi(next().c_str()); else if (a == "--output") output = next();
     else if (a == "--list-devices") list = true; else if (a == "--synthetic") synthetic = true;
-    else if (a == "--synthetic-mode") synth_mode = next(); else if (a == "--synthetic-loss") loss = next();
+    else if (a == "--synthetic-impulse") impulse = true; else if (a == "--synthetic-mode") synth_mode = next(); else if (a == "--synthetic-loss") loss = next();
     else if (a == "--help" || a == "-h") { usage(); return 0; }
     else { usage(); jl::fatal("usage", "unknown option " + a, 2); }
   }
@@ -81,7 +82,7 @@ int main(int argc, char** argv) {
   };
   if (synthetic) {
     start_pipeline(config_for(*find_mode(synth_mode.empty() ? mode : synth_mode), channels, bits), "synthetic");
-    Synthetic::Opts so; if (!loss.empty()) { double at = 0, len = 0; char kind[16] = ""; if (std::sscanf(loss.c_str(), "%lf:%lf:%15s", &at, &len, kind) >= 2) { so.loss_at = at; so.loss_for = len; so.loss_nosignal = std::strcmp(kind, "nosignal") == 0; } }
+    Synthetic::Opts so; so.impulse = impulse; if (!loss.empty()) { double at = 0, len = 0; char kind[16] = ""; if (std::sscanf(loss.c_str(), "%lf:%lf:%15s", &at, &len, kind) >= 2) { so.loss_at = at; so.loss_for = len; so.loss_nosignal = std::strcmp(kind, "nosignal") == 0; } }
     synth.reset(new Synthetic(pl, active, so)); synth->start();
     jl::event("device", jl::Obj().str("name", "synthetic").i("index", -1));
   }

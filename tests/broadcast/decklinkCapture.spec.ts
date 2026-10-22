@@ -58,7 +58,7 @@ test('capture session: ONE ffmpeg reads the helper stream on stdin, encodes once
   assert.equal(args[args.indexOf('-g') + 1], '60'); assert.equal(args[args.indexOf('-b:v') + 1], '6000k');
   assert.equal(args[args.indexOf('-colorspace') + 1], 'bt709'); assert.equal(args[args.indexOf('-color_range') + 1], 'tv');
   const spec = args[args.length - 1]; assert.equal(args[args.length - 2], 'tee');
-  assert.ok(spec.startsWith('[f=mp4:movflags=+frag_keyframe+hybrid_fragmented:flush_packets=1:onfail=ignore]/tmp/x/rec.mp4|[f=fifo:fifo_format=flv:queue_size=60:drop_pkts_on_overflow=1:'));
+  assert.ok(spec.startsWith('[f=mp4:movflags=+frag_keyframe+hybrid_fragmented:flush_packets=1:frag_duration=500000:onfail=ignore]/tmp/x/rec.mp4|[f=fifo:fifo_format=flv:queue_size=60:drop_pkts_on_overflow=1:'));
   assert.ok(args.includes('aresample=async=1000:first_pts=0'));
   assert.ok(!args.join(' ').includes('30000/1001'), 'no 29.97 anywhere in the program profile');
   assert.equal(captureTeeArgs({ ...rec, fps: '30000/1001' })[captureTeeArgs({ ...rec, fps: '30000/1001' }).indexOf('-g') + 1], '60');
