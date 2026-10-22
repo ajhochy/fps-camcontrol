@@ -1,0 +1,60 @@
+{
+  "schema": 1,
+  "issue": "https://github.com/ajhochy/fps-camcontrol/issues/65",
+  "status": "SCAFFOLD-UNPINNED",
+  "statusNote": "Nothing here has been downloaded or built. sha256/size are null until AJ approves the downloads listed in docs/ai/decisions/2026-10-22-ffmpeg-runtime.md; `verify-manifest --require-pinned` fails until then.",
+  "platform": "darwin",
+  "architecture": "arm64",
+  "minimumMacOS": "14.0",
+  "ffmpegVersion": "8.1.3",
+  "chosenPath": "build-from-pinned-source-lgpl",
+  "licenseClass": "lgpl-3.0-or-later",
+  "capabilityContract": "scripts/ffmpeg-runtime-capabilities.json",
+  "source": [
+    {
+      "name": "ffmpeg-source",
+      "filename": "ffmpeg-8.1.3.tar.xz",
+      "url": "https://ffmpeg.org/releases/ffmpeg-8.1.3.tar.xz",
+      "signatureUrl": "https://ffmpeg.org/releases/ffmpeg-8.1.3.tar.xz.asc",
+      "signingKeyUrl": "https://ffmpeg.org/ffmpeg-devel.asc",
+      "size": 11732036,
+      "sha256": null,
+      "sha256Provenance": "ffmpeg.org publishes only a detached PGP signature (no checksum file): verify the .asc with the FFmpeg release key, then pin the computed SHA-256 here"
+    },
+    {
+      "name": "openssl-source",
+      "filename": "openssl-3.5.9.tar.gz",
+      "url": "https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz",
+      "checksumUrl": "https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz.sha256",
+      "signatureUrl": "https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz.asc",
+      "size": null,
+      "sha256": null,
+      "sha256Provenance": "published by OpenSSL next to the tarball (.sha256) and PGP signed (fingerprint B146 647E 45A7 B339 47AB 226B 2A2C 87D1 6169 2D40 per openssl-library.org/source, re-verify)"
+    }
+  ],
+  "configure": [
+    "--disable-gpl", "--disable-nonfree", "--enable-version3",
+    "--disable-autodetect", "--disable-doc", "--disable-ffplay", "--disable-debug",
+    "--enable-videotoolbox", "--enable-openssl",
+    "--enable-protocol=file,pipe,tcp,tls,rtmp,rtmps,subfile",
+    "--arch=arm64", "--cc=clang", "--enable-pic", "--pkg-config-flags=--static"
+  ],
+  "configureNotes": [
+    "No --enable-gpl and no external GPL codecs (x264/x265): H.264 comes from VideoToolbox, AAC from FFmpeg's native encoder. With OpenSSL 3 (Apache-2.0) FFmpeg requires --enable-version3, so the resulting license is LGPL v3 or later.",
+    "No DeckLink flags and no --enable-nonfree: capture is the separate native/decklink-capture helper (ADR 2026-10-13).",
+    "The protocol line is a candidate narrowing; the capability probe is the gate. Remove it if configure rejects it, the probe decides.",
+    "--disable-autodetect keeps Homebrew/MacPorts libraries out of the build; AudioToolbox/CoreFoundation etc. are system frameworks and need no flag. OpenSSL is built first, static, into a private prefix."
+  ],
+  "files": [
+    { "name": "ffmpeg", "role": "ffmpeg binary (arm64, static OpenSSL, system frameworks only)", "sha256": null, "size": null, "otool": "only /usr/lib and /System/Library dependencies" },
+    { "name": "ffprobe", "role": "ffprobe binary, identical version/configuration", "sha256": null, "size": null },
+    { "name": "LICENSE.md", "role": "LGPL v3 text and FFmpeg license summary shipped with the binaries", "sha256": null, "size": null },
+    { "name": "THIRD_PARTY_FFMPEG.md", "role": "Notices: FFmpeg (LGPL-3.0-or-later), OpenSSL (Apache-2.0), offer of corresponding source + build script + configure line", "sha256": null, "size": null },
+    { "name": "probe-report.json", "role": "output of probe-ffmpeg-runtime.cjs probe against the shipped pair", "sha256": null, "size": null }
+  ],
+  "installedUse": {
+    "binaryLocation": "inside the app bundle (Resources/ffmpeg-runtime/), resolved by absolute path from app code",
+    "forbidden": ["PATH lookup", "Homebrew locations", "BROADCAST_FFMPEG environment override outside developer builds"],
+    "gates": ["verify-manifest --require-pinned on the staged directory", "probe against the staged binary before the first session", "code signing + notarization of the nested binaries (issue #86)"]
+  }
+}

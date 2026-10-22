@@ -18,3 +18,4 @@ Index of dated architecture/workflow decisions. Full records live in
 - [2026-10-02 — One Pi per gimbal; the bridge saves which Bluetooth gimbal it drives](decisions/2026-10-02-pi-per-gimbal-and-gimbal-selection.md)
 - [2026-10-06 — Streaming core: rig proof and coupled sessions](decisions/2026-10-06-streaming-core-scope.md)
 - [2026-10-13 — Streaming session: one static FFmpeg tee/fifo process, no Node relay](decisions/2026-10-13-streaming-session-architecture.md)
+- [2026-10-22 — Streaming FFmpeg runtime: pinned LGPL v3 source build, capability gate (proposed, downloads pending)](decisions/2026-10-22-ffmpeg-runtime.md)
