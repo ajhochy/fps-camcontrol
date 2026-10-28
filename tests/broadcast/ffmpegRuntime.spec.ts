@@ -19,13 +19,18 @@ test('runtime contract: DeckLink is not required of FFmpeg, nonfree is forbidden
   assert.ok(f.demuxers.includes('matroska,webm') && f.pixelFormats.includes('uyvy422'));
 });
 
-test('manifest scaffold: LGPL path, no GPL/nonfree/DeckLink configure flags, nothing pinned or claimed downloaded yet', () => {
+test('manifest: LGPL path, no GPL/nonfree/DeckLink configure flags, sources pinned to verified checksums', () => {
   assert.equal(manifest.architecture, 'arm64'); assert.equal(manifest.licenseClass, 'lgpl-3.0-or-later');
   assert.ok(manifest.configure.includes('--disable-gpl') && manifest.configure.includes('--disable-nonfree') && manifest.configure.includes('--enable-version3'));
   for (const bad of ['--enable-gpl', '--enable-nonfree', '--enable-decklink', '--enable-libx264', '--enable-libx265']) assert.ok(!manifest.configure.includes(bad), bad);
   assert.ok(manifest.configure.includes('--enable-videotoolbox') && manifest.configure.includes('--enable-openssl'));
-  assert.equal(manifest.status, 'SCAFFOLD-UNPINNED');
-  for (const s of manifest.source) assert.equal(s.sha256, null, 'checksums are pinned only after the approved download + signature verification');
+  // Sources were downloaded with approval and verified (PGP for FFmpeg, published .sha256 for OpenSSL) before pinning.
+  assert.ok(['PINNED-SOURCE', 'PINNED-BUILD'].includes(manifest.status), manifest.status);
+  for (const s of manifest.source) {
+    assert.match(String(s.sha256), /^[0-9a-f]{64}$/, `${s.filename} must be pinned to a SHA-256`);
+    assert.ok(Number.isInteger(s.size) && s.size > 0, `${s.filename} must record its size`);
+    assert.match(String(s.sha256Provenance), /verified/i, `${s.filename} must say how the checksum was verified`);
+  }
   assert.ok(manifest.installedUse.forbidden.some((x: string) => /PATH/.test(x)));
 });
 
