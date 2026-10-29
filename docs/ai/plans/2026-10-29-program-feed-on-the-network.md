@@ -19,15 +19,15 @@ Fan-out lives in the helper (each consumer gets its own bounded queue; a slow or
 ## Out of scope
 NDI; public internet viewing; DRM/authentication beyond the trusted staff LAN (note: the stream is visible to anyone on that network); per-TV control; changing how YouTube sessions work beyond attaching to the shared capture.
 
-## Issues (milestone "Streaming M7 - Program feed on the network")
+## Issues (milestone #17 "Streaming M7 — Program feed on the network", filed 2026-10-29)
 | # | Issue | Depends on |
 |---|---|---|
-| T1 | Always-on capture service with consumer fan-out (sole card owner) | #64 (format facts), #65 |
-| T2 | App PGM preview from the capture card (desk, iPad, phone) | T1 |
-| T3 | Always-on HLS program stream for in-building TVs | T1 |
-| T4 | Fire TV playback: setup guide and validation | T3 |
-| T5 | Private Roku channel "FPS Live" | T3 |
-| T6 | "TV feed" page in CamControl: address, QR, status, on/off | T3 |
+| T1 / #95 | Always-on capture service with consumer fan-out (sole card owner) | #64 (format facts), #65 |
+| T2 / #96 | App PGM preview from the capture card (desk, iPad, phone) | T1 |
+| T3 / #97 | Always-on HLS program stream for in-building TVs | T1 |
+| T4 / #98 | Fire TV playback: setup guide and validation | T3 |
+| T5 / #99 | Private Roku channel "FPS Live" | T3 |
+| T6 / #100 | "TV feed" page in CamControl: address, QR, status, on/off | T3 |
 
 ## Validation
 Synthetic helper path in CI; real-card runs only when Wirecast is closed (short, serial); HLS validated in a browser/VLC on this Mac, then on one Fire TV and one Roku on the staff Wi-Fi before any rollout. Live deployment only on AJ's explicit go.
