@@ -1,0 +1,103 @@
+{
+  "schema": 1,
+  "issue": "https://github.com/ajhochy/fps-camcontrol/issues/65",
+  "status": "PINNED-SOURCE",
+  "statusNote": "Sources downloaded with AJ approval (2026-10-22/28) and verified; pinned. Build with scripts/build-ffmpeg-runtime.sh <dir with the tarballs> <new output dir>.",
+  "platform": "darwin",
+  "architecture": "arm64",
+  "minimumMacOS": "14.0",
+  "ffmpegVersion": "8.1.3",
+  "chosenPath": "build-from-pinned-source-lgpl",
+  "licenseClass": "lgpl-3.0-or-later",
+  "capabilityContract": "scripts/ffmpeg-runtime-capabilities.json",
+  "source": [
+    {
+      "name": "ffmpeg-source",
+      "filename": "ffmpeg-8.1.3.tar.xz",
+      "url": "https://ffmpeg.org/releases/ffmpeg-8.1.3.tar.xz",
+      "signatureUrl": "https://ffmpeg.org/releases/ffmpeg-8.1.3.tar.xz.asc",
+      "signingKeyUrl": "https://ffmpeg.org/ffmpeg-devel.asc",
+      "size": 11732036,
+      "sha256": "7138d28c96d9d3e3af4ee3d8cad72741f8ffb40da90c1112235dea3ecd3178a3",
+      "sha256Provenance": "PGP signature verified 2026-10-28 with the FFmpeg release key FCF986EA15E6E293A5644F10B4322F04D67658D8 (\"Good signature\"); SHA-256 computed from the verified file"
+    },
+    {
+      "name": "openssl-source",
+      "filename": "openssl-3.5.9.tar.gz",
+      "url": "https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz",
+      "checksumUrl": "https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz.sha256",
+      "signatureUrl": "https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz.asc",
+      "size": 53279637,
+      "sha256": "603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a",
+      "sha256Provenance": "matches openssl.org .sha256 published beside the release (verified 2026-10-28)"
+    }
+  ],
+  "configure": [
+    "--disable-gpl",
+    "--disable-nonfree",
+    "--enable-version3",
+    "--disable-autodetect",
+    "--disable-doc",
+    "--disable-ffplay",
+    "--disable-debug",
+    "--enable-videotoolbox",
+    "--enable-openssl",
+    "--enable-protocol=file,pipe,tcp,tls,rtmp,rtmps,subfile",
+    "--arch=arm64",
+    "--cc=clang",
+    "--enable-pic",
+    "--pkg-config-flags=--static"
+  ],
+  "configureNotes": [
+    "No --enable-gpl and no external GPL codecs (x264/x265): H.264 comes from VideoToolbox, AAC from FFmpeg's native encoder. With OpenSSL 3 (Apache-2.0) FFmpeg requires --enable-version3, so the resulting license is LGPL v3 or later.",
+    "No DeckLink flags and no --enable-nonfree: capture is the separate native/decklink-capture helper (ADR 2026-10-13).",
+    "The protocol line is a candidate narrowing; the capability probe is the gate. Remove it if configure rejects it, the probe decides.",
+    "--disable-autodetect keeps Homebrew/MacPorts libraries out of the build; AudioToolbox/CoreFoundation etc. are system frameworks and need no flag. OpenSSL is built first, static, into a private prefix."
+  ],
+  "files": [
+    {
+      "name": "ffmpeg",
+      "role": "ffmpeg binary (arm64, static OpenSSL, system frameworks only)",
+      "sha256": null,
+      "size": null,
+      "otool": "only /usr/lib and /System/Library dependencies"
+    },
+    {
+      "name": "ffprobe",
+      "role": "ffprobe binary, identical version/configuration",
+      "sha256": null,
+      "size": null
+    },
+    {
+      "name": "LICENSE.md",
+      "role": "LGPL v3 text and FFmpeg license summary shipped with the binaries",
+      "sha256": null,
+      "size": null
+    },
+    {
+      "name": "THIRD_PARTY_FFMPEG.md",
+      "role": "Notices: FFmpeg (LGPL-3.0-or-later), OpenSSL (Apache-2.0), offer of corresponding source + build script + configure line",
+      "sha256": null,
+      "size": null
+    },
+    {
+      "name": "probe-report.json",
+      "role": "output of probe-ffmpeg-runtime.cjs probe against the shipped pair",
+      "sha256": null,
+      "size": null
+    }
+  ],
+  "installedUse": {
+    "binaryLocation": "inside the app bundle (Resources/ffmpeg-runtime/), resolved by absolute path from app code",
+    "forbidden": [
+      "PATH lookup",
+      "Homebrew locations",
+      "BROADCAST_FFMPEG environment override outside developer builds"
+    ],
+    "gates": [
+      "verify-manifest --require-pinned on the staged directory",
+      "probe against the staged binary before the first session",
+      "code signing + notarization of the nested binaries (issue #86)"
+    ]
+  }
+}

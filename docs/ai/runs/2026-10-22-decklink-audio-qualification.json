@@ -1,0 +1,67 @@
+{
+ "issue": "#64 audio qualification",
+ "date": "2026-10-22",
+ "source": "UltraStudio Recorder 3G, program VIDEO + embedded AUDIO (Wirecast closed), 1080p30 YCbCr 4:2:2 10-bit, 48 kHz",
+ "helperStatus": {
+  "audio_packets": true,
+  "audio_present": true,
+  "audio_peak_dbfs_last_status": -31.0,
+  "sample_rate": 48000,
+  "delivered_channels_requested_2": 2
+ },
+ "mp4_and_flv_decoded_stereo": [
+  {
+   "file": "recording.mp4",
+   "audio": {
+    "samplesPerChannel": 961536,
+    "seconds": 20.032,
+    "leftPeakDbfs": -20.94,
+    "rightPeakDbfs": -20.94,
+    "leftRmsDbfs": -37.65,
+    "rightRmsDbfs": -37.66,
+    "correlation": 0.9999,
+    "maxAbsLeftMinusRight": 0.01694,
+    "sideToMidDb": -43.64,
+    "windows100ms": 200,
+    "silentWindows": 0,
+    "meanAbsLevelDiffLR_dB": 0.01,
+    "verdict": "near-mono (very high correlation)"
+   }
+  },
+  {
+   "file": "received-0.flv",
+   "audio": {
+    "samplesPerChannel": 961536,
+    "seconds": 20.032,
+    "leftPeakDbfs": -20.94,
+    "rightPeakDbfs": -20.94,
+    "leftRmsDbfs": -37.65,
+    "rightRmsDbfs": -37.66,
+    "correlation": 0.9999,
+    "maxAbsLeftMinusRight": 0.01694,
+    "sideToMidDb": -43.64,
+    "windows100ms": 200,
+    "silentWindows": 0,
+    "meanAbsLevelDiffLR_dB": 0.01,
+    "verdict": "near-mono (very high correlation)"
+   }
+  }
+ ],
+ "sourcePcm16Channels_5s": {
+  "method": "helper --channels 16 --duration 5 --output FILE, pcm_s32le decoded per channel",
+  "channelsCarryingProgram": [
+   1,
+   2
+  ],
+  "ch1PeakDbfs": -19.8,
+  "ch1RmsDbfs": -38.7,
+  "ch2PeakDbfs": -19.8,
+  "ch2RmsDbfs": -38.7,
+  "ch3to12": "digital silence (below -180 dBFS)",
+  "ch13to16": "noise floor only (peak -83.7/-84.2 dBFS)",
+  "ch1_ch2_bitIdentical": false,
+  "maxAbsDiffFullScale": 0.00058,
+  "correlation": 0.99997
+ },
+ "verdict": "channels 1 and 2 carry the same program at the same level: effectively dual-mono (correlation 0.9999, side/mid -43.6 dB, L-R max 0.017 FS after AAC; 0.0006 FS at source). Left/right are NOT distinct and not swapped; a swap or one-sided loss cannot be proven from this content. Stereo separation must be re-checked with a stereo source."
+}

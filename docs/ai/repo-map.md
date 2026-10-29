@@ -95,3 +95,4 @@ From the auto-generated repo map (single initial commit — all files at 1 chang
 - `src/model/presetManager.ts` — preset save/recall with VISCA inquiry
 
 Largest source files: `src/testing/smokeTest.ts` (~8.6 KB), `src/model/controlStateMachine.ts` (~5.2 KB), `src/ui/statusServer.ts` (~5.1 KB), `src/index.ts` (~4.6 KB), `src/atem/atemClient.ts` (~3.1 KB).
+- `native/decklink-capture/` — DeckLink capture helper (C++; `make`, `pnpm capture:build` with `DECKLINK_SDK_DIR`); `src/broadcast/decklinkCapture.ts` spawns it into the tee/fifo FFmpeg; `src/testing/decklinkCaptureRun.ts` runs/verifies a session (synthetic or `--real`)

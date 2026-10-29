@@ -12,6 +12,8 @@
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
     "electron:dev": "pnpm build && electron electron/main.cjs",
+    "capture:build": "make -C native/decklink-capture DECKLINK_SDK_DIR=\"$DECKLINK_SDK_DIR\"",
+    "capture:test": "make -C native/decklink-capture test",
     "test:smoke": "ts-node src/testing/smokeTest.ts",
     "sandbox": "pnpm build && node dist/testing/sandbox/sandbox.js",
     "sandbox:check": "pnpm build && node dist/testing/sandbox/sandbox.js --selftest",

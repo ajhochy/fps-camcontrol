@@ -1,0 +1,103 @@
+{
+  "issue": "streaming-wip-publication",
+  "date": "2026-10-07",
+  "scope": "AJ-requested streaming WIP draft preservation; TEXT ONLY source/test/docs checkpoint, not full S1 acceptance",
+  "status": "pass",
+  "waiver": null,
+  "full_s1": "NOT_READY; streaming-s1.json requirements/statuses are not replaced or waived",
+  "recorded_identity": {
+    "branch": "feat/streaming-s1-media-proof",
+    "head": "aea1f13319246fef4ab0f716f19023f242b765f8",
+    "fresh_git_check": "Confirmed by independent verifier54c4aa4c, exit0, branch/head and exact14 stagedfiles."
+  },
+  "publication_allowlist": [
+    "src/broadcast/ffmpegArgs.ts",
+    "src/broadcast/tsRelay.ts",
+    "src/broadcast/mediaProcess.ts",
+    "src/broadcast/avOffsetProbe.ts",
+    "src/broadcast/runtimeProbe.ts",
+    "src/testing/broadcastRuntimeProbe.ts",
+    "src/testing/broadcastPipelineTest.ts",
+    "tests/broadcast/ffmpegArgs.spec.ts",
+    "tests/broadcast/tsRelay.spec.ts",
+    "docs/ai/runs/2026-10-07-streaming-s1.md",
+    "docs/ai/runs/2026-10-07-streaming-s1-mp4-triage.md",
+    "docs/ai/runs/2026-10-07-streaming-checkpoint-results.json",
+    "docs/ai/contracts/streaming-s1.json",
+    "docs/ai/contracts/streaming-wip-publication.json"
+  ],
+  "exclusions": [
+    "scripts/checks.cjs (existing local modification outside source/test/docs scope)",
+    "framing/app/UI/tracking changes",
+    "hardware/driver/config changes",
+    "secrets/private paths",
+    "docs/ai/runs/artifacts/**",
+    "dist/**",
+    "media fixtures/bulk media/raw logs/diagnostic scripts",
+    "current-plan and canonical product-plan revisions",
+    "docs/ai/project-state.md (unrelated updater pointer excluded)"
+  ],
+  "fixture_policy": "NO media fixture publication now. --recovery-contract NEEDS the two local unpublished synthetic MP4 fixtures listed in checkpoint results; full S1 test_command is NOT fresh-checkout self-contained. Standard matrix generates fresh media per inspected source, not fresh-checkout execution proof.",
+  "architecture_boundary": "Independent remux/Node relay was manager-authorized by Oct7 dispatch recorded in S1 run, for this slice only. No claim AJ specifically approved architecture; canonical tee/coupled/Electron-only design remains separate and unresolved.",
+  "issues": {
+    "related": [
+      65,
+      66,
+      67,
+      68
+    ],
+    "closes": [],
+    "pending": "69-89"
+  },
+  "criteria": [
+    {
+      "criterion_id": "wip-p1",
+      "text": "Selected draft payload exactly matches the source/test/docs allowlist; no framing/hardware/config/secrets/artifacts/bulk media. Reconcile excluded local checks-script modification in draft gate description without changing it here.",
+      "status": "pass",
+      "reason": "Bounded WIP publication review and mechanical verification complete; verifier54c4aa4c PASS with prior receipt/hash reviews. Full S1 remains NOT_READY."
+    },
+    {
+      "criterion_id": "wip-p2",
+      "text": "Included sanitized text accurately labels recorded developer 20-case matrix, 44 decoded comparisons and 60-minute soak PASS receipts, aggregate broad FAIL/SIGKILL-after-hang, and distinguishes unclassified assertions from missing pinned runtime. No independent-execution or full-gate PASS claim.",
+      "status": "pass",
+      "reason": "Bounded WIP publication review and mechanical verification complete; verifier54c4aa4c PASS with prior receipt/hash reviews. Full S1 remains NOT_READY."
+    },
+    {
+      "criterion_id": "wip-p3",
+      "text": "Full S1 remains NOT READY with actual reconnect/channel1/network/internal-queue/independent-gate gaps; c8 automated receipt is not complete certification; architecture exception is S1-only, not canonical product approval.",
+      "status": "pass",
+      "reason": "Bounded WIP publication review and mechanical verification complete; verifier54c4aa4c PASS with prior receipt/hash reviews. Full S1 remains NOT_READY."
+    },
+    {
+      "criterion_id": "wip-p4",
+      "text": "Prominently disclose --recovery-contract local unpublished fixture dependency and fresh-checkout non-self-containment; publish no fixtures now; distinguish source-confirmed generated matrix from independently executed reproducibility.",
+      "status": "pass",
+      "reason": "Bounded WIP publication review and mechanical verification complete; verifier54c4aa4c PASS with prior receipt/hash reviews. Full S1 remains NOT_READY."
+    },
+    {
+      "criterion_id": "wip-p5",
+      "text": "Draft wording is WIP preservation only: Related #65, #66, #67, #68; no Closes; #69-#89 pending. No merge/deploy/hardware qualification claim.",
+      "status": "pass",
+      "reason": "Bounded WIP publication review and mechanical verification complete; verifier54c4aa4c PASS with prior receipt/hash reviews. Full S1 remains NOT_READY."
+    },
+    {
+      "criterion_id": "wip-p6",
+      "text": "Manager validates JSON, documentation diff, exact selected paths, sanitization, receipt/hash correspondence and independent checkpoint review before publication.",
+      "status": "pass",
+      "reason": "Bounded WIP publication review and mechanical verification complete; verifier54c4aa4c PASS with prior receipt/hash reviews. Full S1 remains NOT_READY."
+    }
+  ],
+  "manager_checks": [
+    "Confirm worktree branch/HEAD and selected diff/staged file names against exact allowlist; inspect excluded scripts/checks.cjs local change and accurate gate description.",
+    "Parse both contracts/results as JSON; check diff whitespace and preserve every streaming-s1 criterion text/status/unresolved requirement.",
+    "Compare 20 rows/counts/hashes and recorded timestamps/numbers to local raw receipts; match current source fingerprints without asserting receipt hashes were recomputed here.",
+    "Scan selected text for secrets/absolute home/temp/private paths, ensure no artifact/media payload; retain original raw evidence locally.",
+    "Independently review checkpoint scope, fixture disclosure, architecture boundary, NOT READY statement and draft issue wording; leave contract UNVERIFIED until checks are recorded."
+  ],
+  "actions_not_performed": [
+    "execution/checks/tool installs/peer dispatch",
+    "product/test/checks-script edits",
+    "commit/push/PR/merge/cleanup/deployment/hardware"
+  ],
+  "verification_session": "54c4aa4c-90fa-4871-af50-768b5db7b8c8"
+}

@@ -1,0 +1,125 @@
+{
+  "tool": "probe-ffmpeg-runtime",
+  "contractSchema": 1,
+  "ffmpeg": "/opt/homebrew/bin/ffmpeg",
+  "checkedAt": "2026-10-22T19:38:37.166Z",
+  "failures": [],
+  "checks": {
+    "encoders": {
+      "required": [
+        "h264_videotoolbox",
+        "aac"
+      ],
+      "missing": []
+    },
+    "decoders": {
+      "required": [
+        "h264",
+        "aac",
+        "rawvideo",
+        "pcm_s16le",
+        "pcm_s32le"
+      ],
+      "missing": []
+    },
+    "muxers": {
+      "required": [
+        "tee",
+        "fifo",
+        "flv",
+        "mp4",
+        "matroska",
+        "null"
+      ],
+      "missing": []
+    },
+    "demuxers": {
+      "required": [
+        "matroska,webm",
+        "flv",
+        "mov,mp4,m4a,3gp,3g2,mj2"
+      ],
+      "missing": []
+    },
+    "protocols": {
+      "required": [
+        "file",
+        "pipe",
+        "tcp",
+        "tls",
+        "rtmp",
+        "rtmps",
+        "subfile"
+      ],
+      "missing": []
+    },
+    "filters": {
+      "required": [
+        "fps",
+        "aresample",
+        "setpts",
+        "tpad",
+        "scale",
+        "format",
+        "signalstats",
+        "showinfo"
+      ],
+      "missing": []
+    },
+    "pixelFormats": {
+      "required": [
+        "uyvy422",
+        "yuv420p"
+      ],
+      "missing": []
+    }
+  },
+  "ffprobe": "/opt/homebrew/bin/ffprobe",
+  "sha256": {
+    "ffmpeg": "dad4b30b36a1a999bfa4b6ffbde138bd17ee496c69e12eef638227dff2c6415c",
+    "ffprobe": "cfeefcc9207eb3fa424679228fe3848db2921b15537d26c1ccc4a7a61de95d00"
+  },
+  "version": "8.1.2",
+  "configuration": [
+    "--prefix=/opt/homebrew/Cellar/ffmpeg/8.1.2_1",
+    "--enable-shared",
+    "--enable-pthreads",
+    "--enable-version3",
+    "--cc=clang",
+    "--host-cflags=",
+    "--host-ldflags=",
+    "--enable-ffplay",
+    "--enable-gpl",
+    "--enable-libsvtav1",
+    "--enable-libopus",
+    "--enable-libx264",
+    "--enable-libmp3lame",
+    "--enable-libdav1d",
+    "--enable-libvmaf",
+    "--enable-libvpx",
+    "--enable-libx265",
+    "--enable-openssl",
+    "--enable-videotoolbox",
+    "--enable-audiotoolbox",
+    "--enable-neon"
+  ],
+  "license": "gpl-3.0-or-later",
+  "tls": [
+    "--enable-openssl"
+  ],
+  "ffprobeVersion": "8.1.2",
+  "functional": {
+    "syntheticEncode": {
+      "ok": true,
+      "stderr": ""
+    },
+    "mp4": "aac,h264",
+    "flv": "aac,h264",
+    "matroskaStdin": "ok",
+    "tls": {
+      "status": "handshake-ok",
+      "detail": "TLS session established (TLSv1.3); HTTP request sent over it (response is not media)"
+    }
+  },
+  "ok": true
+}

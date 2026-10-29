@@ -1,0 +1,706 @@
+{
+ "issue": "#68 S05",
+ "date": "2026-10-22",
+ "runtime": "/opt/homebrew/bin/ffmpeg 8.1.2 (developer); helper --synthetic --synthetic-impulse -> ONE ffmpeg tee (MP4 slave 0 + local 127.0.0.1 RTMP fifo slave 1)",
+ "method": "Decoded content: flash frame rising edge (YAVG of decoded picture, -copyts) vs 1 kHz click onset (first decoded sample > 0.3 FS); flash minus click per event, MP4 and the FLV the local sink received. Source truth: flash and click share one stream time.",
+ "delayMatrix": [
+  {
+   "case": "d-tpad-0",
+   "mechanism": "tpad",
+   "fps": "30/1",
+   "delayFrames": 0,
+   "expectedDelayExact": "0/30 s",
+   "expectedMs": 0,
+   "frameMs": 33.333,
+   "seconds": 16,
+   "faults": [],
+   "mp4": {
+    "events": 9,
+    "firstEventMs": -21.33,
+    "eventsAfterFirst": 8,
+    "meanAfterFirstMs": 0.02,
+    "maxAbsErrorAfterFirstMs": 0.02,
+    "maxAbsErrorAfterFirstFrames": 0.001,
+    "maxAbsErrorAllEventsFrames": 0.64,
+    "allWithinOneFrame": true,
+    "streamStartS": {
+     "video": 0,
+     "audio": 0
+    },
+    "driftMsPerHourExtrapolated": null
+   },
+   "flv": [
+    {
+     "events": 9,
+     "firstEventMs": -0.33,
+     "eventsAfterFirst": 8,
+     "meanAfterFirstMs": -0.33,
+     "maxAbsErrorAfterFirstMs": 0.33,
+     "maxAbsErrorAfterFirstFrames": 0.01,
+     "maxAbsErrorAllEventsFrames": 0.01,
+     "allWithinOneFrame": true,
+     "streamStartS": {
+      "video": 0.021,
+      "audio": 0
+     },
+     "segment": 0,
+     "connectedAtS": 0.23
+    }
+   ]
+  },
+  {
+   "case": "d-tpad-1",
+   "mechanism": "tpad",
+   "fps": "30/1",
+   "delayFrames": 1,
+   "expectedDelayExact": "1/30 s",
+   "expectedMs": 33.3333,
+   "frameMs": 33.333,
+   "seconds": 16,
+   "faults": [],
+   "mp4": {
+    "events": 8,
+    "firstEventMs": 33.35,
+    "eventsAfterFirst": 7,
+    "meanAfterFirstMs": 33.35,
+    "maxAbsErrorAfterFirstMs": 0.02,
+    "maxAbsErrorAfterFirstFrames": 0.001,
+    "maxAbsErrorAllEventsFrames": 0.001,
+    "allWithinOneFrame": true,
+    "streamStartS": {
+     "video": 0,
+     "audio": 0
+    },
+    "driftMsPerHourExtrapolated": null
+   },
+   "flv": [
+    {
+     "events": 8,
+     "firstEventMs": 32.67,
+     "eventsAfterFirst": 7,
+     "meanAfterFirstMs": 32.67,
+     "maxAbsErrorAfterFirstMs": 0.66,
+     "maxAbsErrorAfterFirstFrames": 0.02,
+     "maxAbsErrorAllEventsFrames": 0.02,
+     "allWithinOneFrame": true,
+     "streamStartS": {
+      "video": 0.021,
+      "audio": 0
+     },
+     "segment": 0,
+     "connectedAtS": 0.21
+    }
+   ]
+  },
+  {
+   "case": "d-tpad-3",
+   "mechanism": "tpad",
+   "fps": "30/1",
+   "delayFrames": 3,
+   "expectedDelayExact": "3/30 s",
+   "expectedMs": 100,
+   "frameMs": 33.333,
+   "seconds": 16,
+   "faults": [],
+   "mp4": {
+    "events": 9,
+    "firstEventMs": 100.02,
+    "eventsAfterFirst": 8,
+    "meanAfterFirstMs": 100.02,
+    "maxAbsErrorAfterFirstMs": 0.02,
+    "maxAbsErrorAfterFirstFrames": 0.001,
+    "maxAbsErrorAllEventsFrames": 0.001,
+    "allWithinOneFrame": true,
+    "streamStartS": {
+     "video": 0,
+     "audio": 0
+    },
+    "driftMsPerHourExtrapolated": null
+   },
+   "flv": [
+    {
+     "events": 9,
+     "firstEventMs": 99.67,
+     "eventsAfterFirst": 8,
+     "meanAfterFirstMs": 99.67,
+     "maxAbsErrorAfterFirstMs": 0.33,
+     "maxAbsErrorAfterFirstFrames": 0.01,
+     "maxAbsErrorAllEventsFrames": 0.01,
+     "allWithinOneFrame": true,
+     "streamStartS": {
+      "video": 0.021,
+      "audio": 0
+     },
+     "segment": 0,
+     "connectedAtS": 0.2
+    }
+   ]
+  },
+  {
+   "case": "d-tpad-15",
+   "mechanism": "tpad",
+   "fps": "30/1",
+   "delayFrames": 15,
+   "expectedDelayExact": "15/30 s",
+   "expectedMs": 500,
+   "frameMs": 33.333,
+   "seconds": 16,
+   "faults": [],
+   "mp4": {
+    "events": 9,
+    "firstEventMs": 500.02,
+    "eventsAfterFirst": 8,
+    "meanAfterFirstMs": 500.02,
+    "maxAbsErrorAfterFirstMs": 0.02,
+    "maxAbsErrorAfterFirstFrames": 0.001,
+    "maxAbsErrorAllEventsFrames": 0.001,
+    "allWithinOneFrame": true,
+    "streamStartS": {
+     "video": 0,
+     "audio": 0
+    },
+    "driftMsPerHourExtrapolated": null
+   },
+   "flv": [
+    {
+     "events": 9,
+     "firstEventMs": 499.67,
+     "eventsAfterFirst": 8,
+     "meanAfterFirstMs": 499.67,
+     "maxAbsErrorAfterFirstMs": 0.33,
+     "maxAbsErrorAfterFirstFrames": 0.01,
+     "maxAbsErrorAllEventsFrames": 0.01,
+     "allWithinOneFrame": true,
+     "streamStartS": {
+      "video": 0.021,
+      "audio": 0
+     },
+     "segment": 0,
+     "connectedAtS": 0.21
+    }
+   ]
+  },
+  {
+   "case": "d-setpts-3",
+   "mechanism": "setpts",
+   "fps": "30/1",
+   "delayFrames": 3,
+   "expectedDelayExact": "3/30 s",
+   "expectedMs": 100,
+   "frameMs": 33.333,
+   "seconds": 16,
+   "faults": [],
+   "mp4": {
+    "events": 9,
+    "firstEventMs": -21.33,
+    "eventsAfterFirst": 8,
+    "meanAfterFirstMs": 100.02,
+    "maxAbsErrorAfterFirstMs": 0.02,
+    "maxAbsErrorAfterFirstFrames": 0.001,
+    "maxAbsErrorAllEventsFrames": 3.64,
+    "allWithinOneFrame": false,
+    "streamStartS": {
+     "video": 0,
+     "audio": 0
+    },
+    "driftMsPerHourExtrapolated": null
+   },
+   "flv": [
+    {
+     "events": 9,
+     "firstEventMs": -0.33,
+     "eventsAfterFirst": 8,
+     "meanAfterFirstMs": 99.67,
+     "maxAbsErrorAfterFirstMs": 0.33,
+     "maxAbsErrorAfterFirstFrames": 0.01,
+     "maxAbsErrorAllEventsFrames": 3.01,
+     "allWithinOneFrame": false,
+     "streamStartS": {
+      "video": 0.021,
+      "audio": 0
+     },
+     "segment": 0,
+     "connectedAtS": 0.22
+    }
+   ]
+  },
+  {
+   "case": "d-setpts-15",
+   "mechanism": "setpts",
+   "fps": "30/1",
+   "delayFrames": 15,
+   "expectedDelayExact": "15/30 s",
+   "expectedMs": 500,
+   "frameMs": 33.333,
+   "seconds": 16,
+   "faults": [],
+   "mp4": {
+    "events": 9,
+    "firstEventMs": -21.33,
+    "eventsAfterFirst": 8,
+    "meanAfterFirstMs": 500.02,
+    "maxAbsErrorAfterFirstMs": 0.02,
+    "maxAbsErrorAfterFirstFrames": 0.001,
+    "maxAbsErrorAllEventsFrames": 15.64,
+    "allWithinOneFrame": false,
+    "streamStartS": {
+     "video": 0,
+     "audio": 0
+    },
+    "driftMsPerHourExtrapolated": null
+   },
+   "flv": [
+    {
+     "events": 9,
+     "firstEventMs": -0.33,
+     "eventsAfterFirst": 8,
+     "meanAfterFirstMs": 499.67,
+     "maxAbsErrorAfterFirstMs": 0.33,
+     "maxAbsErrorAfterFirstFrames": 0.01,
+     "maxAbsErrorAllEventsFrames": 15.01,
+     "allWithinOneFrame": false,
+     "streamStartS": {
+      "video": 0.021,
+      "audio": 0
+     },
+     "segment": 0,
+     "connectedAtS": 0.23
+    }
+   ]
+  },
+  {
+   "case": "d-2997-tpad-3",
+   "mechanism": "tpad",
+   "fps": "30000/1001",
+   "delayFrames": 3,
+   "expectedDelayExact": "3003/30000 s",
+   "expectedMs": 100.1,
+   "frameMs": 33.367,
+   "seconds": 16,
+   "faults": [],
+   "mp4": {
+    "events": 8,
+    "firstEventMs": 100.1,
+    "eventsAfterFirst": 7,
+    "meanAfterFirstMs": 100.1,
+    "maxAbsErrorAfterFirstMs": 0.0,
+    "maxAbsErrorAfterFirstFrames": 0.0,
+    "maxAbsErrorAllEventsFrames": 0.0,
+    "allWithinOneFrame": true,
+    "streamStartS": {
+     "video": 0,
+     "audio": 0
+    },
+    "driftMsPerHourExtrapolated": null
+   },
+   "flv": [
+    {
+     "events": 8,
+     "firstEventMs": 99.67,
+     "eventsAfterFirst": 7,
+     "meanAfterFirstMs": 99.67,
+     "maxAbsErrorAfterFirstMs": 0.43,
+     "maxAbsErrorAfterFirstFrames": 0.013,
+     "maxAbsErrorAllEventsFrames": 0.013,
+     "allWithinOneFrame": true,
+     "streamStartS": {
+      "video": 0.021,
+      "audio": 0
+     },
+     "segment": 0,
+     "connectedAtS": 0.22
+    }
+   ]
+  },
+  {
+   "case": "d-2997-tpad-15",
+   "mechanism": "tpad",
+   "fps": "30000/1001",
+   "delayFrames": 15,
+   "expectedDelayExact": "15015/30000 s",
+   "expectedMs": 500.5,
+   "frameMs": 33.367,
+   "seconds": 16,
+   "faults": [],
+   "mp4": {
+    "events": 8,
+    "firstEventMs": 500.5,
+    "eventsAfterFirst": 7,
+    "meanAfterFirstMs": 500.5,
+    "maxAbsErrorAfterFirstMs": 0.0,
+    "maxAbsErrorAfterFirstFrames": 0.0,
+    "maxAbsErrorAllEventsFrames": 0.0,
+    "allWithinOneFrame": true,
+    "streamStartS": {
+     "video": 0,
+     "audio": 0
+    },
+    "driftMsPerHourExtrapolated": null
+   },
+   "flv": [
+    {
+     "events": 8,
+     "firstEventMs": 500.67,
+     "eventsAfterFirst": 7,
+     "meanAfterFirstMs": 500.67,
+     "maxAbsErrorAfterFirstMs": 0.17,
+     "maxAbsErrorAfterFirstFrames": 0.005,
+     "maxAbsErrorAllEventsFrames": 0.005,
+     "allWithinOneFrame": true,
+     "streamStartS": {
+      "video": 0.021,
+      "audio": 0
+     },
+     "segment": 0,
+     "connectedAtS": 0.21
+    }
+   ]
+  }
+ ],
+ "reconnect": [
+  {
+   "case": "d-reconnect-3",
+   "mechanism": "tpad",
+   "fps": "30/1",
+   "delayFrames": 3,
+   "expectedDelayExact": "3/30 s",
+   "expectedMs": 100,
+   "frameMs": 33.333,
+   "seconds": 24,
+   "faults": [
+    {
+     "atS": 8.4,
+     "action": "sink down"
+    },
+    {
+     "atS": 13.2,
+     "action": "sink up"
+    }
+   ],
+   "mp4": {
+    "events": 13,
+    "firstEventMs": 100.02,
+    "eventsAfterFirst": 12,
+    "meanAfterFirstMs": 100.02,
+    "maxAbsErrorAfterFirstMs": 0.02,
+    "maxAbsErrorAfterFirstFrames": 0.001,
+    "maxAbsErrorAllEventsFrames": 0.001,
+    "allWithinOneFrame": true,
+    "streamStartS": {
+     "video": 0,
+     "audio": 0
+    },
+    "driftMsPerHourExtrapolated": null
+   },
+   "flv": [
+    {
+     "events": 5,
+     "firstEventMs": 99.67,
+     "eventsAfterFirst": 4,
+     "meanAfterFirstMs": 99.67,
+     "maxAbsErrorAfterFirstMs": 0.33,
+     "maxAbsErrorAfterFirstFrames": 0.01,
+     "maxAbsErrorAllEventsFrames": 0.01,
+     "allWithinOneFrame": true,
+     "streamStartS": {
+      "video": 0.021,
+      "audio": 0
+     },
+     "segment": 0,
+     "connectedAtS": 0.21
+    },
+    {
+     "events": 5,
+     "firstEventMs": 100,
+     "eventsAfterFirst": 4,
+     "meanAfterFirstMs": 100.0,
+     "maxAbsErrorAfterFirstMs": 0,
+     "maxAbsErrorAfterFirstFrames": 0.0,
+     "maxAbsErrorAllEventsFrames": 0.0,
+     "allWithinOneFrame": true,
+     "streamStartS": {
+      "video": 0,
+      "audio": 0.016
+     },
+     "segment": 1,
+     "connectedAtS": 13.45
+    }
+   ]
+  },
+  {
+   "case": "L-tpad-reconnect-15",
+   "mechanism": "tpad",
+   "fps": "30/1",
+   "delayFrames": 15,
+   "expectedDelayExact": "15/30 s",
+   "expectedMs": 500,
+   "frameMs": 33.333,
+   "seconds": 24,
+   "faults": [
+    {
+     "atS": 8.4,
+     "action": "sink down"
+    },
+    {
+     "atS": 13.2,
+     "action": "sink up"
+    }
+   ],
+   "mp4": {
+    "events": 13,
+    "firstEventMs": 500.02,
+    "eventsAfterFirst": 12,
+    "meanAfterFirstMs": 500.02,
+    "maxAbsErrorAfterFirstMs": 0.02,
+    "maxAbsErrorAfterFirstFrames": 0.001,
+    "maxAbsErrorAllEventsFrames": 0.001,
+    "allWithinOneFrame": true,
+    "streamStartS": {
+     "video": 0,
+     "audio": 0
+    },
+    "driftMsPerHourExtrapolated": null
+   },
+   "flv": [
+    {
+     "events": 4,
+     "firstEventMs": 499.67,
+     "eventsAfterFirst": 3,
+     "meanAfterFirstMs": 499.67,
+     "maxAbsErrorAfterFirstMs": 0.33,
+     "maxAbsErrorAfterFirstFrames": 0.01,
+     "maxAbsErrorAllEventsFrames": 0.01,
+     "allWithinOneFrame": true,
+     "streamStartS": {
+      "video": 0.021,
+      "audio": 0
+     },
+     "segment": 0,
+     "connectedAtS": 0.22
+    },
+    {
+     "events": 5,
+     "firstEventMs": 500,
+     "eventsAfterFirst": 4,
+     "meanAfterFirstMs": 500.0,
+     "maxAbsErrorAfterFirstMs": 0,
+     "maxAbsErrorAfterFirstFrames": 0.0,
+     "maxAbsErrorAllEventsFrames": 0.0,
+     "allWithinOneFrame": true,
+     "streamStartS": {
+      "video": 0,
+      "audio": 0.016
+     },
+     "segment": 1,
+     "connectedAtS": 13.41
+    }
+   ]
+  }
+ ],
+ "drift60s": {
+  "case": "d-drift-3",
+  "mechanism": "tpad",
+  "fps": "30/1",
+  "delayFrames": 3,
+  "expectedDelayExact": "3/30 s",
+  "expectedMs": 100,
+  "frameMs": 33.333,
+  "seconds": 60,
+  "faults": [],
+  "mp4": {
+   "events": 31,
+   "firstEventMs": 100.02,
+   "eventsAfterFirst": 30,
+   "meanAfterFirstMs": 100.02,
+   "maxAbsErrorAfterFirstMs": 0.02,
+   "maxAbsErrorAfterFirstFrames": 0.001,
+   "maxAbsErrorAllEventsFrames": 0.001,
+   "allWithinOneFrame": true,
+   "streamStartS": {
+    "video": 0,
+    "audio": 0
+   },
+   "driftMsPerHourExtrapolated": 0,
+   "drift": {
+    "msPerSecond": 0,
+    "standardErrorMsPerSecond": 0,
+    "spanS": 60,
+    "extrapolatedMsPerHour": 0,
+    "extrapolatedMsPerHour_2se": 0
+   }
+  },
+  "flv": [
+   {
+    "events": 31,
+    "firstEventMs": 99.67,
+    "eventsAfterFirst": 30,
+    "meanAfterFirstMs": 99.67,
+    "maxAbsErrorAfterFirstMs": 0.33,
+    "maxAbsErrorAfterFirstFrames": 0.01,
+    "maxAbsErrorAllEventsFrames": 0.01,
+    "allWithinOneFrame": true,
+    "streamStartS": {
+     "video": 0.021,
+     "audio": 0
+    },
+    "segment": 0,
+    "connectedAtS": 0.21,
+    "drift": {
+     "msPerSecond": 0,
+     "standardErrorMsPerSecond": 0,
+     "spanS": 60,
+     "extrapolatedMsPerHour": 0,
+     "extrapolatedMsPerHour_2se": 0
+    }
+   }
+  ]
+ },
+ "flashToLocalSinkLatencyMs": {
+  "note": "Node saw the helper impulse JSON line -> the FLV video tag of that frame reached the local sink ffmpeg output (includes helper queue/pipe, ffmpeg demux/filter/VideoToolbox encode, tee/fifo/flv, loopback TCP, sink ffmpeg). Event 1 is inflated by the receiver probing; the LAST event of each run pairs at about 19 ms in the raw reports, an unexplained outlier at stream end (tag match near EOF); it is kept in perEventAfterFirstMs for transparency and does not move the medians (medians are robust to it).",
+  "runs": [
+   {
+    "case": "L-tpad-0",
+    "delayFrames": 0,
+    "firstEventMs": 1642.2,
+    "perEventAfterFirstMs": [
+     302.6,
+     299,
+     305,
+     300.7,
+     301.2,
+     304.3,
+     302.3,
+     303,
+     301.2,
+     19.8
+    ],
+    "median": 302.3
+   },
+   {
+    "case": "L-tpad-3",
+    "delayFrames": 3,
+    "firstEventMs": 1609.2,
+    "perEventAfterFirstMs": [
+     373.3,
+     371.1,
+     369.6,
+     369.1,
+     372.9,
+     371.6,
+     368.8,
+     369.9,
+     369.7,
+     18.7
+    ],
+    "median": 369.9
+   },
+   {
+    "case": "L-tpad-15",
+    "delayFrames": 15,
+    "firstEventMs": 1505.8,
+    "perEventAfterFirstMs": [
+     666.5,
+     670.2,
+     669.8,
+     670.3,
+     668.9,
+     670.7,
+     667.8,
+     669.5,
+     670.6
+    ],
+    "median": 669.8
+   },
+   {
+    "case": "L-tpad-reconnect-15",
+    "delayFrames": 15,
+    "firstEventMs": 1504.1,
+    "perEventAfterFirstMs": [
+     668,
+     668.1,
+     668.7
+    ],
+    "median": 668.1
+   }
+  ]
+ },
+ "realPath": {
+  "real-d0": {
+   "delayFrames": 0,
+   "helperExit": 0,
+   "ffmpegExit": 0,
+   "mp4StreamStartS": {
+    "video": 0,
+    "audio": 0
+   },
+   "flvStreamStartS": {
+    "video": 0.021,
+    "audio": 0
+   },
+   "sourceAgeMsLastStatus": 22,
+   "audioPresent": true,
+   "flashClickEvents": 0,
+   "firstVideoFrames": "MP4 pts 0.000 0.055 0.088 0.121 ...; FLV pts 0.021 0.054 0.088 0.121 ... (same shape as synthetic)"
+  },
+  "real-d3": {
+   "delayFrames": 3,
+   "helperExit": 0,
+   "ffmpegExit": 0,
+   "mp4StreamStartS": {
+    "video": 0,
+    "audio": 0
+   },
+   "flvStreamStartS": {
+    "video": 0.021,
+    "audio": 0
+   },
+   "sourceAgeMsLastStatus": 9,
+   "audioPresent": true,
+   "flashClickEvents": 0,
+   "firstVideoFrames": "3 black pad frames (luma 16) then real picture (luma 108) in BOTH MP4 and FLV: 0.000/0.055/0.088 black, picture from 0.121 (MP4) and 0.121 (FLV)"
+  },
+  "syncReference": "none usable: program audio is continuous (-47..-28 dBFS 50 ms RMS, no sharp onset) and picture changes by periodic cuts at ~5.07 s (4.688, 9.755, 14.921, 19.988 s); no clap/click correlates with a cut. Pictures cuts are at identical times in MP4 and FLV.",
+  "helperPipelineHealth": {
+   "note": "last helper status line of each real run (1 sample per run); no per-run time series recorded",
+   "runs": {
+    "real-graceful": {
+     "source_age_ms": 16
+    },
+    "real-killff-B": {
+     "source_age_ms": 23
+    },
+    "real-wfail": {
+     "source_age_ms": 4
+    },
+    "real-d0": {
+     "source_age_ms": 22
+    },
+    "real-d3": {
+     "source_age_ms": 9,
+     "max_block_ms": 95
+    },
+    "earlier real run (20 s)": {
+     "source_age_ms": 29
+    }
+   },
+   "allRuns": "frames_in == frames_out, filler_frames 0, dropped_backpressure 0, dropped_late 0, audio_resyncs 0, audio_dropped 0, queue_depth 0 of 12; max_block_ms 0 except one 95 ms stdout stall in real-d3"
+  }
+ },
+ "arithmetic_ms": {
+  "30/1": {
+   "1": 33.3333,
+   "3": 100.0,
+   "15": 500.0
+  },
+  "30000/1001": {
+   "1": 33.3667,
+   "3": 100.1,
+   "15": 500.5
+  },
+  "60000/1001": {
+   "1": 16.6833,
+   "3": 50.05,
+   "15": 250.25
+  }
+ }
+}
