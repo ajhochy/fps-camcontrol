@@ -108,6 +108,8 @@ function probe(bin: string, args: string[]): Promise<string> {
 }
 
 export class ProgramFeed {
+  /** True while the always-on program capture owns the capture card (set by the app; default: never). */
+  cardOwned: () => boolean = () => false;
   private child: ChildProcess | null = null;
   private latest: ProgramFrame | null = null;
   private lastAsked = 0;
@@ -213,6 +215,8 @@ export class ProgramFeed {
       }
       const device = found && found.kind === kind ? found : null;
       if (!device) { this.error = `No ${kind === 'decklink' ? 'DeckLink' : 'AVFoundation'} capture device matches "${named}"`; this.scheduleRestart(); return; }
+      // The card has ONE opener (#70/#95): while program capture owns it, this preview must not open it a second time.
+      if ((kind === 'decklink' || BLACKMAGIC.test(device.name)) && this.cardOwned()) { this.error = 'The capture card is in use by program capture; this preview cannot open it as well'; return; }
       this.device = device;
       const out = ['-vf', `fps=${this.cfg.fps},scale=${this.cfg.width}:-2`, '-q:v', '5', '-f', 'mjpeg', 'pipe:1'];
       this.spawnCapture(bin, kind === 'decklink'

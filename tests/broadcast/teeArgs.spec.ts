@@ -27,6 +27,9 @@ test('tee session: only local publishers, bounded proof sizes and escaped paths'
   assert.throws(() => teeSessionArgs({ ...base, width: 1920, height: 1080 }), /720p/);
   assert.throws(() => teeSessionArgs({ ...base, seconds: 3600 }), /90 s/);
   assert.throws(() => teeSessionArgs({ ...base, recordingPath: '/tmp/a|b.mp4' }), /reserved/);
+  assert.throws(() => teeSessionArgs({ ...base, recordingPath: '/tmp/a\tb.mp4' }), /reserved/);
+  assert.throws(() => teeSessionArgs({ ...base, recordingPath: '/tmp/ab.mp4 ' }), /reserved/);
+  assert.match(teeSessionArgs({ ...base, recordingPath: '/tmp/Livestream Recordings/FPS 2026-11-05 1430.mp4' }).at(-1)!, /\]\/tmp\/Livestream Recordings\/FPS 2026-11-05 1430\.mp4\|/);
   const args = teeSessionArgs(base);
   assert.equal(args[args.indexOf('-b:v') + 1], '2500k');
   assert.ok(args.includes('aevalsrc=sin(2*PI*440*t)|sin(2*PI*1000*t):s=48000'), 'distinct L/R tones');

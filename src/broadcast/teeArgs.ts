@@ -1,5 +1,5 @@
 // Static single-process FFmpeg session: one source/encoder -> tee -> {local MP4, fifo -> FLV/RTMP publisher}.
-// Developer proof helpers only (issue #66); no app code imports this module.
+// The proof helpers (teeSessionArgs) are developer-only (issue #66); captureTeeArgs also drives app output sessions (#70).
 export type TeeSession = {
   width: number; height: number; fps: number; seconds: number;
   recordingPath: string; publishUrl: string;
@@ -13,7 +13,9 @@ export type TeeSession = {
   sendBufferBytes?: number;        // tcp SO_SNDBUF for the publisher connection, undefined = OS default
   toneLeftHz?: number; toneRightHz?: number;
 };
-const UNSAFE = /[\[\]|:\\'",=\s]/;
+// Inner spaces are fine in a tee slave path (verified with the pinned 8.1.3: "Livestream Recordings/FPS 2026-11-05 1430.mp4");
+// tee's own separators, quoting/escapes, other whitespace and a trailing space are not.
+const UNSAFE = /[\[\]|:\\'",=\t\n\r\f\v]|\s$/;
 const LOCAL_PUBLISH = /^rtmp:\/\/127\.0\.0\.1:\d+\/[\w/]+$/;
 
 /** The tee slave list shared by every session shape: recording slave 0 first, publisher behind a fifo that never blocks the tee. */
@@ -21,14 +23,15 @@ const LOCAL_PUBLISH = /^rtmp:\/\/127\.0\.0\.1:\d+\/[\w/]+$/;
 export const MP4_MOVFLAGS = '+frag_keyframe+hybrid_fragmented';
 /** Maximum fragment length: bounds what a SIGKILL of FFmpeg can lose to ~0.5-0.6 s instead of a whole 2 s GOP + latency (#67: 2.07 s -> 0.58 s synthetic worst case; real 1080p30 recovered 10.03 s vs 11.54 s of a ~11.3 s recording). Closed files are byte-for-byte the same regular layout. */
 export const MP4_FRAG_DURATION_US = 500000;
-export function teeMuxSpec(s: Pick<TeeSession, 'recordingPath' | 'publishUrl' | 'queueSize' | 'dropOnOverflow' | 'recoveryWaitSeconds' | 'recordingOnFail' | 'recordingMovflags' | 'recordingExtra' | 'rwTimeoutMicros' | 'sendBufferBytes'>): string {
+export function teeMuxSpec(s: Pick<TeeSession, 'recordingPath' | 'queueSize' | 'dropOnOverflow' | 'recoveryWaitSeconds' | 'recordingOnFail' | 'recordingMovflags' | 'recordingExtra' | 'rwTimeoutMicros' | 'sendBufferBytes'> & { publishUrl?: string }): string {
   if (UNSAFE.test(s.recordingPath)) throw new Error('Recording path contains tee-reserved characters');
-  if (!LOCAL_PUBLISH.test(s.publishUrl)) throw new Error('Proof publishers may only target a local 127.0.0.1 endpoint');
+  if (s.publishUrl !== undefined && !LOCAL_PUBLISH.test(s.publishUrl)) throw new Error('Proof publishers may only target a local 127.0.0.1 endpoint');
   const queue = s.queueSize ?? 60;
   const movflags = s.recordingMovflags ?? MP4_MOVFLAGS;
   if (!/^[+\w]+$/.test(movflags) || /faststart/.test(movflags)) throw new Error('movflags must not contain faststart or unsafe characters');
   const extra = s.recordingExtra ?? [`frag_duration=${MP4_FRAG_DURATION_US}`]; if (extra.some(o => !/^\w+=[\w.]+$/.test(o))) throw new Error('recordingExtra options must be simple key=value');
   const recording = ['f=mp4', `movflags=${movflags}`, 'flush_packets=1', ...extra, `onfail=${s.recordingOnFail ?? 'ignore'}`].join(':');
+  if (s.publishUrl === undefined) return `[${recording}]${s.recordingPath}`;   // Record only: the MP4 slave alone
   // Protocol options ride the fifo slave's format_opts (tee-escaped: '=' -> \\=, ':' -> \\:).
   const protocolOpts = [...(s.rwTimeoutMicros ? [`rw_timeout\\=${s.rwTimeoutMicros}`] : []), ...(s.sendBufferBytes ? [`send_buffer_size\\=${s.sendBufferBytes}`] : [])];
   const publisher = ['f=fifo', 'fifo_format=flv', `queue_size=${queue}`, `drop_pkts_on_overflow=${s.dropOnOverflow === false ? 0 : 1}`,
@@ -56,7 +59,8 @@ export function teeSessionArgs(s: TeeSession): string[] {
 export const PROGRAM_PROFILE = { width: 1920, height: 1080, fps: '30/1', videoBitrateK: 6000, audioChannels: 2, audioRate: 48000, keyframeSeconds: 2 } as const;
 
 export type CaptureTeeSession = {
-  recordingPath: string; publishUrl: string;
+  recordingPath: string; publishUrl?: string;         // no publishUrl = Record only
+  input?: string;                                    // default 'pipe:0'; an app session reads its capture-service FIFO (#95)
   width?: number; height?: number; fps?: string;      // default PROGRAM_PROFILE (1080p30, 30/1)
   videoBitrateK?: number; audioChannels?: number;
   queueSize?: number; dropOnOverflow?: boolean; recoveryWaitSeconds?: number; recordingOnFail?: 'abort' | 'ignore'; recordingMovflags?: string; recordingExtra?: string[]; rwTimeoutMicros?: number; sendBufferBytes?: number;
@@ -73,9 +77,16 @@ export function videoDelayFilter(fps: string, frames: number, mode: VideoDelayMo
 }
 /** Delay in seconds as an exact rational [numerator, denominator] (no floating point): frames*den / num. */
 export function videoDelaySeconds(fps: string, frames: number): [number, number] { const m = /^(\d+)\/(\d+)$/.exec(fps)!; return [frames * Number(m[2]), Number(m[1])]; }
+const SAFE_INPUT = /^\/[\w./-]{1,500}$/;
+function captureInput(input: string | undefined): string {
+  if (input === undefined) return 'pipe:0';
+  if (!SAFE_INPUT.test(input) || input.includes('..')) throw new Error('Capture input must be an absolute path without special characters');
+  return input;
+}
 /**
  * ONE ffmpeg for the whole session: the capture helper's Matroska stream arrives on stdin (carrying DeckLink stream-time
- * PTS), is encoded once, and tee writes the MP4 (slave 0) and the fifo-isolated FLV publisher (slave 1).
+ * PTS), is encoded once, and tee writes the MP4 (slave 0) and the fifo-isolated FLV publisher (slave 1). In the app the
+ * stream comes from the capture service's FIFO for this session (`input`) instead of stdin.
  */
 export function captureTeeArgs(s: CaptureTeeSession): string[] {
   const p = PROGRAM_PROFILE;
@@ -90,7 +101,7 @@ export function captureTeeArgs(s: CaptureTeeSession): string[] {
   if (!Number.isInteger(bitrate) || bitrate < 500 || bitrate > 20000) throw new Error('videoBitrateK must be 500-20000');
   const spec = teeMuxSpec(s);
   return ['-hide_banner', '-nostdin', '-v', 'info', '-stats_period', '1',
-    '-thread_queue_size', '64', '-f', 'matroska', '-i', 'pipe:0',
+    '-thread_queue_size', '64', '-f', 'matroska', '-i', captureInput(s.input),
     '-map', '0:v:0', '-map', '0:a:0',
     '-vf', [`fps=${fps}`, videoDelayFilter(fps, s.videoDelayFrames ?? 0, s.videoDelayMode)].filter(Boolean).join(','), '-af', 'aresample=async=1000:first_pts=0',
     '-c:v', 'h264_videotoolbox', '-allow_sw', '0', '-pix_fmt', 'yuv420p', '-bf', '0', '-g', String(Math.round(rate * p.keyframeSeconds)),
