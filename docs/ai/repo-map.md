@@ -95,4 +95,7 @@ From the auto-generated repo map (single initial commit — all files at 1 chang
 - `src/model/presetManager.ts` — preset save/recall with VISCA inquiry
 
 Largest source files: `src/testing/smokeTest.ts` (~8.6 KB), `src/model/controlStateMachine.ts` (~5.2 KB), `src/ui/statusServer.ts` (~5.1 KB), `src/index.ts` (~4.6 KB), `src/atem/atemClient.ts` (~3.1 KB).
-- `native/decklink-capture/` — DeckLink capture helper (C++; `make`, `pnpm capture:build` with `DECKLINK_SDK_DIR`); `src/broadcast/decklinkCapture.ts` spawns it into the tee/fifo FFmpeg; `src/testing/decklinkCaptureRun.ts` runs/verifies a session (synthetic or `--real`)
+- `native/decklink-capture/` — DeckLink capture helper (C++; `make`, `pnpm capture:build` with `DECKLINK_SDK_DIR`); `src/broadcast/decklinkCapture.ts` spawns it into the tee/fifo FFmpeg; `src/testing/decklinkCaptureRun.ts` runs/verifies a session (synthetic or `--real`). `--serve` (#95, `src/sink.hpp`): one capture, N FIFO consumers
+- `src/program/captureService.ts` — always-on capture supervisor (consumers, restarts, signal/device/process status); `src/program/programCaptureRuntime.ts` — per-app registry + FFmpeg runtime resolution
+- `src/broadcast/streamingConfig.ts` (devices.yaml `streaming:`/`programCapture:`), `src/broadcast/outputSession.ts` (Record-only sessions), `src/ui/streamingRoutes.ts` (`/api/streaming*`)
+- `scripts/ffmpeg-runtime-manifest.json`, `scripts/build-ffmpeg-runtime.sh`, `scripts/stage-ffmpeg-runtime-notices.sh`, `scripts/ffmpeg-runtime/` — pinned streaming FFmpeg (#65)

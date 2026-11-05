@@ -6,6 +6,8 @@ type: project
 
 ## Current focus
 
+2026-11-05 #65/#95/#69/#70 (draft PR #90, synthetic unless noted; [run note](runs/2026-11-05-streaming-capture-fanout.md)). **#65:** pinned LGPL FFmpeg 8.1.3 (built 2026-10-28) now has notices staged from the verified tarballs (`scripts/stage-ffmpeg-runtime-notices.sh`), manifest `PINNED-BUILD`, `verify-manifest --require-pinned` ok; #66/#67/#68 harnesses re-run on it with matching results; `--enable-protocol` did not narrow anything (rebuild with `--disable-protocols` is a follow-up); installed evidence (#86) open. **#95:** the helper's `--serve` mode is the card's ONLY opener and fans frames out to consumers on FIFOs (per-consumer queue, stall drop, PTS rebased); `src/program/captureService.ts` supervises it (backoff restarts, stale/startup watchdogs, attach timeout, `auto` previews re-attach, `never` sessions end); started with the app when `programCapture.enabled`, status in `/api/status.programCapture`. **#69/#70:** `devices.yaml` `streaming:`/`programCapture:` (`src/broadcast/streamingConfig.ts`), loopback-only `/api/streaming*` routes with session locks (also on legacy `PUT /api/program` input/kind), Record-only `OutputSessions` (`src/broadcast/outputSession.ts`) attached as consumers: no signal → warning, device/capture loss → ended, never auto-restarted; `ProgramFeed` refuses Blackmagic devices while capture owns the card. Tee recording paths may contain inner spaces. **Physical:** only the busy-card path (Wirecast held the UltraStudio: `device-busy`, exit 4, Wirecast undisturbed). **Not done:** the ≤30 s real-card two-consumer run (needs Wirecast closed), cable-pull/device-disconnect, preview/TV on the shared capture (#96/#97), Stream + record (#79–#83), operator UI (#85). #65/#69/#70/#95 stay open.
+
 2026-10-22 #67/#68/#65 (draft PR #90, developer FFmpeg 8.1.2 + real UltraStudio, local sink only): [#67](runs/2026-10-22-streaming-s04-mp4-recovery.md) hybrid MP4 closes in 63 ms (2 h-equivalent 23 ms); SIGKILL/torn-write/finalization-kill files recover to a NEW file with the original byte-identical; MP4 mode is now `+frag_keyframe+hybrid_fragmented` + `frag_duration=500000` (kill loss 2.07 s -> 0.58 s); a failed recording slave leaves FFmpeg exit 0 and the stream running, so the supervisor must watch for it. [#68](runs/2026-10-22-streaming-s05-delay.md) `tpad` video delay is exact (<= 0.7 ms) in MP4 and FLV for 0/1/3/15 frames at 30/1 and 30000/1001, also after reconnect; real-source lip-sync is still OPEN (the program has no sync reference). Real embedded audio is present but channels 1/2 are dual-mono ([data](runs/2026-10-22-decklink-audio-qualification.json)). [#65](decisions/2026-10-22-ffmpeg-runtime.md) proposes a pinned LGPL v3 source build (VideoToolbox + native AAC + static OpenSSL), with probe/manifest scaffold in `scripts/`; **nothing downloaded, awaiting AJ's approval of the listed downloads**. Manual QuickTime/editor check, slow-storage close, 60-minute drift, pinned-binary re-runs and hosted evidence remain open; #65/#67/#68 stay open.
 
 2026-10-15 DeckLink capture helper (#63/#64/#65 delivery path): `native/decklink-capture/` (C++17, SDK 14.2 via `DECKLINK_SDK_DIR`, never vendored) captures the UltraStudio Recorder 3G and writes live Matroska (DeckLink stream-time PTS, UYVY + PCM) into the ONE session FFmpeg; `src/broadcast/decklinkCapture.ts` + `captureTeeArgs` wire helper -> tee/fifo (MP4 slave 0 + local RTMP), profile 1080p `30/1`. Real <=20 s capture verified (601/600 frames, 1920x1080 30/1, no decode errors, monotonic, AAC track present, picture confirmed); input currently carries no embedded audio (digital silence). Signal-loss/disconnect on the real card, embedded audio, pinned FFmpeg (#65) and #67/#68 on this path remain open. See [ADR addendum](decisions/2026-10-13-streaming-session-architecture.md) and [run note](runs/2026-10-15-decklink-capture-helper.md).
@@ -20,6 +22,8 @@ Canonical product streaming remains planned, not integrated. The user accepted b
 
 ## Active branch / PR
 
+Streaming: draft PR #90, branch `feat/streaming-s1-media-proof` (base `main`), worktree `../fps-camcontrol-stream` (local branch `stream-work`). Earlier context below.
+
 Open integration PR #60 (`integration/combine-open-prs`), verified planning base `dd224d0`; PR #62 is merged. This revision changes docs and GitHub planning metadata only. The primary checkout's unrelated changes are preserved. Historical integration/release/tracking receipts and previous snapshot are retained in [pre-revision context](runs/2026-10-06-pre-streaming-revision-context.md); those are historical evidence, not new qualification.
 
 ## In progress
@@ -27,6 +31,9 @@ Open integration PR #60 (`integration/combine-open-prs`), verified planning base
 Six streaming milestones (#11–#16) with 26 atomic new issues (#64–#89); existing #63 is assigned to the first milestone and owns the DeckLink SDK/driver prerequisite. New output sessions use Record only or Stream + record, with shared start/stop; arbitrary output attachment and a Node TS relay are deferred. Existing CLI/iPad camera/preview operation remains; new broadcast administration is Electron-local.
 
 ## Risks / known issues
+
+- Pre-existing on this branch (identical on clean HEAD 45a93c8, 2026-11-05): `tests/tracking/manager.spec.cjs` + `calibration.spec.cjs` fail 16 and never exit (so `scripts/checks.cjs issue` cannot finish); `issue-23-c4`, `tracking-sidecar-process` ×4, `tracking/app-integration` ×2, `runtime-startup` fail; `check-tracking.cjs` needs the staged tracking runtime.
+- Program capture: turning `programCapture` on while a DeckLink `ProgramFeed` preview already holds the card leaves capture retrying `device-busy` until the preview stops (no dual open: the SDK refuses). Resolved by #96. A session reads `ended` while its encoder is still finalizing the MP4 (unique file names, no collision).
 
 - Existing iPad remote is CLI-only; Electron is authenticated loopback-only. This scope preserves that boundary, not simultaneous iPad access to Electron. If needed for rollout, address separately without competing capture owners.
 
@@ -40,5 +47,7 @@ Six streaming milestones (#11–#16) with 26 atomic new issues (#64–#89); exis
 This revision: documentation consistency, dependency/link and diff checks only. No implementation tests, build, app/server launch, capture, account access or broadcasting run. Past package/synthetic receipts do not qualify streaming or the physical rig.
 
 ## Next step
+
+Streaming (2026-11-05): with Wirecast closed and AJ's go, run the ≤30 s real-card two-consumer check (`--list-devices` must show `busy_flags: 0` first), then #96 (preview from the shared capture) and #97 (HLS) on top of `CaptureService`; Stream + record needs #79–#83. Earlier plan text:
 
 Resolve/refresh #63, then S01/S02 qualify actual capture/runtime; S03–S05 prove architecture, MP4 and timing before dependent media implementation. S16 credential storage can proceed separately. Compact before starting implementation; execute one issue at a time and record separate synthetic, physical, hosted and installed acceptance.
