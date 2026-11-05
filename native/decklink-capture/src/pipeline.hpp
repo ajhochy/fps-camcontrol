@@ -1,8 +1,9 @@
-// Frame/audio pipeline between a source (DeckLink callback or synthetic producer) and the Matroska writer on stdout.
+// Frame/audio pipeline between a source (DeckLink callback or synthetic producer) and its consumers (sink.hpp).
 //  - Timeline: PTS = source time minus the first frame's time; audio is counter-driven from the same origin.
 //  - Continuity: a watchdog emits black + silence at the nominal rate when the source stalls; frames the card flags as
 //    "no input source" are replaced by black so repeated/stale content never reaches the encoder.
-//  - Backpressure: bounded queue; when the writer is blocked, video is dropped (counted) before memory grows.
+//  - Fan-out: every unit goes to every attached sink; each sink has its own bounded queue and writer (issue #95), so
+//    backpressure or death of one consumer is that consumer's problem only. Sinks can attach/detach while capture runs.
 #pragma once
 #include <poll.h>
 #include <unistd.h>
@@ -20,6 +21,7 @@
 #include <vector>
 #include "json.hpp"
 #include "mkv.hpp"
+#include "sink.hpp"
 
 struct StreamConfig {
   int width = 1920, height = 1080;
@@ -32,20 +34,15 @@ struct StreamConfig {
   size_t audio_frame_bytes() const { return size_t(audio_channels) * (audio_bits / 8); }
 };
 
-inline int64_t mono_ns() { return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
-
 class Pipeline {
  public:
-  struct Unit { int64_t vpts = 0; std::shared_ptr<const std::vector<uint8_t>> video; int64_t apts = 0; std::vector<uint8_t> audio; };
-  std::atomic<long long> frames_in{0}, frames_out{0}, dropped_backpressure{0}, dropped_late{0}, filler_frames{0}, audio_resyncs{0},
-      audio_dropped{0}, bytes_out{0}, real_frames_window{0}, audio_real_window{0}, audio_peak_window{0}, max_block_ms{0}, blocked_now_ms{0};
-  std::atomic<bool> epipe{false}, write_failed{false}, signal_locked{false}, audio_present{false};
-  std::atomic<int> queue_depth{0};
+  std::atomic<long long> frames_in{0}, units_out{0}, dropped_late{0}, filler_frames{0}, audio_resyncs{0},
+      audio_dropped{0}, real_frames_window{0}, audio_real_window{0}, audio_peak_window{0}, consumers_lost{0};
+  std::atomic<bool> signal_locked{false}, audio_present{false};
 
-  Pipeline(int fd, size_t queue_cap) : fd_(fd), cap_(queue_cap < 2 ? 2 : queue_cap) {}
-  ~Pipeline() { stop(0); }
   bool started() const { return started_.load(); }
   const StreamConfig& cfg() const { return cfg_; }
+  ~Pipeline() { stop(0); }
 
   void start(const StreamConfig& c) {
     cfg_ = c;
@@ -54,12 +51,48 @@ class Pipeline {
     mkv::TrackInfo t; t.width = cfg_.width; t.height = cfg_.height; t.frame_ns = cfg_.frame_ns(); t.interlaced = cfg_.interlaced; t.field_order = cfg_.field_order;
     t.audio_channels = cfg_.audio_channels; t.audio_bits = cfg_.audio_bits; t.audio_rate = cfg_.audio_rate;
     if (cfg_.height <= 576) { t.matrix = 6; t.transfer = 6; t.primaries = 6; }
-    header_ = mkv::header(t);
+    { std::lock_guard<std::mutex> g(sinks_m_); header_ = mkv::header(t); for (auto& s : sinks_) s->begin(header_); started_ = true; }
     start_wall_ = mono_ns(); due_wall_ = start_wall_ + frame_wall_ns() * 5 / 2;
-    started_ = true;
-    writer_ = std::thread([this] { writer_loop(); });
     watchdog_ = std::thread([this] { watchdog_loop(); });
   }
+
+  // Attach a consumer; before the format is known it waits and gets the header when capture starts. False: duplicate id.
+  bool add_sink(std::shared_ptr<Sink> s) {
+    std::lock_guard<std::mutex> g(sinks_m_);
+    for (auto& e : sinks_) if (e->id == s->id) return false;
+    if (stopping_) return false;
+    if (started_) s->begin(header_);
+    sinks_.push_back(std::move(s));
+    return true;
+  }
+  // Detach by id (drains briefly so the consumer sees a clean end of stream). Null when no such consumer.
+  std::shared_ptr<Sink> detach(const std::string& id, int drain_ms = 500) {
+    std::shared_ptr<Sink> s;
+    { std::lock_guard<std::mutex> g(sinks_m_);
+      for (auto it = sinks_.begin(); it != sinks_.end(); ++it) if ((*it)->id == id) { s = *it; sinks_.erase(it); break; } }
+    if (s) s->stop(drain_ms, "detached");
+    return s;
+  }
+  // Remove consumers whose writer has ended (closed / stalled / write-failed) and close their fds.
+  std::vector<std::shared_ptr<Sink>> reap() {
+    std::vector<std::shared_ptr<Sink>> out;
+    { std::lock_guard<std::mutex> g(sinks_m_);
+      for (auto it = sinks_.begin(); it != sinks_.end();) if ((*it)->finished()) { out.push_back(*it); it = sinks_.erase(it); } else ++it; }
+    for (auto& s : out) { s->stop(0, nullptr); consumers_lost++; }
+    return out;
+  }
+  std::shared_ptr<Sink> find(const std::string& id) {
+    std::lock_guard<std::mutex> g(sinks_m_);
+    for (auto& s : sinks_) if (s->id == id) return s;
+    return nullptr;
+  }
+  std::string consumers_json() {
+    std::lock_guard<std::mutex> g(sinks_m_);
+    std::string a = "[";
+    for (size_t i = 0; i < sinks_.size(); i++) { if (i) a += ','; a += sinks_[i]->stats().done(); }
+    return a + "]";
+  }
+  size_t consumer_count() { std::lock_guard<std::mutex> g(sinks_m_); return sinks_.size(); }
 
   // Called by the source for every frame the card (or the synthetic producer) delivers. `abs_pts_ns` is the source clock.
   void on_frame(int64_t abs_pts_ns, const uint8_t* data, size_t rowbytes, bool nosignal, const void* audio, size_t audio_frames) {
@@ -94,23 +127,20 @@ class Pipeline {
   void stop(int drain_ms) {
     bool expected = false;
     if (!stopping_.compare_exchange_strong(expected, true)) return;
-    { std::lock_guard<std::mutex> g(q_m_); }
-    wd_cv_.notify_all(); q_cv_.notify_all();
+    wd_cv_.notify_all();
     if (watchdog_.joinable()) watchdog_.join();
-    if (writer_.joinable()) {
-      auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(drain_ms);
-      while ((queue_depth > 0 || writing_) && std::chrono::steady_clock::now() < deadline && !write_failed && !epipe) std::this_thread::sleep_for(std::chrono::milliseconds(10));
-      abort_write_ = true; q_cv_.notify_all(); writer_.join();
-    }
+    std::vector<std::shared_ptr<Sink>> all;
+    { std::lock_guard<std::mutex> g(sinks_m_); all.swap(sinks_); }
+    for (auto& s : all) s->stop(drain_ms, "stopped");
   }
 
  private:
-  int fd_; size_t cap_; StreamConfig cfg_;
-  std::atomic<bool> started_{false}, stopping_{false}, abort_write_{false}, writing_{false};
+  StreamConfig cfg_;
+  std::atomic<bool> started_{false}, stopping_{false};
   std::shared_ptr<std::vector<uint8_t>> black_; mkv::Buf header_;
   std::mutex m_; bool have_t0_ = false, filler_started_ = false; int64_t t0_abs_ = 0, wall0_ = 0, last_pts_ = -1, start_wall_ = 0, due_wall_ = 0;
   int64_t audio_samples_ = 0; bool last_locked_ = false, locked_known_ = false;
-  std::mutex q_m_; std::condition_variable q_cv_; std::deque<Unit> q_; std::thread writer_;
+  std::mutex sinks_m_; std::vector<std::shared_ptr<Sink>> sinks_;
   std::condition_variable wd_cv_; std::thread watchdog_;
 
   int64_t frame_wall_ns() const { return cfg_.frame_ns(); }
@@ -118,27 +148,27 @@ class Pipeline {
     signal_locked = locked;
     if (!locked_known_ || locked != last_locked_) { locked_known_ = true; last_locked_ = locked; jl::event("signal", jl::Obj().b("locked", locked)); }
   }
-  // Assemble the audio for the frame ending at pts+duration (real samples when present, otherwise silence) and enqueue.
+  // Assemble the audio for the frame ending at pts+duration (real samples when present, otherwise silence) and fan out.
   void emit_unit(int64_t pts, std::shared_ptr<const std::vector<uint8_t>> video, const void* audio, size_t audio_frames) {
     const int64_t dur = cfg_.frame_ns(), rate = cfg_.audio_rate;
     const size_t fb = cfg_.audio_frame_bytes();
     auto samples_at = [&](int64_t ns) { return (ns * rate + 500000000LL) / 1000000000LL; };
     const int64_t target = samples_at(pts + dur);  // cumulative samples that should exist once this frame's audio is written
     Unit u; u.vpts = pts; u.video = std::move(video); u.apts = audio_samples_ * 1000000000LL / rate;
+    auto a = std::make_shared<std::vector<uint8_t>>();
     int64_t k = int64_t(audio_frames);
     if (k > 0) {
       const int64_t slack = samples_at(dur);
       if (audio_samples_ + k > target + 2 * slack) { int64_t keep = target + 2 * slack - audio_samples_; audio_dropped += (k - keep > 0 ? k - keep : 0); k = keep > 0 ? keep : 0; audio_resyncs++; }
-      u.audio.assign(static_cast<const uint8_t*>(audio), static_cast<const uint8_t*>(audio) + size_t(k) * fb);
-      if (audio_samples_ + k < target - slack) { int64_t pad = target - (audio_samples_ + k); u.audio.resize(u.audio.size() + size_t(pad) * fb, 0); k += pad; audio_resyncs++; }
-    } else if (target > audio_samples_) { k = target - audio_samples_; u.audio.assign(size_t(k) * fb, 0); }
+      a->assign(static_cast<const uint8_t*>(audio), static_cast<const uint8_t*>(audio) + size_t(k) * fb);
+      if (audio_samples_ + k < target - slack) { int64_t pad = target - (audio_samples_ + k); a->resize(a->size() + size_t(pad) * fb, 0); k += pad; audio_resyncs++; }
+    } else if (target > audio_samples_) { k = target - audio_samples_; a->assign(size_t(k) * fb, 0); }
     audio_samples_ += k;
     last_pts_ = pts;
-    std::lock_guard<std::mutex> g(q_m_);
-    if (q_.size() >= cap_) { u.video.reset(); dropped_backpressure++; }   // writer blocked: drop video, keep the audio timeline
-    if (q_.size() >= cap_ * 2) { audio_dropped += int64_t(u.audio.size() / (fb ? fb : 1)); return; }
-    q_.push_back(std::move(u)); queue_depth = int(q_.size());
-    q_cv_.notify_one();
+    u.audio = std::move(a);
+    units_out++;
+    std::lock_guard<std::mutex> g(sinks_m_);
+    for (auto& s : sinks_) s->push(u);
   }
 
   void watchdog_loop() {
@@ -157,41 +187,5 @@ class Pipeline {
         if (now - due_wall_ > period * 5) due_wall_ = now;  // never burst-catch-up after a long scheduling gap
       }
     }
-  }
-
-  bool write_all(const uint8_t* p, size_t n) {
-    size_t off = 0; int64_t last = mono_ns();
-    while (off < n) {
-      ssize_t w = ::write(fd_, p + off, n - off);
-      if (w > 0) { off += size_t(w); last = mono_ns(); blocked_now_ms = 0; continue; }
-      if (w < 0 && errno == EINTR) continue;
-      if (w < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-        pollfd pf{fd_, POLLOUT, 0}; ::poll(&pf, 1, 100);
-        long long b = (mono_ns() - last) / 1000000; blocked_now_ms = b; if (b > max_block_ms) max_block_ms = b;
-        if (abort_write_) return false;
-        continue;
-      }
-      if (w < 0 && errno == EPIPE) epipe = true; else write_failed = true;
-      return false;
-    }
-    return true;
-  }
-  void writer_loop() {
-    bool ok = write_all(header_.data(), header_.size());
-    mkv::Buf meta; std::vector<mkv::Span> spans;
-    while (ok) {
-      Unit u;
-      { std::unique_lock<std::mutex> lk(q_m_);
-        q_cv_.wait(lk, [&] { return !q_.empty() || stopping_ || abort_write_; });
-        if (q_.empty()) break;
-        u = std::move(q_.front()); q_.pop_front(); writing_ = true; queue_depth = int(q_.size()); }
-      const uint8_t* vd = u.video ? u.video->data() : nullptr; size_t vl = u.video ? u.video->size() : 0;
-      if (!mkv::build_cluster(meta, spans, u.vpts, vd, vl, u.apts, u.audio.data(), u.audio.size())) { writing_ = false; continue; }
-      for (auto& s : spans) if (!(ok = write_all(s.p, s.n))) break;
-      if (ok) { frames_out++; for (auto& s : spans) bytes_out += (long long)s.n; }
-      writing_ = false;
-    }
-    writing_ = false;
-    { std::lock_guard<std::mutex> g(q_m_); q_.clear(); queue_depth = 0; }
   }
 };

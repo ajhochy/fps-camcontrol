@@ -2,7 +2,7 @@
 #   make                          synthetic-only binary (no SDK needed; used by CI)
 #   make DECKLINK_SDK_DIR="$HOME/Developer/blackmagic-sdk/Blackmagic DeckLink SDK 14.2"
 #                                 real DeckLink build. The SDK is referenced in place, never copied into this repository.
-#   make test                     unit test + synthetic end-to-end (needs ffmpeg/ffprobe for the e2e part)
+#   make test                     unit test + synthetic and service-mode end-to-end (needs ffmpeg/ffprobe for the e2e parts)
 CXX      ?= clang++
 BUILD    ?= build
 CXXFLAGS ?= -O2 -std=c++17 -Wall -Wextra -Wno-unused-parameter
@@ -26,5 +26,6 @@ $(BUILD)/mkv_test: tests/mkv_test.cpp src/mkv.hpp
 test: $(BUILD)/camcontrol-capture $(BUILD)/mkv_test
 	$(BUILD)/mkv_test
 	sh tests/synthetic_e2e.sh $(BUILD)/camcontrol-capture
+	sh tests/serve_e2e.sh $(BUILD)/camcontrol-capture
 clean:
 	rm -rf $(BUILD)
