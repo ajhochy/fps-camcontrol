@@ -61,3 +61,7 @@ node dist/testing/mp4FaultProof.js --scenario graceful|kill-ffmpeg|kill-helper -
 node dist/testing/delayProof.js --delay 0|1|3|15 [--mode-name 1080p2997] [--reconnect --seconds 24] --json delay-<d>.json
 node scripts/checks.cjs issue
 ```
+
+## Verification gate (after the review fixes)
+
+Every `scripts/checks.cjs` step run individually (the runner stops at its first failure): build, page JS, 9 unit suites, helper `make test`, Pi bridge, electron-release, sandbox `--smoke` and `--selftest`, `git diff --check`: pass. Focused tests 146/154, all new suites pass. Pre-existing and identical on clean `45a93c8`: 8 tracking-area failures (issue-23-c4, tracking-sidecar ×4, app-integration ×2, runtime-startup); `tests/tracking/manager.spec.cjs` + `calibration.spec.cjs` fail 16 and never exit; `check-tracking.cjs` needs the staged tracking runtime. An independent review found no high-severity defects; the six lower ones it raised that were real are fixed (attach timeout, startup watchdog, restart/stop race, double close in the refused-attach path, late attach event, auto-consumer retry).
