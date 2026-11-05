@@ -1,0 +1,174 @@
+{
+  "scenario": "kill-ffmpeg",
+  "kind": "synthetic",
+  "at": "2026-11-05T22:25:55.397Z",
+  "movflags": "default",
+  "extra": [],
+  "run": {
+    "mp4": "recording.mp4",
+    "wallS": 8.44,
+    "action": {
+      "atS": 8.4,
+      "kind": "sigkill-ffmpeg"
+    },
+    "actionAtS": 8.404,
+    "helperExitCode": 0,
+    "helperSignal": null,
+    "ffmpegExitCode": null,
+    "helperExitAtS": 8.437,
+    "ffmpegExitAtS": 8.412,
+    "helperExitMsAfterAction": 33,
+    "ffmpegExitMsAfterAction": 7,
+    "ffmpegMsAfterHelperExit": -25,
+    "lastProgressBeforeAction": {
+      "atS": 8.055708125,
+      "frame": 234,
+      "mediaS": 7.76
+    },
+    "helperFramesOut": 252,
+    "helperLastStatus": {
+      "type": "status",
+      "t_ms": 8004,
+      "state": "running",
+      "mode": "1080p30",
+      "width": 1920,
+      "height": 1080,
+      "fps_nominal": 30,
+      "fps": 30,
+      "signal_locked": true,
+      "audio_packets": true,
+      "audio_peak_dbfs": -120,
+      "audio_present": false,
+      "frames_in": 241,
+      "frames_out": 240,
+      "filler_frames": 0,
+      "dropped_backpressure": 0,
+      "dropped_late": 0,
+      "audio_resyncs": 0,
+      "audio_dropped": 0,
+      "queue_depth": 0,
+      "queue_cap": 12,
+      "blocked_ms": 0,
+      "max_block_ms": 0,
+      "bytes_out": 998406939
+    },
+    "flv": {
+      "segments": 1,
+      "bytes": 50940,
+      "videoTags": 243,
+      "audioTags": 381
+    },
+    "ffmpegFaultLines": [
+      "Output #0, tee, to '[f=mp4:movflags=+frag_keyframe+hybrid_fragmented:flush_packets=1:frag_duration=500000:onfail=ignore]$TMPDIR/mp4fault-gS5Ku9/kill-ffmpeg-syn"
+    ],
+    "ffmpegStderrTail": [
+      "  Stream #0:0(eng): Video: h264, yuv420p(tv, bt709, progressive), 1920x1080 [SAR 1:1 DAR 16:9], q=2-31, 6000 kb/s, 30 fps, 30 tbn (default)",
+      "    Metadata:",
+      "      encoder         : Lavc62.28.103 h264_videotoolbox",
+      "  Stream #0:1(eng): Audio: aac (LC), 48000 Hz, stereo, fltp, 128 kb/s (default)",
+      "    Metadata:",
+      "      encoder         : Lavc62.28.103 aac"
+    ]
+  },
+  "analysis": {
+    "file": "recording.mp4",
+    "bytes": 43831,
+    "scan": {
+      "state": "fragmented-open",
+      "moovCount": 1,
+      "fragments": 15,
+      "initialMoovSamples": {
+        "vide": 15,
+        "soun": 24
+      },
+      "fragmentSamples": {
+        "vide": 225,
+        "soun": 352
+      },
+      "completeSamples": {
+        "vide": 240,
+        "soun": 376
+      },
+      "finalMoovSamples": {
+        "vide": 15,
+        "soun": 24
+      },
+      "completePrefixBytes": 43831,
+      "trailing": null,
+      "atoms": [
+        "ftyp",
+        "free",
+        "free",
+        "moov",
+        "mdat",
+        "moof",
+        "...27 more",
+        "moof",
+        "mdat"
+      ]
+    },
+    "originalAvfoundation": {
+      "playable": true,
+      "durationS": 8.021,
+      "tracks": "vide,soun"
+    },
+    "recovery": {
+      "status": "RECOVERED",
+      "originalSha256": "2d51f8915c5784bc75a4d6ac38a4fe8294c4d59a5f5af333d265e76d48e9ce12",
+      "recovered": "$TMPDIR/mp4fault-gS5Ku9/kill-ffmpeg-syn-45207/recording.recovered.mp4",
+      "recoveredBytes": 45899,
+      "video": 240,
+      "audio": 376,
+      "durationS": 8.021354,
+      "avOriginS": {
+        "original": 0,
+        "recovered": 0
+      },
+      "decodeErrors": "",
+      "recoverMs": 12,
+      "discardedTrailingBytes": 0,
+      "originalUnchanged": true
+    },
+    "usable": "recording.recovered.mp4",
+    "content": {
+      "video": {
+        "codec": "h264",
+        "frames": 240,
+        "startS": 0
+      },
+      "audio": {
+        "codec": "aac",
+        "frames": 376,
+        "startS": 0
+      },
+      "formatDurationS": 8.021,
+      "decodeErrors": "",
+      "counters": {
+        "frames": 240,
+        "first": 0,
+        "last": 238,
+        "startRepeatOfFrame0": true,
+        "gaps": 0,
+        "duplicates": 0,
+        "maxMissingRun": 0,
+        "sequential": true
+      },
+      "avfoundation": {
+        "playable": true,
+        "durationS": 8.022,
+        "tracks": "vide,soun"
+      }
+    },
+    "originalSha256Unchanged": true
+  },
+  "accounting": {
+    "recoveredVideoFrames": 240,
+    "ffmpegFramesEncodedAtLastProgress": 234,
+    "ffmpegMediaSecondsAtLastProgress": 7.76,
+    "recoveredDurationS": 8.021,
+    "recoveredPctOfEncodedAtLastProgress": 102.6,
+    "lostSecondsVsLastProgress": -0.26,
+    "wallSecondsAtKill": 8.404,
+    "playableDurationVsWall": -0.38
+  }
+}

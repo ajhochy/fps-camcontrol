@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "issue": "https://github.com/ajhochy/fps-camcontrol/issues/65",
-  "status": "PINNED-SOURCE",
-  "statusNote": "Sources downloaded with AJ approval (2026-10-22/28) and verified; pinned. Build with scripts/build-ffmpeg-runtime.sh <dir with the tarballs> <new output dir>.",
+  "status": "PINNED-BUILD",
+  "statusNote": "Sources downloaded with AJ approval (2026-10-22/28) and verified; built 2026-10-28 with scripts/build-ffmpeg-runtime.sh; notices staged and every shipped file pinned 2026-11-05. Rebuilding must reproduce the probe result; a different binary hash needs a new pin and re-run evidence.",
   "platform": "darwin",
   "architecture": "arm64",
   "minimumMacOS": "14.0",
@@ -58,33 +58,45 @@
     {
       "name": "ffmpeg",
       "role": "ffmpeg binary (arm64, static OpenSSL, system frameworks only)",
-      "sha256": null,
-      "size": null,
+      "sha256": "5a9ff1ef25b47b3d0186b49ad2c220f25855388dabc6c2e4f232e6c49284f057",
+      "size": 26152984,
       "otool": "only /usr/lib and /System/Library dependencies"
     },
     {
       "name": "ffprobe",
       "role": "ffprobe binary, identical version/configuration",
-      "sha256": null,
-      "size": null
+      "sha256": "08ffd9c95a29125492e3cf49f3c28551921a2852a86bc7675762b196d6f2faba",
+      "size": 25961512
     },
     {
       "name": "LICENSE.md",
-      "role": "LGPL v3 text and FFmpeg license summary shipped with the binaries",
-      "sha256": null,
-      "size": null
+      "role": "FFmpeg's license summary, copied unchanged from the source tarball",
+      "sha256": "2e1d16c72fd74e12063776371da757322f8b77589386532f4fd8634bde7de1af",
+      "size": 4346
+    },
+    {
+      "name": "COPYING.LGPLv3",
+      "role": "LGPL v3 full text, copied unchanged from the FFmpeg source tarball",
+      "sha256": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768",
+      "size": 7651
+    },
+    {
+      "name": "OPENSSL-LICENSE.txt",
+      "role": "Apache-2.0 text, copied unchanged from the OpenSSL source tarball (OpenSSL is statically linked)",
+      "sha256": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a",
+      "size": 10175
     },
     {
       "name": "THIRD_PARTY_FFMPEG.md",
-      "role": "Notices: FFmpeg (LGPL-3.0-or-later), OpenSSL (Apache-2.0), offer of corresponding source + build script + configure line",
-      "sha256": null,
-      "size": null
+      "role": "Notices: FFmpeg (LGPL-3.0-or-later), OpenSSL (Apache-2.0), source URLs + checksums, build script and configure line (template: scripts/ffmpeg-runtime/THIRD_PARTY_FFMPEG.md)",
+      "sha256": "c0ecc1c565ff8af0f6095bca69d07d838d509193d40a92935151cb56c54de418",
+      "size": 1581
     },
     {
       "name": "probe-report.json",
       "role": "output of probe-ffmpeg-runtime.cjs probe against the shipped pair",
-      "sha256": null,
-      "size": null
+      "sha256": "c6d791f95279110f935d97fa1ea994d74e0c9e714f9de3d78b2cee2123db5a15",
+      "size": 2772
     }
   ],
   "installedUse": {

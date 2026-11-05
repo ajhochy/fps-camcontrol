@@ -1,0 +1,157 @@
+{
+  "scenario": "graceful",
+  "kind": "synthetic",
+  "at": "2026-11-05T22:25:45.163Z",
+  "movflags": "default",
+  "extra": [],
+  "run": {
+    "mp4": "recording.mp4",
+    "wallS": 14.03,
+    "action": {
+      "atS": 14,
+      "kind": "sigterm-helper"
+    },
+    "actionAtS": 14.004,
+    "helperExitCode": 0,
+    "helperSignal": null,
+    "ffmpegExitCode": 0,
+    "helperExitAtS": 14.014,
+    "ffmpegExitAtS": 14.028,
+    "helperExitMsAfterAction": 10,
+    "ffmpegExitMsAfterAction": 23,
+    "ffmpegMsAfterHelperExit": 13,
+    "lastProgressBeforeAction": {
+      "atS": 13.261809290999999,
+      "frame": 385,
+      "mediaS": 12.8
+    },
+    "helperFramesOut": 415,
+    "helperLastStatus": {
+      "type": "status",
+      "t_ms": 13005,
+      "state": "running",
+      "mode": "1080p30",
+      "width": 1920,
+      "height": 1080,
+      "fps_nominal": 30,
+      "fps": 29,
+      "signal_locked": true,
+      "audio_packets": true,
+      "audio_peak_dbfs": -120,
+      "audio_present": false,
+      "frames_in": 390,
+      "frames_out": 390,
+      "filler_frames": 0,
+      "dropped_backpressure": 0,
+      "dropped_late": 0,
+      "audio_resyncs": 0,
+      "audio_dropped": 0,
+      "queue_depth": 0,
+      "queue_cap": 12,
+      "blocked_ms": 0,
+      "max_block_ms": 0,
+      "bytes_out": 1622411289
+    },
+    "flv": {
+      "segments": 1,
+      "bytes": 84221,
+      "videoTags": 415,
+      "audioTags": 650
+    },
+    "ffmpegFaultLines": [
+      "Output #0, tee, to '[f=mp4:movflags=+frag_keyframe+hybrid_fragmented:flush_packets=1:frag_duration=500000:onfail=ignore]$TMPDIR/mp4fault-fgqsQV/graceful-syn-29",
+      "[out#0/tee @ 0xb36c04480] video:56KiB audio:7KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: unknown"
+    ],
+    "ffmpegStderrTail": [
+      "  Stream #0:1(eng): Audio: aac (LC), 48000 Hz, stereo, fltp, 128 kb/s (default)",
+      "    Metadata:",
+      "      encoder         : Lavc62.28.103 aac",
+      "[flv @ 0xb37025b80] Failed to update header with correct filesize.",
+      "[out#0/tee @ 0xb36c04480] video:56KiB audio:7KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: unknown",
+      "[aac @ 0xb36c24e00] Qavg: 65133.711"
+    ]
+  },
+  "analysis": {
+    "file": "recording.mp4",
+    "bytes": 80566,
+    "scan": {
+      "state": "closed",
+      "moovCount": 1,
+      "fragments": 0,
+      "initialMoovSamples": {
+        "vide": 0,
+        "soun": 0
+      },
+      "fragmentSamples": {
+        "vide": 0,
+        "soun": 0
+      },
+      "completeSamples": {
+        "vide": 0,
+        "soun": 0
+      },
+      "finalMoovSamples": {
+        "vide": 415,
+        "soun": 650
+      },
+      "completePrefixBytes": 80566,
+      "trailing": null,
+      "atoms": [
+        "ftyp",
+        "free",
+        "mdat",
+        "moov"
+      ]
+    },
+    "originalAvfoundation": {
+      "playable": true,
+      "durationS": 13.8546875,
+      "tracks": "vide,soun"
+    },
+    "recovery": {
+      "status": "NOT_NEEDED",
+      "originalSha256": "247998d4c9b93522de641690ebb3cea420c201afa138eb377efbffddc119aca8"
+    },
+    "usable": "recording.mp4",
+    "content": {
+      "video": {
+        "codec": "h264",
+        "frames": 415,
+        "startS": 0
+      },
+      "audio": {
+        "codec": "aac",
+        "frames": 650,
+        "startS": 0
+      },
+      "formatDurationS": 13.855,
+      "decodeErrors": "",
+      "counters": {
+        "frames": 415,
+        "first": 0,
+        "last": 413,
+        "startRepeatOfFrame0": true,
+        "gaps": 0,
+        "duplicates": 0,
+        "maxMissingRun": 0,
+        "sequential": true
+      },
+      "avfoundation": {
+        "playable": true,
+        "durationS": 13.8546875,
+        "tracks": "vide,soun"
+      }
+    },
+    "originalSha256Unchanged": true
+  },
+  "accounting": {
+    "recoveredVideoFrames": 415,
+    "ffmpegFramesEncodedAtLastProgress": 385,
+    "ffmpegMediaSecondsAtLastProgress": 12.8,
+    "recoveredDurationS": 13.855,
+    "recoveredPctOfEncodedAtLastProgress": 107.8,
+    "lostSecondsVsLastProgress": -1.05,
+    "wallSecondsAtKill": 14.004,
+    "playableDurationVsWall": -0.15
+  }
+}

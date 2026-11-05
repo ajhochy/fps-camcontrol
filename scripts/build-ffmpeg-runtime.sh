@@ -3,7 +3,7 @@
 # are downloaded only after explicit approval (see docs/ai/decisions/2026-10-22-ffmpeg-runtime.md). This script never downloads anything itself.
 #   scripts/build-ffmpeg-runtime.sh <dir containing the verified tarballs> <output dir>
 # Steps: verify tarball SHA-256 against scripts/ffmpeg-runtime-manifest.json (refuses unpinned), build static OpenSSL into a private prefix,
-# configure FFmpeg with the manifest flags, install ffmpeg/ffprobe, strip, then run the capability probe WITHOUT --allow-gpl.
+# configure FFmpeg with the manifest flags, install ffmpeg/ffprobe, strip, run the capability probe WITHOUT --allow-gpl, then stage the notices.
 set -eu
 SRC=${1:?directory with ffmpeg-<v>.tar.xz and openssl-<v>.tar.gz}; OUT=${2:?output directory (must not exist)}
 HERE=$(cd "$(dirname "$0")" && pwd); MANIFEST="$HERE/ffmpeg-runtime-manifest.json"
@@ -23,4 +23,5 @@ export MACOSX_DEPLOYMENT_TARGET=$(val minimumMacOS)
 cp "$WORK/ffinstall/bin/ffmpeg" "$WORK/ffinstall/bin/ffprobe" "$OUT/"; strip -x "$OUT/ffmpeg" "$OUT/ffprobe"
 otool -L "$OUT/ffmpeg" | tail -n +2 | grep -v -E '^\s+(/usr/lib/|/System/Library/)' && { echo "ffmpeg links a non-system library" >&2; exit 5; } || true
 node "$HERE/probe-ffmpeg-runtime.cjs" probe "$OUT/ffmpeg" --json "$OUT/probe-report.json" >/dev/null
+sh "$HERE/stage-ffmpeg-runtime-notices.sh" "$SRC" "$OUT"
 echo "built and probed (LGPL, no --allow-gpl): $OUT"

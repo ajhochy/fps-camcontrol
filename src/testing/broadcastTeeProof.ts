@@ -320,7 +320,7 @@ async function main() {
   if (args.includes('--list')) { console.log(Object.keys(scenarios).concat(['stall-sweep', 'reconnect-late-phase']).join('\n')); return; }
   const root = mkdtempSync(path.join(os.tmpdir(), 'camcontrol-tee-proof-'));
   const names = args.includes('--all') ? ['baseline', 'reconnect', 'reconnect-late-phase', 'stall-sweep', 'initialRecordingFailure', 'recordingViaInheritedFd', 'recordingFailureMidSession'] : [arg('--scenario') || 'baseline'];
-  const summary: Result = { generated: new Date().toISOString(), runtime: { ffmpeg: 'developer Homebrew FFmpeg 8.1.2 (not the pinned product runtime; #65 open)', host: `${os.platform()} ${os.arch()}` }, synthetic: true, source: '640x360@30 testsrc2 + L=440Hz/R=1000Hz stereo, h264_videotoolbox 2.5 Mbps, AAC 128k', results: {} };
+  const summary: Result = { generated: new Date().toISOString(), runtime: { ffmpeg, version: execFileSync(ffmpeg, ['-version']).toString().split('\n')[0], host: `${os.platform()} ${os.arch()}` }, synthetic: true, source: '640x360@30 testsrc2 + L=440Hz/R=1000Hz stereo, h264_videotoolbox 2.5 Mbps, AAC 128k', results: {} };
   try {
     for (const name of names) {
       const started = Date.now();
