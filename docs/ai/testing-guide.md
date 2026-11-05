@@ -60,6 +60,23 @@ the iPad against the fake DJI bridge and checks that socket drop, silence, idle,
 switch-off each leave the gimbal stopped and the desk in control.
 Manual only: a real iPad with a real Xbox controller (checklist in the PR / `docs/ipad-remote.md`).
 
+### Program capture and output sessions (#95, #69, #70; synthetic, no card)
+
+```bash
+make -C native/decklink-capture test        # mkv unit + synthetic_e2e.sh + serve_e2e.sh (service mode: fan-out, stall, attach/detach, EOF, format change)
+CAMCONTROL_NO_CONTROLLER=1 node --test --test-concurrency=1 -r ts-node/register/transpile-only \
+  tests/program/captureService.spec.ts tests/contract/issue-69.spec.ts tests/contract/issue-70.spec.ts
+```
+
+`scripts/checks.cjs issue` runs both (the helper suites via `make … BUILD=build-check test`). The spec files build the
+synthetic helper into `native/decklink-capture/build-test/` and use a scripted fake helper (`tests/program/fakeCaptureHelper.cjs`)
+and fake encoder for the state machine; the "real helper" cases need FFmpeg (`BROADCAST_FFMPEG`, else Homebrew) and skip
+without it. Set `BROADCAST_FFMPEG`/`BROADCAST_FFPROBE` to the pinned 8.1.3 pair to test the shipped runtime.
+Streaming harnesses against a given binary: `node dist/testing/broadcastTeeProof.js --all`, `mp4FaultProof.js --scenario …`,
+`delayProof.js --delay …` (see `docs/ai/runs/2026-11-05-streaming-capture-fanout.md`).
+Real card (**manual, AJ-authorized, Wirecast closed**): `native/decklink-capture/build-dl/camcontrol-capture --list-devices`
+first; `busy_flags: 1` means another app is capturing: do not proceed.
+
 ## What's covered
 
 ### Tracking-specific checks (serial, synthetic sources only)
@@ -154,3 +171,7 @@ Probe telemetry remains diagnostic and separate from the shipping app. The two
 historical idle-soak failures are preserved and are not declared repaired by a
 short instrumentation run. Do not repeat blind soaks or substitute probe results
 for production-app evidence.
+
+## DeckLink capture helper (native/decklink-capture)
+
+`make -C native/decklink-capture test` (or `pnpm capture:test`): SDK-free Matroska unit test plus a synthetic end-to-end (container decode, SIGTERM, EPIPE, backpressure, exit codes). `tests/broadcast/decklinkCapture.spec.ts` adds the parser/health/argument contracts and a helper -> ffmpeg -> MP4 + local RTMP run (synthetic, including signal loss). Real card: `DECKLINK_SDK_DIR=... pnpm capture:build`, then `node dist/testing/decklinkCaptureRun.js --real --seconds 20` only when `pgrep -il wirecast` is empty and the device is idle; the harness refuses otherwise, caps at 30 s, uses `nice`, and deletes the media. Never run it against the live rig while it is in use.

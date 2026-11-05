@@ -1,0 +1,181 @@
+{
+  "kind": "real-hardware",
+  "at": "2026-10-15T19:32:38.740Z",
+  "seconds": 20,
+  "helperExit": 0,
+  "ffmpegExit": 0,
+  "wallSeconds": 21.79,
+  "finalHealth": {
+    "state": "stopped",
+    "signalLocked": true,
+    "deviceOk": true,
+    "fps": 30,
+    "audioPresent": false,
+    "audioPackets": true,
+    "fillerFrames": 0,
+    "droppedBackpressure": 0,
+    "droppedLate": 0,
+    "queueDepth": 0,
+    "blockedMs": 0,
+    "maxBlockMs": 0,
+    "framesIn": 579,
+    "framesOut": 579,
+    "bytesOut": 2408656770,
+    "mode": "1080p30",
+    "width": 1920,
+    "height": 1080,
+    "fpsNominal": 30,
+    "audioPeakDbfs": -97.567,
+    "sourceAgeMs": 29,
+    "lastStatusAt": 1792092755976,
+    "interlaced": false,
+    "exitCode": 0
+  },
+  "events": [
+    {
+      "type": "event",
+      "event": "device",
+      "t_ms": 18,
+      "name": "UltraStudio Recorder 3G",
+      "index": 0,
+      "pixel_format": "8bit-uyvy",
+      "audio_input": true
+    },
+    {
+      "type": "event",
+      "event": "format-detected",
+      "t_ms": 1674,
+      "mode": "1080p30",
+      "width": 1920,
+      "height": 1080,
+      "rgb444": false,
+      "ten_bit": true
+    },
+    {
+      "type": "event",
+      "event": "started",
+      "t_ms": 1727,
+      "mode": "1080p30",
+      "width": 1920,
+      "height": 1080,
+      "fps_num": 30,
+      "fps_den": 1,
+      "interlaced": false,
+      "audio_channels": 2,
+      "audio_bits": 32,
+      "pixel_format": "uyvy422",
+      "reason": "signal-detected"
+    },
+    {
+      "type": "event",
+      "event": "signal",
+      "t_ms": 1741,
+      "locked": true
+    },
+    {
+      "type": "event",
+      "event": "duration-reached",
+      "t_ms": 21753
+    },
+    {
+      "type": "event",
+      "event": "stopping",
+      "t_ms": 21753,
+      "reason": "requested"
+    },
+    {
+      "type": "exit",
+      "code": 0,
+      "frames_in": 601,
+      "frames_out": 601,
+      "filler_frames": 0,
+      "dropped_backpressure": 0,
+      "dropped_late": 0,
+      "bytes_out": 2500177408
+    }
+  ],
+  "lastStatus": {
+    "type": "status",
+    "t_ms": 21037,
+    "state": "running",
+    "mode": "1080p30",
+    "width": 1920,
+    "height": 1080,
+    "fps_nominal": 30,
+    "fps": 30,
+    "signal_locked": true,
+    "audio_packets": true,
+    "audio_peak_dbfs": -97.567,
+    "audio_present": false,
+    "frames_in": 579,
+    "frames_out": 579,
+    "filler_frames": 0,
+    "dropped_backpressure": 0,
+    "dropped_late": 0,
+    "audio_resyncs": 0,
+    "audio_dropped": 0,
+    "queue_depth": 0,
+    "queue_cap": 12,
+    "blocked_ms": 0,
+    "max_block_ms": 0,
+    "bytes_out": 2408656770,
+    "device_ok": true,
+    "device_signal_locked": true,
+    "detected_mode": "1080p30",
+    "source_age_ms": 29
+  },
+  "verification": {
+    "video": {
+      "codec": "h264",
+      "width": 1920,
+      "height": 1080,
+      "pix_fmt": "yuv420p",
+      "r_frame_rate": "30/1",
+      "avg_frame_rate": "76928/2567",
+      "color_space": "bt709",
+      "field_order": "progressive"
+    },
+    "audio": {
+      "codec": "aac",
+      "channels": 2,
+      "sample_rate": "48000",
+      "packets": 941,
+      "lastDtsS": 20.053
+    },
+    "frameCount": 601,
+    "expectedFrames": 600,
+    "frameCountErrorPct": 0.17,
+    "expectedFps": "30/1",
+    "mp4": {
+      "timestamps": {
+        "strictlyIncreasingDts": true,
+        "maxGapMs": 54.7
+      },
+      "firstPtsS": 0,
+      "lastPtsS": 20.021,
+      "audioTimestamps": {
+        "strictlyIncreasingDts": true,
+        "maxGapMs": 21.3
+      },
+      "formatDurationS": 20.055,
+      "bytes": 9682947
+    },
+    "decodeErrors": "",
+    "flv": {
+      "videoTags": 601,
+      "audioTags": 941,
+      "videoTsMonotonic": true,
+      "audioTsMonotonic": true,
+      "keyFrames": 11,
+      "connected": true
+    }
+  },
+  "ffmpegStderrTail": [
+    "frame=   23 fps= 23 q=-0.0 size=N/A time=00:00:00.73 bitrate=N/A speed=0.726x elapsed=0:00:01.01    \rframe=   53 fps= 26 q=-0.0 size=N/A time=00:00:01.73 bitrate=N/A speed=0.862x elapsed=0:00:02.01    \rframe=   83 fps= 27 q=-0.0 size=N/A time=00:00:02.73 bitrate=N/A speed=0.905x elapsed=0:00:03.02    \rframe=  113 fps= 28 q=-0.0 size=N/A time=00:00:03.73 bitrate=N/A speed=0.928x elapsed=0:00:04.02    \rframe=  144 fps= 29 q=-0.0 size=N/A time=00:00:04.76 bitrate=N/A speed=0.947x elapsed=0:00:05.03    \rframe=  174 fps= 29 q=-0.0 size=N/A time=00:00:05.76 bitrate=N/A speed=0.954x elapsed=0:00:06.04    \rframe=  204 fps= 29 q=-0.0 size=N/A time=00:00:06.76 bitrate=N/A speed=0.96x elapsed=0:00:07.04    \rframe=  234 fps= 29 q=-0.0 size=N/A time=00:00:07.76 bitrate=N/A speed=0.964x elapsed=0:00:08.05    \rframe=  264 fps= 29 q=-0.0 size=N/A time=00:00:08.76 bitrate=N/A speed=0.968x elapsed=0:00:09.05    \rframe=  294 fps= 29 q=-0.0 size=N/A time=00:00:09.76 bitrate=N/A speed=0.971x elapsed=0:00:10.06    \rframe=  324 fps= 29 q=-0.0 size=N/A time=00:00:10.76 bitrate=N/A speed=0.973x elapsed=0:00:11.06    \rframe=  355 fps= 29 q=-0.0 size=N/A time=00:00:11.80 bitrate=N/A speed=0.978x elapsed=0:00:12.06    \rframe=  385 fps= 29 q=-0.0 size=N/A time=00:00:12.80 bitrate=N/A speed=0.979x elapsed=0:00:13.07    \rframe=  415 fps= 29 q=-0.0 size=N/A time=00:00:13.80 bitrate=N/A speed=0.98x elapsed=0:00:14.07    \rframe=  445 fps= 30 q=-0.0 size=N/A time=00:00:14.80 bitrate=N/A speed=0.981x elapsed=0:00:15.08    \rframe=  475 fps= 30 q=-0.0 size=N/A time=00:00:15.80 bitrate=N/A speed=0.982x elapsed=0:00:16.09    \rframe=  505 fps= 30 q=-0.0 size=N/A time=00:00:16.80 bitrate=N/A speed=0.983x elapsed=0:00:17.09    \rframe=  536 fps= 30 q=-0.0 size=N/A time=00:00:17.83 bitrate=N/A speed=0.985x elapsed=0:00:18.10    \rframe=  566 fps= 30 q=-0.0 size=N/A time=00:00:18.83 bitrate=N/A speed=0.985x elapsed=0:00:19.11    \r[flv @ 0x87ec15e00] Failed to update header with correct duration.",
+    "[flv @ 0x87ec15e00] Failed to update header with correct filesize.",
+    "[out#0/tee @ 0x87f804300] video:9123KiB audio:313KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: unknown",
+    "frame=  601 fps= 30 q=-0.0 Lsize=N/A time=00:00:20.00 bitrate=N/A speed=0.999x elapsed=0:00:20.02    ",
+    "[aac @ 0x87f801c00] Qavg: 370.242",
+    ""
+  ]
+}

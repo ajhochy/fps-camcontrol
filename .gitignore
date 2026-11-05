@@ -16,3 +16,11 @@ config/sony-cameras.json
 config/working-profile.json
 config/working-profile.json.orphaned-*
 config/remote-control.json
+
+# DeckLink capture helper: build output, and the Blackmagic SDK must never be vendored (referenced via DECKLINK_SDK_DIR)
+native/decklink-capture/build/
+native/decklink-capture/build-*/
+blackmagic-sdk/
+**/Blackmagic DeckLink SDK*/
+**/DeckLinkAPI*.h
+**/DeckLinkAPIDispatch*.cpp

@@ -1,0 +1,1662 @@
+{
+ "issue": "#67 S04",
+ "date": "2026-10-22",
+ "runtime": "/opt/homebrew/bin/ffmpeg 8.1.2 (developer, GPL, shared); helper native/decklink-capture; tee: MP4 slave 0 + local 127.0.0.1 RTMP fifo slave 1",
+ "sourceNotes": "Curated digest; raw per-run reports embed temp paths and are not committed. Harness: src/testing/mp4FaultProof.ts. Media deleted after every run. \"2s fragments\" = frag_keyframe only (extra=[]); default after this issue adds frag_duration=500000.",
+ "graceful": [
+  {
+   "case": "syn-graceful",
+   "kind": "synthetic",
+   "extraMuxerOptions": [],
+   "killAtWallS": 12.003,
+   "originalBytes": 71303,
+   "originalState": "closed",
+   "completeFragments": 0,
+   "initialMoovSamples": {
+    "vide": 0,
+    "soun": 0
+   },
+   "completeSamples": {
+    "vide": 0,
+    "soun": 0
+   },
+   "trailing": null,
+   "trailingBytes": null,
+   "originalSha256Unchanged": true,
+   "originalAvFoundationPlayable": true,
+   "recovery": "NOT_NEEDED",
+   "ffmpegExit": 0,
+   "helperExit": 0,
+   "helperSignal": null,
+   "streamedFlvVideoFrames": 361,
+   "finalDurationS": 12.055,
+   "decodeErrors": null,
+   "avFoundationPlayableFinal": true,
+   "frameCounterSequential": true,
+   "helperExitMsAfterSigterm": 14,
+   "ffmpegExitMsAfterSigterm": 25,
+   "ffmpegMsAfterHelperExit": 11
+  },
+  {
+   "case": "syn-graceful-2s",
+   "kind": "synthetic",
+   "extraMuxerOptions": [],
+   "killAtWallS": 12.002,
+   "originalBytes": 70455,
+   "originalState": "closed",
+   "completeFragments": 0,
+   "initialMoovSamples": {
+    "vide": 0,
+    "soun": 0
+   },
+   "completeSamples": {
+    "vide": 0,
+    "soun": 0
+   },
+   "trailing": null,
+   "trailingBytes": null,
+   "originalSha256Unchanged": true,
+   "originalAvFoundationPlayable": true,
+   "recovery": "NOT_NEEDED",
+   "ffmpegExit": 0,
+   "helperExit": 0,
+   "helperSignal": null,
+   "streamedFlvVideoFrames": 361,
+   "finalDurationS": 12.055,
+   "decodeErrors": null,
+   "avFoundationPlayableFinal": true,
+   "frameCounterSequential": true,
+   "helperExitMsAfterSigterm": 25,
+   "ffmpegExitMsAfterSigterm": 40,
+   "ffmpegMsAfterHelperExit": 15
+  },
+  {
+   "case": "real-graceful",
+   "kind": "real-hardware",
+   "extraMuxerOptions": [],
+   "killAtWallS": 20.003,
+   "originalBytes": 11550850,
+   "originalState": "closed",
+   "completeFragments": 0,
+   "initialMoovSamples": {
+    "vide": 0,
+    "soun": 0
+   },
+   "completeSamples": {
+    "vide": 0,
+    "soun": 0
+   },
+   "trailing": null,
+   "trailingBytes": null,
+   "originalSha256Unchanged": true,
+   "originalAvFoundationPlayable": true,
+   "recovery": "NOT_NEEDED",
+   "ffmpegExit": 0,
+   "helperExit": 0,
+   "helperSignal": null,
+   "streamedFlvVideoFrames": 571,
+   "finalDurationS": 19.055,
+   "decodeErrors": null,
+   "avFoundationPlayableFinal": true,
+   "frameCounterSequential": null,
+   "helperExitMsAfterSigterm": 42,
+   "ffmpegExitMsAfterSigterm": 63,
+   "ffmpegMsAfterHelperExit": 21
+  }
+ ],
+ "killFfmpegSigkill": {
+  "synthetic_2s_fragments": [
+   {
+    "case": "syn-killff2s-1.5",
+    "kind": "synthetic",
+    "extraMuxerOptions": [],
+    "killAtWallS": 1.503,
+    "originalBytes": 88,
+    "originalState": "no-media",
+    "completeFragments": 0,
+    "initialMoovSamples": {
+     "vide": 0,
+     "soun": 0
+    },
+    "completeSamples": {
+     "vide": 0,
+     "soun": 0
+    },
+    "trailing": null,
+    "trailingBytes": null,
+    "originalSha256Unchanged": true,
+    "originalAvFoundationPlayable": false,
+    "recovery": "NO_RECOVERABLE_MEDIA",
+    "ffmpegExit": null,
+    "helperExit": 0,
+    "helperSignal": null,
+    "streamedFlvVideoFrames": 36,
+    "reason": "no complete fragment persisted (header/initialization only)"
+   },
+   {
+    "case": "syn-killff2s-3.0",
+    "kind": "synthetic",
+    "extraMuxerOptions": [],
+    "killAtWallS": 3.004,
+    "originalBytes": 12700,
+    "originalState": "fragmented-open",
+    "completeFragments": 0,
+    "initialMoovSamples": {
+     "vide": 60,
+     "soun": 95
+    },
+    "completeSamples": {
+     "vide": 60,
+     "soun": 95
+    },
+    "trailing": null,
+    "trailingBytes": null,
+    "originalSha256Unchanged": true,
+    "originalAvFoundationPlayable": true,
+    "recovery": "RECOVERED",
+    "ffmpegExit": null,
+    "helperExit": 0,
+    "helperSignal": null,
+    "streamedFlvVideoFrames": 81,
+    "recoveredVideoFrames": 60,
+    "recoveredAudioPackets": 95,
+    "recoveredDurationS": 2.027,
+    "recoverMs": 33,
+    "discardedTrailingBytes": 0,
+    "avOriginS": {
+     "original": 0,
+     "recovered": 0
+    },
+    "finalDurationS": 2.027,
+    "decodeErrors": null,
+    "avFoundationPlayableFinal": true,
+    "frameCounterSequential": true,
+    "lostSecondsVsWallAtKill": 0.98
+   },
+   {
+    "case": "syn-killff2s-5.9",
+    "kind": "synthetic",
+    "extraMuxerOptions": [],
+    "killAtWallS": 5.904,
+    "originalBytes": 22868,
+    "originalState": "fragmented-open",
+    "completeFragments": 1,
+    "initialMoovSamples": {
+     "vide": 60,
+     "soun": 95
+    },
+    "completeSamples": {
+     "vide": 120,
+     "soun": 189
+    },
+    "trailing": null,
+    "trailingBytes": null,
+    "originalSha256Unchanged": true,
+    "originalAvFoundationPlayable": true,
+    "recovery": "RECOVERED",
+    "ffmpegExit": null,
+    "helperExit": 6,
+    "helperSignal": null,
+    "streamedFlvVideoFrames": 168,
+    "recoveredVideoFrames": 120,
+    "recoveredAudioPackets": 189,
+    "recoveredDurationS": 4.032,
+    "recoverMs": 29,
+    "discardedTrailingBytes": 0,
+    "avOriginS": {
+     "original": 0,
+     "recovered": 0
+    },
+    "finalDurationS": 4.032,
+    "decodeErrors": null,
+    "avFoundationPlayableFinal": true,
+    "frameCounterSequential": true,
+    "lostSecondsVsWallAtKill": 1.87
+   },
+   {
+    "case": "syn-killff2s-6.1",
+    "kind": "synthetic",
+    "extraMuxerOptions": [],
+    "killAtWallS": 6.103,
+    "originalBytes": 22868,
+    "originalState": "fragmented-open",
+    "completeFragments": 1,
+    "initialMoovSamples": {
+     "vide": 60,
+     "soun": 95
+    },
+    "completeSamples": {
+     "vide": 120,
+     "soun": 189
+    },
+    "trailing": null,
+    "trailingBytes": null,
+    "originalSha256Unchanged": true,
+    "originalAvFoundationPlayable": true,
+    "recovery": "RECOVERED",
+    "ffmpegExit": null,
+    "helperExit": 0,
+    "helperSignal": null,
+    "streamedFlvVideoFrames": 174,
+    "recoveredVideoFrames": 120,
+    "recoveredAudioPackets": 189,
+    "recoveredDurationS": 4.032,
+    "recoverMs": 48,
+    "discardedTrailingBytes": 0,
+    "avOriginS": {
+     "original": 0,
+     "recovered": 0
+    },
+    "finalDurationS": 4.032,
+    "decodeErrors": null,
+    "avFoundationPlayableFinal": true,
+    "frameCounterSequential": true,
+    "lostSecondsVsWallAtKill": 2.07
+   },
+   {
+    "case": "syn-killff2s-9.0",
+    "kind": "synthetic",
+    "extraMuxerOptions": [],
+    "killAtWallS": 9.003,
+    "originalBytes": 43215,
+    "originalState": "fragmented-open",
+    "completeFragments": 3,
+    "initialMoovSamples": {
+     "vide": 60,
+     "soun": 95
+    },
+    "completeSamples": {
+     "vide": 240,
+     "soun": 376
+    },
+    "trailing": null,
+    "trailingBytes": null,
+    "originalSha256Unchanged": true,
+    "originalAvFoundationPlayable": true,
+    "recovery": "RECOVERED",
+    "ffmpegExit": null,
+    "helperExit": 0,
+    "helperSignal": null,
+    "streamedFlvVideoFrames": 261,
+    "recoveredVideoFrames": 240,
+    "recoveredAudioPackets": 376,
+    "recoveredDurationS": 8.021,
+    "recoverMs": 48,
+    "discardedTrailingBytes": 0,
+    "avOriginS": {
+     "original": 0,
+     "recovered": 0
+    },
+    "finalDurationS": 8.021,
+    "decodeErrors": null,
+    "avFoundationPlayableFinal": true,
+    "frameCounterSequential": true,
+    "lostSecondsVsWallAtKill": 0.98
+   }
+  ],
+  "synthetic_500ms_fragments_default": [
+   {
+    "case": "syn-killff-1.5",
+    "kind": "synthetic",
+    "extraMuxerOptions": [],
+    "killAtWallS": 1.502,
+    "originalBytes": 7704,
+    "originalState": "fragmented-open",
+    "completeFragments": 1,
+    "initialMoovSamples": {
+     "vide": 15,
+     "soun": 24
+    },
+    "completeSamples": {
+     "vide": 30,
+     "soun": 48
+    },
+    "trailing": null,
+    "trailingBytes": null,
+    "originalSha256Unchanged": true,
+    "originalAvFoundationPlayable": true,
+    "recovery": "RECOVERED",
+    "ffmpegExit": null,
+    "helperExit": 0,
+    "helperSignal": null,
+    "streamedFlvVideoFrames": 36,
+    "recoveredVideoFrames": 30,
+    "recoveredAudioPackets": 48,
+    "recoveredDurationS": 1.024,
+    "recoverMs": 30,
+    "discardedTrailingBytes": 0,
+    "avOriginS": {
+     "original": 0,
+     "recovered": 0
+    },
+    "finalDurationS": 1.024,
+    "decodeErrors": null,
+    "avFoundationPlayableFinal": true,
+    "frameCounterSequential": true,
+    "lostSecondsVsWallAtKill": 0.48
+   },
+   {
+    "case": "syn-killff-3.0",
+    "kind": "synthetic",
+    "extraMuxerOptions": [],
+    "killAtWallS": 3.003,
+    "originalBytes": 16149,
+    "originalState": "fragmented-open",
+    "completeFragments": 4,
+    "initialMoovSamples": {
+     "vide": 15,
+     "soun": 24
+    },
+    "completeSamples": {
+     "vide": 75,
+     "soun": 119
+    },
+    "trailing": null,
+    "trailingBytes": null,
+    "originalSha256Unchanged": true,
+    "originalAvFoundationPlayable": true,
+    "recovery": "RECOVERED",
+    "ffmpegExit": null,
+    "helperExit": 0,
+    "helperSignal": null,
+    "streamedFlvVideoFrames": 81,
+    "recoveredVideoFrames": 75,
+    "recoveredAudioPackets": 119,
+    "recoveredDurationS": 2.539,
+    "recoverMs": 30,
+    "discardedTrailingBytes": 0,
+    "avOriginS": {
+     "original": 0,
+     "recovered": 0
+    },
+    "finalDurationS": 2.539,
+    "decodeErrors": null,
+    "avFoundationPlayableFinal": true,
+    "frameCounterSequential": true,
+    "lostSecondsVsWallAtKill": 0.46
+   },
+   {
+    "case": "syn-killff-5.9",
+    "kind": "synthetic",
+    "extraMuxerOptions": [],
+    "killAtWallS": 5.903,
+    "originalBytes": 30791,
+    "originalState": "fragmented-open",
+    "completeFragments": 10,
+    "initialMoovSamples": {
+     "vide": 15,
+     "soun": 24
+    },
+    "completeSamples": {
+     "vide": 165,
+     "soun": 259
+    },
+    "trailing": null,
+    "trailingBytes": null,
+    "originalSha256Unchanged": true,
+    "originalAvFoundationPlayable": true,
+    "recovery": "RECOVERED",
+    "ffmpegExit": null,
+    "helperExit": 0,
+    "helperSignal": null,
+    "streamedFlvVideoFrames": 168,
+    "recoveredVideoFrames": 165,
+    "recoveredAudioPackets": 259,
+    "recoveredDurationS": 5.525,
+    "recoverMs": 32,
+    "discardedTrailingBytes": 0,
+    "avOriginS": {
+     "original": 0,
+     "recovered": 0
+    },
+    "finalDurationS": 5.525,
+    "decodeErrors": null,
+    "avFoundationPlayableFinal": true,
+    "frameCounterSequential": true,
+    "lostSecondsVsWallAtKill": 0.38
+   },
+   {
+    "case": "syn-killff-6.1",
+    "kind": "synthetic",
+    "extraMuxerOptions": [],
+    "killAtWallS": 6.103,
+    "originalBytes": 30791,
+    "originalState": "fragmented-open",
+    "completeFragments": 10,
+    "initialMoovSamples": {
+     "vide": 15,
+     "soun": 24
+    },
+    "completeSamples": {
+     "vide": 165,
+     "soun": 259
+    },
+    "trailing": null,
+    "trailingBytes": null,
+    "originalSha256Unchanged": true,
+    "originalAvFoundationPlayable": true,
+    "recovery": "RECOVERED",
+    "ffmpegExit": null,
+    "helperExit": 0,
+    "helperSignal": null,
+    "streamedFlvVideoFrames": 174,
+    "recoveredVideoFrames": 165,
+    "recoveredAudioPackets": 259,
+    "recoveredDurationS": 5.525,
+    "recoverMs": 46,
+    "discardedTrailingBytes": 0,
+    "avOriginS": {
+     "original": 0,
+     "recovered": 0
+    },
+    "finalDurationS": 5.525,
+    "decodeErrors": null,
+    "avFoundationPlayableFinal": true,
+    "frameCounterSequential": true,
+    "lostSecondsVsWallAtKill": 0.58
+   },
+   {
+    "case": "syn-killff-9.0",
+    "kind": "synthetic",
+    "extraMuxerOptions": [],
+    "killAtWallS": 9.003,
+    "originalBytes": 47586,
+    "originalState": "fragmented-open",
+    "completeFragments": 16,
+    "initialMoovSamples": {
+     "vide": 15,
+     "soun": 24
+    },
+    "completeSamples": {
+     "vide": 255,
+     "soun": 400
+    },
+    "trailing": null,
+    "trailingBytes": null,
+    "originalSha256Unchanged": true,
+    "originalAvFoundationPlayable": true,
+    "recovery": "RECOVERED",
+    "ffmpegExit": null,
+    "helperExit": 0,
+    "helperSignal": null,
+    "streamedFlvVideoFrames": 261,
+    "recoveredVideoFrames": 255,
+    "recoveredAudioPackets": 400,
+    "recoveredDurationS": 8.533,
+    "recoverMs": 46,
+    "discardedTrailingBytes": 0,
+    "avOriginS": {
+     "original": 0,
+     "recovered": 0
+    },
+    "finalDurationS": 8.533,
+    "decodeErrors": null,
+    "avFoundationPlayableFinal": true,
+    "frameCounterSequential": true,
+    "lostSecondsVsWallAtKill": 0.47
+   }
+  ],
+  "real": [
+   {
+    "case": "real-killff-A",
+    "kind": "real-hardware",
+    "extraMuxerOptions": [],
+    "killAtWallS": 12.103,
+    "originalBytes": 6266895,
+    "originalState": "fragmented-open",
+    "completeFragments": 4,
+    "initialMoovSamples": {
+     "vide": 60,
+     "soun": 95
+    },
+    "completeSamples": {
+     "vide": 300,
+     "soun": 470
+    },
+    "trailing": null,
+    "trailingBytes": null,
+    "originalSha256Unchanged": true,
+    "originalAvFoundationPlayable": true,
+    "recovery": "RECOVERED",
+    "ffmpegExit": null,
+    "helperExit": 0,
+    "helperSignal": null,
+    "streamedFlvVideoFrames": 350,
+    "recoveredVideoFrames": 300,
+    "recoveredAudioPackets": 470,
+    "recoveredDurationS": 10.027,
+    "recoverMs": 34,
+    "discardedTrailingBytes": 0,
+    "avOriginS": {
+     "original": 0,
+     "recovered": 0
+    },
+    "finalDurationS": 10.027,
+    "decodeErrors": null,
+    "avFoundationPlayableFinal": true,
+    "frameCounterSequential": null,
+    "lostSecondsVsWallAtKill": 2.08
+   },
+   {
+    "case": "real-killff-B",
+    "kind": "real-hardware",
+    "extraMuxerOptions": [
+     "frag_duration=500000"
+    ],
+    "killAtWallS": 12.104,
+    "originalBytes": 8969047,
+    "originalState": "fragmented-open",
+    "completeFragments": 22,
+    "initialMoovSamples": {
+     "vide": 15,
+     "soun": 24
+    },
+    "completeSamples": {
+     "vide": 345,
+     "soun": 541
+    },
+    "trailing": null,
+    "trailingBytes": null,
+    "originalSha256Unchanged": true,
+    "originalAvFoundationPlayable": true,
+    "recovery": "RECOVERED",
+    "ffmpegExit": null,
+    "helperExit": 0,
+    "helperSignal": null,
+    "streamedFlvVideoFrames": 351,
+    "recoveredVideoFrames": 345,
+    "recoveredAudioPackets": 541,
+    "recoveredDurationS": 11.541,
+    "recoverMs": 45,
+    "discardedTrailingBytes": 0,
+    "avOriginS": {
+     "original": 0,
+     "recovered": 0
+    },
+    "finalDurationS": 11.541,
+    "decodeErrors": null,
+    "avFoundationPlayableFinal": true,
+    "frameCounterSequential": null,
+    "lostSecondsVsWallAtKill": 0.56
+   }
+  ]
+ },
+ "killHelperSigkill": [
+  {
+   "case": "syn-killhelper-6.5",
+   "kind": "synthetic",
+   "extraMuxerOptions": [],
+   "killAtWallS": 6.503,
+   "originalBytes": 41228,
+   "originalState": "closed",
+   "completeFragments": 0,
+   "initialMoovSamples": {
+    "vide": 0,
+    "soun": 0
+   },
+   "completeSamples": {
+    "vide": 0,
+    "soun": 0
+   },
+   "trailing": null,
+   "trailingBytes": null,
+   "originalSha256Unchanged": true,
+   "originalAvFoundationPlayable": true,
+   "recovery": "NOT_NEEDED",
+   "ffmpegExit": 0,
+   "helperExit": null,
+   "helperSignal": "SIGKILL",
+   "streamedFlvVideoFrames": 195,
+   "finalDurationS": 6.521,
+   "decodeErrors": null,
+   "avFoundationPlayableFinal": true,
+   "frameCounterSequential": true,
+   "lostSecondsVsWallAtKill": -0.02
+  },
+  {
+   "case": "real-killhelper-B",
+   "kind": "real-hardware",
+   "extraMuxerOptions": [
+    "frag_duration=500000"
+   ],
+   "killAtWallS": 12.104,
+   "originalBytes": 8383555,
+   "originalState": "closed",
+   "completeFragments": 0,
+   "initialMoovSamples": {
+    "vide": 0,
+    "soun": 0
+   },
+   "completeSamples": {
+    "vide": 0,
+    "soun": 0
+   },
+   "trailing": null,
+   "trailingBytes": null,
+   "originalSha256Unchanged": true,
+   "originalAvFoundationPlayable": true,
+   "recovery": "NOT_NEEDED",
+   "ffmpegExit": 0,
+   "helperExit": null,
+   "helperSignal": "SIGKILL",
+   "streamedFlvVideoFrames": 333,
+   "finalDurationS": 11.121,
+   "decodeErrors": null,
+   "avFoundationPlayableFinal": true,
+   "frameCounterSequential": null,
+   "lostSecondsVsWallAtKill": 0.98
+  }
+ ],
+ "fragmentDurationComparison_killAt6.1s": [
+  {
+   "case": "syn-killff2s-6.1",
+   "kind": "synthetic",
+   "extraMuxerOptions": [],
+   "killAtWallS": 6.103,
+   "originalBytes": 22868,
+   "originalState": "fragmented-open",
+   "completeFragments": 1,
+   "initialMoovSamples": {
+    "vide": 60,
+    "soun": 95
+   },
+   "completeSamples": {
+    "vide": 120,
+    "soun": 189
+   },
+   "trailing": null,
+   "trailingBytes": null,
+   "originalSha256Unchanged": true,
+   "originalAvFoundationPlayable": true,
+   "recovery": "RECOVERED",
+   "ffmpegExit": null,
+   "helperExit": 0,
+   "helperSignal": null,
+   "streamedFlvVideoFrames": 174,
+   "recoveredVideoFrames": 120,
+   "recoveredAudioPackets": 189,
+   "recoveredDurationS": 4.032,
+   "recoverMs": 48,
+   "discardedTrailingBytes": 0,
+   "avOriginS": {
+    "original": 0,
+    "recovered": 0
+   },
+   "finalDurationS": 4.032,
+   "decodeErrors": null,
+   "avFoundationPlayableFinal": true,
+   "frameCounterSequential": true,
+   "lostSecondsVsWallAtKill": 2.07
+  },
+  {
+   "case": "syn-killff-6.1",
+   "kind": "synthetic",
+   "extraMuxerOptions": [],
+   "killAtWallS": 6.103,
+   "originalBytes": 30791,
+   "originalState": "fragmented-open",
+   "completeFragments": 10,
+   "initialMoovSamples": {
+    "vide": 15,
+    "soun": 24
+   },
+   "completeSamples": {
+    "vide": 165,
+    "soun": 259
+   },
+   "trailing": null,
+   "trailingBytes": null,
+   "originalSha256Unchanged": true,
+   "originalAvFoundationPlayable": true,
+   "recovery": "RECOVERED",
+   "ffmpegExit": null,
+   "helperExit": 0,
+   "helperSignal": null,
+   "streamedFlvVideoFrames": 174,
+   "recoveredVideoFrames": 165,
+   "recoveredAudioPackets": 259,
+   "recoveredDurationS": 5.525,
+   "recoverMs": 46,
+   "discardedTrailingBytes": 0,
+   "avOriginS": {
+    "original": 0,
+    "recovered": 0
+   },
+   "finalDurationS": 5.525,
+   "decodeErrors": null,
+   "avFoundationPlayableFinal": true,
+   "frameCounterSequential": true,
+   "lostSecondsVsWallAtKill": 0.58
+  },
+  {
+   "case": "syn-mf-C-kill61",
+   "kind": "synthetic",
+   "extraMuxerOptions": [
+    "frag_duration=1000000"
+   ],
+   "killAtWallS": 6.103,
+   "originalBytes": 28404,
+   "originalState": "fragmented-open",
+   "completeFragments": 4,
+   "initialMoovSamples": {
+    "vide": 30,
+    "soun": 47
+   },
+   "completeSamples": {
+    "vide": 150,
+    "soun": 235
+   },
+   "trailing": null,
+   "trailingBytes": null,
+   "originalSha256Unchanged": true,
+   "originalAvFoundationPlayable": true,
+   "recovery": "RECOVERED",
+   "ffmpegExit": null,
+   "helperExit": 0,
+   "helperSignal": null,
+   "streamedFlvVideoFrames": 175,
+   "recoveredVideoFrames": 150,
+   "recoveredAudioPackets": 235,
+   "recoveredDurationS": 5.021,
+   "recoverMs": 33,
+   "discardedTrailingBytes": 0,
+   "avOriginS": {
+    "original": 0,
+    "recovered": 0
+   },
+   "finalDurationS": 5.021,
+   "decodeErrors": null,
+   "avFoundationPlayableFinal": true,
+   "frameCounterSequential": true,
+   "lostSecondsVsWallAtKill": 1.08
+  },
+  {
+   "case": "syn-graceful-2s",
+   "kind": "synthetic",
+   "extraMuxerOptions": [],
+   "killAtWallS": 12.002,
+   "originalBytes": 70455,
+   "originalState": "closed",
+   "completeFragments": 0,
+   "initialMoovSamples": {
+    "vide": 0,
+    "soun": 0
+   },
+   "completeSamples": {
+    "vide": 0,
+    "soun": 0
+   },
+   "trailing": null,
+   "trailingBytes": null,
+   "originalSha256Unchanged": true,
+   "originalAvFoundationPlayable": true,
+   "recovery": "NOT_NEEDED",
+   "ffmpegExit": 0,
+   "helperExit": 0,
+   "helperSignal": null,
+   "streamedFlvVideoFrames": 361,
+   "finalDurationS": 12.055,
+   "decodeErrors": null,
+   "avFoundationPlayableFinal": true,
+   "frameCounterSequential": true,
+   "helperExitMsAfterSigterm": 25,
+   "ffmpegExitMsAfterSigterm": 40,
+   "ffmpegMsAfterHelperExit": 15
+  },
+  {
+   "case": "syn-graceful",
+   "kind": "synthetic",
+   "extraMuxerOptions": [],
+   "killAtWallS": 12.003,
+   "originalBytes": 71303,
+   "originalState": "closed",
+   "completeFragments": 0,
+   "initialMoovSamples": {
+    "vide": 0,
+    "soun": 0
+   },
+   "completeSamples": {
+    "vide": 0,
+    "soun": 0
+   },
+   "trailing": null,
+   "trailingBytes": null,
+   "originalSha256Unchanged": true,
+   "originalAvFoundationPlayable": true,
+   "recovery": "NOT_NEEDED",
+   "ffmpegExit": 0,
+   "helperExit": 0,
+   "helperSignal": null,
+   "streamedFlvVideoFrames": 361,
+   "finalDurationS": 12.055,
+   "decodeErrors": null,
+   "avFoundationPlayableFinal": true,
+   "frameCounterSequential": true,
+   "helperExitMsAfterSigterm": 14,
+   "ffmpegExitMsAfterSigterm": 25,
+   "ffmpegMsAfterHelperExit": 11
+  },
+  {
+   "case": "syn-mf-C-grace",
+   "kind": "synthetic",
+   "extraMuxerOptions": [
+    "frag_duration=1000000"
+   ],
+   "killAtWallS": 10.003,
+   "originalBytes": 59101,
+   "originalState": "closed",
+   "completeFragments": 0,
+   "initialMoovSamples": {
+    "vide": 0,
+    "soun": 0
+   },
+   "completeSamples": {
+    "vide": 0,
+    "soun": 0
+   },
+   "trailing": null,
+   "trailingBytes": null,
+   "originalSha256Unchanged": true,
+   "originalAvFoundationPlayable": true,
+   "recovery": "NOT_NEEDED",
+   "ffmpegExit": 0,
+   "helperExit": 0,
+   "helperSignal": null,
+   "streamedFlvVideoFrames": 301,
+   "finalDurationS": 10.055,
+   "decodeErrors": null,
+   "avFoundationPlayableFinal": true,
+   "frameCounterSequential": true,
+   "helperExitMsAfterSigterm": 28,
+   "ffmpegExitMsAfterSigterm": 43,
+   "ffmpegMsAfterHelperExit": 16
+  }
+ ],
+ "writeFaultSweep_synthetic": [
+  {
+   "case": "syn-wf-2-partial",
+   "kind": "synthetic",
+   "extraMuxerOptions": [],
+   "originalBytes": 6394,
+   "originalState": "no-media",
+   "completeFragments": 0,
+   "initialMoovSamples": {
+    "vide": 0,
+    "soun": 0
+   },
+   "completeSamples": {
+    "vide": 0,
+    "soun": 0
+   },
+   "trailing": "incomplete mdat box (3197 of 9503 bytes persisted)",
+   "trailingBytes": 3197,
+   "originalSha256Unchanged": true,
+   "originalAvFoundationPlayable": true,
+   "recovery": "NO_RECOVERABLE_MEDIA",
+   "ffmpegExit": null,
+   "helperExit": 0,
+   "helperSignal": null,
+   "streamedFlvVideoFrames": 60,
+   "reason": "no complete fragment persisted (header/initialization only)",
+   "killAtWrite": 2,
+   "mode": "partial"
+  },
+  {
+   "case": "syn-wf-3-partial",
+   "kind": "synthetic",
+   "extraMuxerOptions": [],
+   "originalBytes": 17784,
+   "originalState": "fragmented-open",
+   "completeFragments": 0,
+   "initialMoovSamples": {
+    "vide": 60,
+    "soun": 95
+   },
+   "completeSamples": {
+    "vide": 60,
+    "soun": 95
+   },
+   "trailing": "incomplete mdat box (4272 of 9356 bytes persisted)",
+   "trailingBytes": 5084,
+   "originalSha256Unchanged": true,
+   "originalAvFoundationPlayable": true,
+   "recovery": "RECOVERED",
+   "ffmpegExit": null,
+   "helperExit": 0,
+   "helperSignal": null,
+   "streamedFlvVideoFrames": 120,
+   "recoveredVideoFrames": 60,
+   "recoveredAudioPackets": 95,
+   "recoveredDurationS": 2.027,
+   "recoverMs": 49,
+   "discardedTrailingBytes": 5084,
+   "avOriginS": {
+    "original": 0,
+    "recovered": 0
+   },
+   "finalDurationS": 2.027,
+   "decodeErrors": null,
+   "avFoundationPlayableFinal": true,
+   "frameCounterSequential": true,
+   "lostSecondsVsWallAtKill": null,
+   "killAtWrite": 3,
+   "mode": "partial"
+  },
+  {
+   "case": "syn-wf-6-after",
+   "kind": "synthetic",
+   "extraMuxerOptions": [],
+   "originalBytes": 53201,
+   "originalState": "fragmented-open",
+   "completeFragments": 4,
+   "initialMoovSamples": {
+    "vide": 60,
+    "soun": 95
+   },
+   "completeSamples": {
+    "vide": 300,
+    "soun": 470
+   },
+   "trailing": null,
+   "trailingBytes": null,
+   "originalSha256Unchanged": true,
+   "originalAvFoundationPlayable": true,
+   "recovery": "RECOVERED",
+   "ffmpegExit": null,
+   "helperExit": 0,
+   "helperSignal": null,
+   "streamedFlvVideoFrames": 300,
+   "recoveredVideoFrames": 300,
+   "recoveredAudioPackets": 470,
+   "recoveredDurationS": 10.027,
+   "recoverMs": 31,
+   "discardedTrailingBytes": 0,
+   "avOriginS": {
+    "original": 0,
+    "recovered": 0
+   },
+   "finalDurationS": 10.027,
+   "decodeErrors": null,
+   "avFoundationPlayableFinal": true,
+   "frameCounterSequential": true,
+   "lostSecondsVsWallAtKill": null,
+   "killAtWrite": 6,
+   "mode": "after"
+  },
+  {
+   "case": "syn-wf-6-before",
+   "kind": "synthetic",
+   "extraMuxerOptions": [],
+   "originalBytes": 43215,
+   "originalState": "fragmented-open",
+   "completeFragments": 3,
+   "initialMoovSamples": {
+    "vide": 60,
+    "soun": 95
+   },
+   "completeSamples": {
+    "vide": 240,
+    "soun": 376
+   },
+   "trailing": null,
+   "trailingBytes": null,
+   "originalSha256Unchanged": true,
+   "originalAvFoundationPlayable": true,
+   "recovery": "RECOVERED",
+   "ffmpegExit": null,
+   "helperExit": 0,
+   "helperSignal": null,
+   "streamedFlvVideoFrames": 300,
+   "recoveredVideoFrames": 240,
+   "recoveredAudioPackets": 376,
+   "recoveredDurationS": 8.021,
+   "recoverMs": 38,
+   "discardedTrailingBytes": 0,
+   "avOriginS": {
+    "original": 0,
+    "recovered": 0
+   },
+   "finalDurationS": 8.021,
+   "decodeErrors": null,
+   "avFoundationPlayableFinal": true,
+   "frameCounterSequential": true,
+   "lostSecondsVsWallAtKill": null,
+   "killAtWrite": 6,
+   "mode": "before"
+  },
+  {
+   "case": "syn-wf-6-partial",
+   "kind": "synthetic",
+   "extraMuxerOptions": [],
+   "originalBytes": 48208,
+   "originalState": "fragmented-open",
+   "completeFragments": 3,
+   "initialMoovSamples": {
+    "vide": 60,
+    "soun": 95
+   },
+   "completeSamples": {
+    "vide": 240,
+    "soun": 376
+   },
+   "trailing": "incomplete mdat box (4181 of 9174 bytes persisted)",
+   "trailingBytes": 4993,
+   "originalSha256Unchanged": true,
+   "originalAvFoundationPlayable": true,
+   "recovery": "RECOVERED",
+   "ffmpegExit": null,
+   "helperExit": 0,
+   "helperSignal": null,
+   "streamedFlvVideoFrames": 300,
+   "recoveredVideoFrames": 240,
+   "recoveredAudioPackets": 376,
+   "recoveredDurationS": 8.021,
+   "recoverMs": 47,
+   "discardedTrailingBytes": 4993,
+   "avOriginS": {
+    "original": 0,
+    "recovered": 0
+   },
+   "finalDurationS": 8.021,
+   "decodeErrors": null,
+   "avFoundationPlayableFinal": true,
+   "frameCounterSequential": true,
+   "lostSecondsVsWallAtKill": null,
+   "killAtWrite": 6,
+   "mode": "partial"
+  },
+  {
+   "case": "syn-wf-7-after",
+   "kind": "synthetic",
+   "extraMuxerOptions": [],
+   "originalBytes": 59597,
+   "originalState": "closed-header-unpatched",
+   "completeFragments": 5,
+   "initialMoovSamples": {
+    "vide": 60,
+    "soun": 95
+   },
+   "completeSamples": {
+    "vide": 301,
+    "soun": 472
+   },
+   "trailing": "final moov written but header not patched",
+   "trailingBytes": 5649,
+   "originalSha256Unchanged": true,
+   "originalAvFoundationPlayable": true,
+   "recovery": "RECOVERED",
+   "ffmpegExit": null,
+   "helperExit": 0,
+   "helperSignal": null,
+   "streamedFlvVideoFrames": 301,
+   "recoveredVideoFrames": 301,
+   "recoveredAudioPackets": 472,
+   "recoveredDurationS": 10.055,
+   "recoverMs": 34,
+   "discardedTrailingBytes": 5649,
+   "avOriginS": {
+    "original": 0,
+    "recovered": 0
+   },
+   "finalDurationS": 10.055,
+   "decodeErrors": null,
+   "avFoundationPlayableFinal": true,
+   "frameCounterSequential": true,
+   "lostSecondsVsWallAtKill": null,
+   "killAtWrite": 7,
+   "mode": "after"
+  },
+  {
+   "case": "syn-wf-7-before",
+   "kind": "synthetic",
+   "extraMuxerOptions": [],
+   "originalBytes": 53201,
+   "originalState": "fragmented-open",
+   "completeFragments": 4,
+   "initialMoovSamples": {
+    "vide": 60,
+    "soun": 95
+   },
+   "completeSamples": {
+    "vide": 300,
+    "soun": 470
+   },
+   "trailing": null,
+   "trailingBytes": null,
+   "originalSha256Unchanged": true,
+   "originalAvFoundationPlayable": true,
+   "recovery": "RECOVERED",
+   "ffmpegExit": null,
+   "helperExit": 0,
+   "helperSignal": null,
+   "streamedFlvVideoFrames": 301,
+   "recoveredVideoFrames": 300,
+   "recoveredAudioPackets": 470,
+   "recoveredDurationS": 10.027,
+   "recoverMs": 48,
+   "discardedTrailingBytes": 0,
+   "avOriginS": {
+    "original": 0,
+    "recovered": 0
+   },
+   "finalDurationS": 10.027,
+   "decodeErrors": null,
+   "avFoundationPlayableFinal": true,
+   "frameCounterSequential": true,
+   "lostSecondsVsWallAtKill": null,
+   "killAtWrite": 7,
+   "mode": "before"
+  },
+  {
+   "case": "syn-wf-7-partial",
+   "kind": "synthetic",
+   "extraMuxerOptions": [],
+   "originalBytes": 56399,
+   "originalState": "fragmented-open",
+   "completeFragments": 5,
+   "initialMoovSamples": {
+    "vide": 60,
+    "soun": 95
+   },
+   "completeSamples": {
+    "vide": 301,
+    "soun": 472
+   },
+   "trailing": "incomplete moov box (2451 of 5649 bytes persisted)",
+   "trailingBytes": 2451,
+   "originalSha256Unchanged": true,
+   "originalAvFoundationPlayable": true,
+   "recovery": "RECOVERED",
+   "ffmpegExit": null,
+   "helperExit": 0,
+   "helperSignal": null,
+   "streamedFlvVideoFrames": 301,
+   "recoveredVideoFrames": 301,
+   "recoveredAudioPackets": 472,
+   "recoveredDurationS": 10.055,
+   "recoverMs": 30,
+   "discardedTrailingBytes": 2451,
+   "avOriginS": {
+    "original": 0,
+    "recovered": 0
+   },
+   "finalDurationS": 10.055,
+   "decodeErrors": null,
+   "avFoundationPlayableFinal": true,
+   "frameCounterSequential": true,
+   "lostSecondsVsWallAtKill": null,
+   "killAtWrite": 7,
+   "mode": "partial"
+  },
+  {
+   "case": "syn-wf-8-after",
+   "kind": "synthetic",
+   "extraMuxerOptions": [],
+   "originalBytes": 25429,
+   "originalState": "fragmented-open",
+   "completeFragments": 6,
+   "initialMoovSamples": {
+    "vide": 60,
+    "soun": 95
+   },
+   "completeSamples": {
+    "vide": 120,
+    "soun": 189
+   },
+   "trailing": null,
+   "trailingBytes": null,
+   "originalSha256Unchanged": true,
+   "originalAvFoundationPlayable": true,
+   "recovery": "RECOVERED",
+   "ffmpegExit": null,
+   "helperExit": 0,
+   "helperSignal": null,
+   "streamedFlvVideoFrames": 120,
+   "recoveredVideoFrames": 120,
+   "recoveredAudioPackets": 189,
+   "recoveredDurationS": 4.032,
+   "recoverMs": 50,
+   "discardedTrailingBytes": 0,
+   "avOriginS": {
+    "original": 0,
+    "recovered": 0
+   },
+   "finalDurationS": 4.032,
+   "decodeErrors": null,
+   "avFoundationPlayableFinal": true,
+   "frameCounterSequential": true,
+   "lostSecondsVsWallAtKill": null,
+   "killAtWrite": 8,
+   "mode": "after"
+  },
+  {
+   "case": "syn-wf-8-before",
+   "kind": "synthetic",
+   "extraMuxerOptions": [],
+   "originalBytes": 59597,
+   "originalState": "closed-header-unpatched",
+   "completeFragments": 5,
+   "initialMoovSamples": {
+    "vide": 60,
+    "soun": 95
+   },
+   "completeSamples": {
+    "vide": 301,
+    "soun": 472
+   },
+   "trailing": "final moov written but header not patched",
+   "trailingBytes": 5649,
+   "originalSha256Unchanged": true,
+   "originalAvFoundationPlayable": true,
+   "recovery": "RECOVERED",
+   "ffmpegExit": null,
+   "helperExit": 0,
+   "helperSignal": null,
+   "streamedFlvVideoFrames": 301,
+   "recoveredVideoFrames": 301,
+   "recoveredAudioPackets": 472,
+   "recoveredDurationS": 10.055,
+   "recoverMs": 48,
+   "discardedTrailingBytes": 5649,
+   "avOriginS": {
+    "original": 0,
+    "recovered": 0
+   },
+   "finalDurationS": 10.055,
+   "decodeErrors": null,
+   "avFoundationPlayableFinal": true,
+   "frameCounterSequential": true,
+   "lostSecondsVsWallAtKill": null,
+   "killAtWrite": 8,
+   "mode": "before"
+  },
+  {
+   "case": "syn-wf-8-partial",
+   "kind": "synthetic",
+   "extraMuxerOptions": [],
+   "originalBytes": 58361,
+   "originalState": "closed",
+   "completeFragments": 0,
+   "initialMoovSamples": {
+    "vide": 0,
+    "soun": 0
+   },
+   "completeSamples": {
+    "vide": 0,
+    "soun": 0
+   },
+   "trailing": null,
+   "trailingBytes": null,
+   "originalSha256Unchanged": true,
+   "originalAvFoundationPlayable": true,
+   "recovery": "NOT_NEEDED",
+   "ffmpegExit": 0,
+   "helperExit": 0,
+   "helperSignal": null,
+   "streamedFlvVideoFrames": 300,
+   "finalDurationS": 10.021,
+   "decodeErrors": null,
+   "avFoundationPlayableFinal": true,
+   "frameCounterSequential": true,
+   "lostSecondsVsWallAtKill": null,
+   "killAtWrite": 8,
+   "mode": "partial"
+  }
+ ],
+ "realFinalizationPatchKill": [
+  {
+   "case": "real-patch-before",
+   "kind": "real-hardware",
+   "extraMuxerOptions": [
+    "frag_duration=500000"
+   ],
+   "killAtWallS": null,
+   "originalBytes": 15563238,
+   "originalState": "closed-header-unpatched",
+   "completeFragments": 39,
+   "initialMoovSamples": {
+    "vide": 15,
+    "soun": 24
+   },
+   "completeSamples": {
+    "vide": 600,
+    "soun": 939
+   },
+   "trailing": "final moov written but header not patched",
+   "trailingBytes": 8549,
+   "originalSha256Unchanged": true,
+   "originalAvFoundationPlayable": true,
+   "recovery": "RECOVERED",
+   "ffmpegExit": null,
+   "helperExit": 0,
+   "helperSignal": null,
+   "streamedFlvVideoFrames": 592,
+   "recoveredVideoFrames": 600,
+   "recoveredAudioPackets": 939,
+   "recoveredDurationS": 20.021,
+   "recoverMs": 48,
+   "discardedTrailingBytes": 8549,
+   "avOriginS": {
+    "original": 0,
+    "recovered": 0
+   },
+   "finalDurationS": 20.021,
+   "decodeErrors": null,
+   "avFoundationPlayableFinal": true,
+   "frameCounterSequential": null,
+   "lostSecondsVsWallAtKill": null
+  },
+  {
+   "case": "real-patch-partial",
+   "kind": "real-hardware",
+   "extraMuxerOptions": [
+    "frag_duration=500000"
+   ],
+   "killAtWallS": null,
+   "originalBytes": 14937195,
+   "originalState": "closed",
+   "completeFragments": 0,
+   "initialMoovSamples": {
+    "vide": 0,
+    "soun": 0
+   },
+   "completeSamples": {
+    "vide": 0,
+    "soun": 0
+   },
+   "trailing": null,
+   "trailingBytes": null,
+   "originalSha256Unchanged": true,
+   "originalAvFoundationPlayable": true,
+   "recovery": "NOT_NEEDED",
+   "ffmpegExit": null,
+   "helperExit": 0,
+   "helperSignal": null,
+   "streamedFlvVideoFrames": 600,
+   "finalDurationS": 20.055,
+   "decodeErrors": null,
+   "avFoundationPlayableFinal": true,
+   "frameCounterSequential": null,
+   "lostSecondsVsWallAtKill": null
+  }
+ ],
+ "writeFailureTail": [
+  {
+   "case": "syn-wfail2",
+   "kind": "synthetic",
+   "extraMuxerOptions": [],
+   "killAtWallS": null,
+   "originalBytes": 61440,
+   "originalState": "fragmented-open",
+   "completeFragments": 4,
+   "initialMoovSamples": {
+    "vide": 60,
+    "soun": 95
+   },
+   "completeSamples": {
+    "vide": 300,
+    "soun": 470
+   },
+   "trailing": "incomplete mdat box (7427 of 9440 bytes persisted)",
+   "trailingBytes": 8239,
+   "originalSha256Unchanged": true,
+   "originalAvFoundationPlayable": true,
+   "recovery": "RECOVERED",
+   "ffmpegExit": 0,
+   "helperExit": 0,
+   "helperSignal": null,
+   "streamedFlvVideoFrames": 421,
+   "recoveredVideoFrames": 300,
+   "recoveredAudioPackets": 470,
+   "recoveredDurationS": 10.027,
+   "recoverMs": 29,
+   "discardedTrailingBytes": 8239,
+   "avOriginS": {
+    "original": 0,
+    "recovered": 0
+   },
+   "finalDurationS": 10.027,
+   "decodeErrors": null,
+   "avFoundationPlayableFinal": true,
+   "frameCounterSequential": true,
+   "lostSecondsVsWallAtKill": null,
+   "ffmpegFaultLines": [
+    "[tee @ 0x81ac10280] Slave muxer #0 failed: File too large, continuing with 1/2 slaves."
+   ],
+   "recordingBytes": 61440,
+   "streamContinued": "FLV received 421 video frames (full run)"
+  },
+  {
+   "case": "real-wfail",
+   "kind": "real-hardware",
+   "extraMuxerOptions": [
+    "frag_duration=500000"
+   ],
+   "killAtWallS": null,
+   "originalBytes": 6144000,
+   "originalState": "fragmented-open",
+   "completeFragments": 19,
+   "initialMoovSamples": {
+    "vide": 15,
+    "soun": 24
+   },
+   "completeSamples": {
+    "vide": 300,
+    "soun": 470
+   },
+   "trailing": "incomplete mdat box (275720 of 829213 bytes persisted)",
+   "trailingBytes": 276072,
+   "originalSha256Unchanged": true,
+   "originalAvFoundationPlayable": true,
+   "recovery": "RECOVERED",
+   "ffmpegExit": 0,
+   "helperExit": 0,
+   "helperSignal": null,
+   "streamedFlvVideoFrames": 600,
+   "recoveredVideoFrames": 300,
+   "recoveredAudioPackets": 470,
+   "recoveredDurationS": 10.027,
+   "recoverMs": 45,
+   "discardedTrailingBytes": 276072,
+   "avOriginS": {
+    "original": 0,
+    "recovered": 0
+   },
+   "finalDurationS": 10.027,
+   "decodeErrors": null,
+   "avFoundationPlayableFinal": true,
+   "frameCounterSequential": null,
+   "lostSecondsVsWallAtKill": null,
+   "ffmpegFaultLines": [
+    "[tee @ 0xbc2c14280] Slave muxer #0 failed: File too large, continuing with 1/2 slaves."
+   ],
+   "recordingBytes": 6144000,
+   "streamContinued": "FLV received 600 video frames (full run) after the MP4 slave failed at 6144000 bytes"
+  }
+ ],
+ "finalizationScaling_sampleEquivalent": {
+  "note": "tiny-frame libx264+AAC with real 30 fps / 48 kHz sample counts (2 h = 216k video + 337k audio samples); scale-big-3 is 1280x720 6 Mbps VideoToolbox, 3 min. SIGINT at media time -> process exit. Fast local SSD only; slow storage NOT measured.",
+  "runs": [
+   {
+    "case": "scale-5",
+    "recordingMediaSecondsAtSigint": 390.7,
+    "videoSamples": 11727,
+    "audioSamples": 18315,
+    "fileBytes": 3551350,
+    "finalMoovBytes": 126107,
+    "sigintToExitMs": 5,
+    "finalState": "closed",
+    "decodeErrors": null,
+    "avFoundationPlayable": true,
+    "seekNearEndOk": true,
+    "writeCount": 198,
+    "lastWrites": [
+     {
+      "seq": 195,
+      "offset": 3383914,
+      "len": 17567
+     },
+     {
+      "seq": 196,
+      "offset": 3401481,
+      "len": 17553
+     },
+     {
+      "seq": 197,
+      "offset": 3419034,
+      "len": 132316
+     },
+     {
+      "seq": 198,
+      "offset": 44,
+      "len": 8
+     }
+    ]
+   },
+   {
+    "case": "scale-30",
+    "recordingMediaSecondsAtSigint": 1981.4,
+    "videoSamples": 59450,
+    "audioSamples": 92880,
+    "fileBytes": 17987780,
+    "finalMoovBytes": 629575,
+    "sigintToExitMs": 8,
+    "finalState": "closed",
+    "decodeErrors": null,
+    "avFoundationPlayable": true,
+    "seekNearEndOk": true,
+    "writeCount": 1006,
+    "lastWrites": [
+     {
+      "seq": 1003,
+      "offset": 17604861,
+      "len": 4
+     },
+     {
+      "seq": 1004,
+      "offset": 17987682,
+      "len": 98
+     },
+     {
+      "seq": 1005,
+      "offset": 17358205,
+      "len": 4
+     },
+     {
+      "seq": 1006,
+      "offset": 44,
+      "len": 8
+     }
+    ]
+   },
+   {
+    "case": "scale-60",
+    "recordingMediaSecondsAtSigint": 3738.2,
+    "videoSamples": 112151,
+    "audioSamples": 175227,
+    "fileBytes": 33931501,
+    "finalMoovBytes": 1185595,
+    "sigintToExitMs": 13,
+    "finalState": "closed",
+    "decodeErrors": null,
+    "avFoundationPlayable": true,
+    "seekNearEndOk": true,
+    "writeCount": 1890,
+    "lastWrites": [
+     {
+      "seq": 1887,
+      "offset": 33210398,
+      "len": 4
+     },
+     {
+      "seq": 1888,
+      "offset": 33931403,
+      "len": 98
+     },
+     {
+      "seq": 1889,
+      "offset": 32745906,
+      "len": 4
+     },
+     {
+      "seq": 1890,
+      "offset": 44,
+      "len": 8
+     }
+    ]
+   },
+   {
+    "case": "scale-120",
+    "recordingMediaSecondsAtSigint": 7331.9,
+    "videoSamples": 219963,
+    "audioSamples": 343683,
+    "fileBytes": 66546378,
+    "finalMoovBytes": 2323003,
+    "sigintToExitMs": 23,
+    "finalState": "closed",
+    "decodeErrors": null,
+    "avFoundationPlayable": true,
+    "seekNearEndOk": true,
+    "writeCount": 3692,
+    "lastWrites": [
+     {
+      "seq": 3689,
+      "offset": 65133491,
+      "len": 4
+     },
+     {
+      "seq": 3690,
+      "offset": 66546280,
+      "len": 98
+     },
+     {
+      "seq": 3691,
+      "offset": 64223375,
+      "len": 4
+     },
+     {
+      "seq": 3692,
+      "offset": 44,
+      "len": 8
+     }
+    ]
+   },
+   {
+    "case": "scale-big-3",
+    "recordingMediaSecondsAtSigint": 206.7,
+    "videoSamples": 6226,
+    "audioSamples": 9689,
+    "fileBytes": 123164951,
+    "finalMoovBytes": 70780,
+    "sigintToExitMs": 33,
+    "finalState": "closed",
+    "decodeErrors": null,
+    "avFoundationPlayable": true,
+    "seekNearEndOk": true,
+    "writeCount": 520,
+    "lastWrites": [
+     {
+      "seq": 517,
+      "offset": 122413413,
+      "len": 262144
+     },
+     {
+      "seq": 518,
+      "offset": 122675557,
+      "len": 262144
+     },
+     {
+      "seq": 519,
+      "offset": 122937701,
+      "len": 227250
+     },
+     {
+      "seq": 520,
+      "offset": 44,
+      "len": 8
+     }
+    ]
+   }
+  ]
+ }
+}

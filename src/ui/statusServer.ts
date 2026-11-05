@@ -42,6 +42,7 @@ import { installTrackingRoutes, trackingSnapshot } from './trackingRoutes';
 import { resolveTrackingSources } from '../tracking/sourceResolver';
 import { installTrackingCalibrationRoutes } from './trackingCalibrationRoutes';
 import { installProgramRoutes, programFeedFor } from './programRoutes';
+import { installStreamingRoutes } from './streamingRoutes';
 
 export function createStatusServer(
   state: AppState,
@@ -83,7 +84,8 @@ export function createStatusServer(
     config.tracking = loadConfig().tracking;
   });
   installTrackingCalibrationRoutes(app, config, devices, getTracking);
-  installProgramRoutes(app, config, programFeedFor(config, state), (program) => commitConfigEdit(undefined, (raw) => ({ ...raw, program })), () => !!remoteHub?.enabled);
+  installProgramRoutes(app, config, programFeedFor(config, state), (program) => commitConfigEdit(undefined, (raw) => ({ ...raw, program })), () => !!remoteHub?.enabled, state);
+  installStreamingRoutes(app, config, state, (edit) => commitConfigEdit(undefined, edit));
   // The rigs screen is plain JS/CSS files (not part of the page template) so they can be syntax-checked and
   // tested on their own. dist/ui and src/ui are both two levels below the repo root.
   app.use('/ui', express.static(path.join(__dirname, '../../ui'), { index: false, setHeaders: (res) => { res.setHeader('Cache-Control', 'no-cache'); } }));

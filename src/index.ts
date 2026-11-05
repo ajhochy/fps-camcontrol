@@ -34,6 +34,10 @@ import { SonyStateStore } from './sony/sonyStateStore';
 import { SonyManager } from './sony/sonyManager';
 import { startTrackingRuntime } from './app/trackingRuntime';
 import { stopMotionBeforeHelpers } from './app/stopMotionBeforeHelpers';
+import { CaptureService } from './program/captureService';
+import { OutputSessions } from './broadcast/outputSession';
+import type { ProgramCaptureConfig } from './broadcast/streamingConfig';
+import { registerProgramCapture, resolveBroadcastFfmpeg } from './program/programCaptureRuntime';
 
 export interface ApplicationLifecycle {
   server: ReturnType<typeof startStatusServer>;
@@ -66,6 +70,25 @@ export async function startApplication(
   const sonyManager = new SonyManager(controlsPaused ? { ...config.sony!, enabled: false } : config.sony!, new SonyStateStore(config.sony!.stateFile));
   // Sony is optional; readiness stays in the manager background lane.
   sonyManager.start();
+
+  // The always-on program capture (#95): the ONLY opener of the capture card for this app run; previews and output
+  // sessions attach to it. A suspended-input instance (the second Electron variant) never starts it: two owners of one
+  // card must never exist.
+  const captureLog = (level: 'info' | 'warn', msg: string, extra?: Record<string, unknown>) => logger[level](extra ?? {}, msg);
+  const captureOptions = (c: ProgramCaptureConfig) => ({ helperOptions: { device: c.device ?? undefined, mode: c.mode, queueFrames: c.queueFrames }, stallMs: c.stallMs, log: captureLog });
+  const capture = new CaptureService(captureOptions(config.programCapture!));
+  const sessions = new OutputSessions(capture, { ffmpeg: resolveBroadcastFfmpeg, log: captureLog });
+  capture.on('status', (s) => { state.programCapture = capture.enabled ? s : null; state.outputSession = sessions.status(); });
+  registerProgramCapture(state, {
+    capture, sessions,
+    applyCapture: async (c) => {
+      if (sessions.running()) throw new Error('A session is running');
+      if (c.enabled && !controlsPaused) await capture.restart(captureOptions(c)); else await capture.stop();
+      state.programCapture = capture.enabled ? capture.status() : null;
+    },
+  });
+  if (config.programCapture!.enabled && !controlsPaused) capture.start();
+  else state.programCapture = null;
 
   // Step 1: Connect to ATEM
   const atem = process.env.CAMCONTROL_FAKE_ATEM === '1' ? new FakeAtemClient(config.atem.ip) : new AtemClient(config.atem.ip);
@@ -243,6 +266,9 @@ export async function startApplication(
         try { device.close(); } catch (error) { failures.push(error); }
       }
       try { await sonyManager.stop(); } catch (error) { failures.push(error); }
+      // Outputs finalize first (the MP4 is closed), then the capture card is released.
+      try { if (sessions.running()) await sessions.stop(); } catch (error) { failures.push(error); }
+      try { await capture.stop(); } catch (error) { failures.push(error); }
       if (failures.length) throw new AggregateError(failures, 'Application shutdown could not confirm every resource');
     })();
     return shutdownPromise;
