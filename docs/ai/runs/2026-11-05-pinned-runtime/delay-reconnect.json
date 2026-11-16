@@ -1,0 +1,334 @@
+{
+  "at": "2026-11-05T22:28:02.437Z",
+  "delayFrames": 3,
+  "mode": "tpad",
+  "fps": "30/1",
+  "expectedDelayExact": "3/30 s",
+  "expectedMs": 100,
+  "real": false,
+  "seconds": 24,
+  "helperExit": 0,
+  "ffmpegExit": 0,
+  "faults": [
+    {
+      "at": 8403.329208,
+      "action": "sink down"
+    },
+    {
+      "at": 13202.986375,
+      "action": "sink up"
+    }
+  ],
+  "mp4": {
+    "events": 13,
+    "pairs": [
+      {
+        "flashS": 0.121,
+        "clickS": 0.021,
+        "offsetMs": 100.02
+      },
+      {
+        "flashS": 2.121,
+        "clickS": 2.021,
+        "offsetMs": 100.02
+      },
+      {
+        "flashS": 4.121,
+        "clickS": 4.021,
+        "offsetMs": 100.02
+      },
+      {
+        "flashS": 6.121,
+        "clickS": 6.021,
+        "offsetMs": 100.02
+      },
+      {
+        "flashS": 8.121,
+        "clickS": 8.021,
+        "offsetMs": 100.02
+      },
+      {
+        "flashS": 10.121,
+        "clickS": 10.021,
+        "offsetMs": 100.02
+      },
+      {
+        "flashS": 12.121,
+        "clickS": 12.021,
+        "offsetMs": 100.02
+      },
+      {
+        "flashS": 14.121,
+        "clickS": 14.021,
+        "offsetMs": 100.02
+      },
+      {
+        "flashS": 16.121,
+        "clickS": 16.021,
+        "offsetMs": 100.02
+      },
+      {
+        "flashS": 18.121,
+        "clickS": 18.021,
+        "offsetMs": 100.02
+      },
+      {
+        "flashS": 20.121,
+        "clickS": 20.021,
+        "offsetMs": 100.02
+      },
+      {
+        "flashS": 22.121,
+        "clickS": 22.021,
+        "offsetMs": 100.02
+      },
+      {
+        "flashS": 24.121,
+        "clickS": 24.021,
+        "offsetMs": 100.02
+      }
+    ],
+    "meanMs": 100.02,
+    "minMs": 100.02,
+    "maxMs": 100.02,
+    "spreadMs": 0,
+    "frameMs": 33.333,
+    "expectedMs": 100,
+    "errorVsExpectedMs": 0.02,
+    "maxAbsErrorFrames": 0.001,
+    "videoFrames": 724,
+    "audioSeconds": 24.064,
+    "flashSourceFrames": [
+      0,
+      59,
+      119,
+      179,
+      239,
+      299,
+      359,
+      419,
+      479,
+      539,
+      599,
+      659,
+      719
+    ],
+    "clicksSeen": 13,
+    "flashesSeen": 13,
+    "streamStartS": {
+      "video": 0,
+      "audio": 0
+    },
+    "drift": {
+      "msPerSecond": 0,
+      "standardErrorMsPerSecond": 0,
+      "spanS": 24,
+      "extrapolatedMsPerHour": 0,
+      "extrapolatedMsPerHour_2se": 0
+    },
+    "audio": {
+      "samplesPerChannel": 1155072,
+      "seconds": 24.064,
+      "leftPeakDbfs": -1.18,
+      "rightPeakDbfs": -1.18,
+      "leftRmsDbfs": -30.67,
+      "rightRmsDbfs": -30.67,
+      "correlation": 0.9999,
+      "maxAbsLeftMinusRight": 0.04361,
+      "sideToMidDb": -43.59,
+      "windows100ms": 240,
+      "silentWindows": 228,
+      "meanAbsLevelDiffLR_dB": 0,
+      "verdict": "near-mono (very high correlation)"
+    }
+  },
+  "flv": [
+    {
+      "segment": 0,
+      "bytes": 46805,
+      "connectedAtS": 0.21,
+      "events": 5,
+      "pairs": [
+        {
+          "flashS": 0.121,
+          "clickS": 0.021,
+          "offsetMs": 99.67
+        },
+        {
+          "flashS": 2.121,
+          "clickS": 2.021,
+          "offsetMs": 99.67
+        },
+        {
+          "flashS": 4.121,
+          "clickS": 4.021,
+          "offsetMs": 99.67
+        },
+        {
+          "flashS": 6.121,
+          "clickS": 6.021,
+          "offsetMs": 99.67
+        },
+        {
+          "flashS": 8.121,
+          "clickS": 8.021,
+          "offsetMs": 99.67
+        }
+      ],
+      "meanMs": 99.67,
+      "minMs": 99.67,
+      "maxMs": 99.67,
+      "spreadMs": 0,
+      "frameMs": 33.333,
+      "expectedMs": 100,
+      "errorVsExpectedMs": -0.33,
+      "maxAbsErrorFrames": 0.01,
+      "videoFrames": 244,
+      "audioSeconds": 8.128,
+      "flashSourceFrames": null,
+      "clicksSeen": 5,
+      "flashesSeen": 5,
+      "streamStartS": {
+        "video": 0.021,
+        "audio": 0
+      },
+      "drift": {
+        "msPerSecond": 0,
+        "standardErrorMsPerSecond": 0,
+        "spanS": 8,
+        "extrapolatedMsPerHour": 0,
+        "extrapolatedMsPerHour_2se": 0
+      },
+      "audio": {
+        "samplesPerChannel": 390144,
+        "seconds": 8.128,
+        "leftPeakDbfs": -1.18,
+        "rightPeakDbfs": -1.18,
+        "leftRmsDbfs": -30.15,
+        "rightRmsDbfs": -30.15,
+        "correlation": 0.9998,
+        "maxAbsLeftMinusRight": 0.04361,
+        "sideToMidDb": -39.41,
+        "windows100ms": 81,
+        "silentWindows": 76,
+        "meanAbsLevelDiffLR_dB": 0,
+        "verdict": "near-mono (very high correlation)"
+      },
+      "flashToSinkLatencyMs": {
+        "n": 5,
+        "perEvent": [
+          1602.4,
+          368.3,
+          366.5,
+          368.4,
+          368.6
+        ],
+        "firstEventExcluded": {
+          "n": 4,
+          "min": 366.5,
+          "median": 368.4,
+          "max": 368.6
+        }
+      }
+    },
+    {
+      "segment": 1,
+      "bytes": 57631,
+      "connectedAtS": 13.46,
+      "events": 5,
+      "pairs": [
+        {
+          "flashS": 2.1,
+          "clickS": 2,
+          "offsetMs": 100
+        },
+        {
+          "flashS": 4.1,
+          "clickS": 4,
+          "offsetMs": 100
+        },
+        {
+          "flashS": 6.1,
+          "clickS": 6,
+          "offsetMs": 100
+        },
+        {
+          "flashS": 8.1,
+          "clickS": 8,
+          "offsetMs": 100
+        },
+        {
+          "flashS": 10.1,
+          "clickS": 10,
+          "offsetMs": 100
+        }
+      ],
+      "meanMs": 100,
+      "minMs": 100,
+      "maxMs": 100,
+      "spreadMs": 0,
+      "frameMs": 33.333,
+      "expectedMs": 100,
+      "errorVsExpectedMs": 0,
+      "maxAbsErrorFrames": 0,
+      "videoFrames": 304,
+      "audioSeconds": 10.027,
+      "flashSourceFrames": null,
+      "clicksSeen": 5,
+      "flashesSeen": 6,
+      "streamStartS": {
+        "video": 0,
+        "audio": 0.016
+      },
+      "drift": {
+        "msPerSecond": 0,
+        "standardErrorMsPerSecond": 0,
+        "spanS": 8,
+        "extrapolatedMsPerHour": 0,
+        "extrapolatedMsPerHour_2se": 0
+      },
+      "audio": {
+        "samplesPerChannel": 481280,
+        "seconds": 10.027,
+        "leftPeakDbfs": -1.18,
+        "rightPeakDbfs": -1.18,
+        "leftRmsDbfs": -31,
+        "rightRmsDbfs": -31,
+        "correlation": 1,
+        "maxAbsLeftMinusRight": 0,
+        "sideToMidDb": -120,
+        "windows100ms": 100,
+        "silentWindows": 95,
+        "meanAbsLevelDiffLR_dB": 0,
+        "verdict": "identical (dual mono)"
+      },
+      "flashToSinkLatencyMs": null
+    }
+  ],
+  "lastStatus": {
+    "type": "status",
+    "t_ms": 23013,
+    "state": "running",
+    "mode": "1080p30",
+    "width": 1920,
+    "height": 1080,
+    "fps_nominal": 30,
+    "fps": 30,
+    "signal_locked": true,
+    "audio_packets": true,
+    "audio_peak_dbfs": -120,
+    "audio_present": false,
+    "frames_in": 691,
+    "frames_out": 691,
+    "filler_frames": 0,
+    "dropped_backpressure": 0,
+    "dropped_late": 0,
+    "audio_resyncs": 0,
+    "audio_dropped": 0,
+    "queue_depth": 0,
+    "queue_cap": 12,
+    "blocked_ms": 0,
+    "max_block_ms": 96,
+    "bytes_out": 2874580018
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "issue": "https://github.com/ajhochy/fps-camcontrol/issues/65",
+  "description": "Capabilities every FFmpeg/ffprobe pair must have to be the pinned streaming runtime (one static FFmpeg per session, ADR 2026-10-13). DeckLink is deliberately NOT required: capture is the separate native/decklink-capture helper.",
+  "minimumVersion": "8.1.0",
+  "ffmpeg": {
+    "encoders": ["h264_videotoolbox", "aac"],
+    "decoders": ["h264", "aac", "rawvideo", "pcm_s16le", "pcm_s32le"],
+    "muxers": ["tee", "fifo", "flv", "mp4", "matroska", "null"],
+    "demuxers": ["matroska,webm", "flv", "mov,mp4,m4a,3gp,3g2,mj2"],
+    "protocols": ["file", "pipe", "tcp", "tls", "rtmp", "rtmps", "subfile"],
+    "filters": ["fps", "aresample", "setpts", "tpad", "scale", "format", "signalstats", "showinfo"],
+    "pixelFormats": ["uyvy422", "yuv420p"]
+  },
+  "ffprobe": { "requiredOutputs": ["json"], "mustBeSameVersionAsFfmpeg": true },
+  "forbiddenConfigureFlags": ["--enable-nonfree", "--enable-decklink", "--enable-libfdk-aac", "--enable-libfdk_aac"],
+  "licensePolicy": {
+    "preferred": "lgpl",
+    "allowed": ["lgpl", "gpl"],
+    "note": "A GPL build is probe-passable only with --allow-gpl (explicit AJ decision, see docs/ai/decisions/2026-10-22-ffmpeg-runtime.md). nonfree is never allowed."
+  },
+  "functionalChecks": ["synthetic-h264-aac-mp4-via-tee", "matroska-uyvy422-pcm-stdin-capture-shape", "tls-handshake-loopback"]
+}

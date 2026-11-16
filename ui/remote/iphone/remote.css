@@ -629,6 +629,14 @@ html[data-remote-viewport^="phone"][data-phone-view="cameras"] #main #multiview 
 }
 html[data-remote-viewport^="phone"][data-phone-view="cameras"] #pane-pvw,
 html[data-remote-viewport^="phone"][data-phone-view="cameras"] #pane-pgm { display: none; }
+/* With the live program feed on (#96), All cameras leads with the Program pane: the switcher's real output, or the
+   reason there is none. Without it the wall stays as it was. */
+html[data-remote-viewport^="phone"][data-phone-view="cameras"][data-program-feed="on"] #pane-pgm {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  margin-bottom: 8px;
+}
 html[data-remote-viewport^="phone"][data-phone-view="cameras"] #smallPanes {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

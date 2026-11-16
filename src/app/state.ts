@@ -1,3 +1,5 @@
+import type { CaptureServiceStatus } from '../program/captureService';
+import type { SessionStatus } from '../broadcast/outputSession';
 export type CameraId = string;
 export type PresetSlot = 'A' | 'B' | 'X' | 'Y';
 
@@ -84,6 +86,10 @@ export interface AppState {
   /** The newest of zoomNotices, or null. */
   zoomNotice?: { cameraId: string; sonyId: string; message: string; at: number } | null;
   presetSaveProgress: PresetSaveProgress | null;
+  /** The always-on program capture (#95): process, signal and device separately, plus each consumer. Null when off. */
+  programCapture?: CaptureServiceStatus | null;
+  /** The current or last output session (#70). */
+  outputSession?: SessionStatus | null;
 }
 
 export const defaultState: AppState = {

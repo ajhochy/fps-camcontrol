@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { writeFileAtomic } from './atomicWrite';
 import { getUserPath } from './paths';
 import { PROGRAM_DEFAULTS, ProgramConfig } from '../program/programFeed';
+import { ProgramCaptureConfig, ProgramCaptureSchema, StreamingConfig, StreamingSchema } from '../broadcast/streamingConfig';
 import { TrackingSchema, TrackingConfig, collectTrackingIssues, resolveTrackingConfig } from '../tracking/configSchema';
 import { loadWorkingProfile, setAside as setAsideWorking, workingProfilePath, WorkingProfile } from './workingProfile';
 
@@ -229,6 +230,10 @@ const DevicesSchema = z.object({
   // kind: avfoundation (UVC cards) | decklink (Blackmagic); absent = decided from the device. formatCode: DeckLink mode
   // (e.g. Hp30). fps / width: of the picture sent to the iPad. ffmpegPath: the ffmpeg binary.
   program: ProgramSchema.optional(),
+  // The always-on capture service: the ONLY opener of the capture card; previews and output sessions attach to it (#95).
+  programCapture: ProgramCaptureSchema.optional(),
+  // Recording/streaming output settings (#69); idle and disabled when absent.
+  streaming: StreamingSchema.optional(),
 }).superRefine((cfg, ctx) => {
   for (const issue of collectTrackingIssues(cfg.tracking, cfg.devices)) ctx.addIssue({ code:'custom', ...issue });
   if (cfg.profiles && cfg.devices) {
@@ -328,6 +333,10 @@ export interface AppConfig {
   tracking?: TrackingConfig;
   /** The live program feed for the iPad's PGM pane (loadConfig always fills it; off by default). */
   program?: ProgramConfig;
+  /** The always-on program capture service (loadConfig always fills it; off by default). */
+  programCapture?: ProgramCaptureConfig;
+  /** Output session settings (loadConfig always fills it; disabled by default). */
+  streaming?: StreamingConfig;
   /** Unsaved rig edits of the active profile, applied on top of it (see workingProfile.ts). */
   working?: WorkingProfile;
   /** Something to tell the operator about the working copy (a draft that could not be restored, an outside edit). */
@@ -458,6 +467,8 @@ export function loadConfig(): AppConfig {
     remoteControl: devices.remoteControl,
     tracking: resolveTrackingConfig(devices.tracking),
     program: ProgramSchema.parse(devices.program ?? {}),
+    programCapture: ProgramCaptureSchema.parse(devices.programCapture ?? {}),
+    streaming: StreamingSchema.parse(devices.streaming ?? {}),
     working,
     workingNotice,
   };

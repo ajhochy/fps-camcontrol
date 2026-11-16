@@ -1,0 +1,252 @@
+{
+  "at": "2026-11-05T22:26:59.897Z",
+  "delayFrames": 3,
+  "mode": "tpad",
+  "fps": "30/1",
+  "expectedDelayExact": "3/30 s",
+  "expectedMs": 100,
+  "real": false,
+  "seconds": 16,
+  "helperExit": 0,
+  "ffmpegExit": 0,
+  "faults": [],
+  "mp4": {
+    "events": 9,
+    "pairs": [
+      {
+        "flashS": 0.121,
+        "clickS": 0.021,
+        "offsetMs": 100.02
+      },
+      {
+        "flashS": 2.121,
+        "clickS": 2.021,
+        "offsetMs": 100.02
+      },
+      {
+        "flashS": 4.121,
+        "clickS": 4.021,
+        "offsetMs": 100.02
+      },
+      {
+        "flashS": 6.121,
+        "clickS": 6.021,
+        "offsetMs": 100.02
+      },
+      {
+        "flashS": 8.121,
+        "clickS": 8.021,
+        "offsetMs": 100.02
+      },
+      {
+        "flashS": 10.121,
+        "clickS": 10.021,
+        "offsetMs": 100.02
+      },
+      {
+        "flashS": 12.121,
+        "clickS": 12.021,
+        "offsetMs": 100.02
+      },
+      {
+        "flashS": 14.121,
+        "clickS": 14.021,
+        "offsetMs": 100.02
+      },
+      {
+        "flashS": 16.121,
+        "clickS": 16.021,
+        "offsetMs": 100.02
+      }
+    ],
+    "meanMs": 100.02,
+    "minMs": 100.02,
+    "maxMs": 100.02,
+    "spreadMs": 0,
+    "frameMs": 33.333,
+    "expectedMs": 100,
+    "errorVsExpectedMs": 0.02,
+    "maxAbsErrorFrames": 0.001,
+    "videoFrames": 484,
+    "audioSeconds": 16.064,
+    "flashSourceFrames": [
+      0,
+      59,
+      119,
+      179,
+      239,
+      299,
+      359,
+      419,
+      479
+    ],
+    "clicksSeen": 9,
+    "flashesSeen": 9,
+    "streamStartS": {
+      "video": 0,
+      "audio": 0
+    },
+    "drift": {
+      "msPerSecond": 0,
+      "standardErrorMsPerSecond": 0,
+      "spanS": 16,
+      "extrapolatedMsPerHour": 0,
+      "extrapolatedMsPerHour_2se": 0
+    },
+    "audio": {
+      "samplesPerChannel": 771072,
+      "seconds": 16.064,
+      "leftPeakDbfs": -1.18,
+      "rightPeakDbfs": -1.18,
+      "leftRmsDbfs": -30.53,
+      "rightRmsDbfs": -30.53,
+      "correlation": 0.9999,
+      "maxAbsLeftMinusRight": 0.04361,
+      "sideToMidDb": -41.99,
+      "windows100ms": 160,
+      "silentWindows": 152,
+      "meanAbsLevelDiffLR_dB": 0,
+      "verdict": "near-mono (very high correlation)"
+    }
+  },
+  "flv": [
+    {
+      "segment": 0,
+      "bytes": 91380,
+      "connectedAtS": 0.21,
+      "events": 9,
+      "pairs": [
+        {
+          "flashS": 0.121,
+          "clickS": 0.021,
+          "offsetMs": 99.67
+        },
+        {
+          "flashS": 2.121,
+          "clickS": 2.021,
+          "offsetMs": 99.67
+        },
+        {
+          "flashS": 4.121,
+          "clickS": 4.021,
+          "offsetMs": 99.67
+        },
+        {
+          "flashS": 6.121,
+          "clickS": 6.021,
+          "offsetMs": 99.67
+        },
+        {
+          "flashS": 8.121,
+          "clickS": 8.021,
+          "offsetMs": 99.67
+        },
+        {
+          "flashS": 10.121,
+          "clickS": 10.021,
+          "offsetMs": 99.67
+        },
+        {
+          "flashS": 12.121,
+          "clickS": 12.021,
+          "offsetMs": 99.67
+        },
+        {
+          "flashS": 14.121,
+          "clickS": 14.021,
+          "offsetMs": 99.67
+        },
+        {
+          "flashS": 16.121,
+          "clickS": 16.021,
+          "offsetMs": 99.67
+        }
+      ],
+      "meanMs": 99.67,
+      "minMs": 99.67,
+      "maxMs": 99.67,
+      "spreadMs": 0,
+      "frameMs": 33.333,
+      "expectedMs": 100,
+      "errorVsExpectedMs": -0.33,
+      "maxAbsErrorFrames": 0.01,
+      "videoFrames": 484,
+      "audioSeconds": 16.064,
+      "flashSourceFrames": null,
+      "clicksSeen": 9,
+      "flashesSeen": 9,
+      "streamStartS": {
+        "video": 0.021,
+        "audio": 0
+      },
+      "drift": {
+        "msPerSecond": 0,
+        "standardErrorMsPerSecond": 0,
+        "spanS": 16,
+        "extrapolatedMsPerHour": 0,
+        "extrapolatedMsPerHour_2se": 0
+      },
+      "audio": {
+        "samplesPerChannel": 771072,
+        "seconds": 16.064,
+        "leftPeakDbfs": -1.18,
+        "rightPeakDbfs": -1.18,
+        "leftRmsDbfs": -30.53,
+        "rightRmsDbfs": -30.53,
+        "correlation": 0.9999,
+        "maxAbsLeftMinusRight": 0.04361,
+        "sideToMidDb": -41.99,
+        "windows100ms": 160,
+        "silentWindows": 152,
+        "meanAbsLevelDiffLR_dB": 0,
+        "verdict": "near-mono (very high correlation)"
+      },
+      "flashToSinkLatencyMs": {
+        "n": 9,
+        "perEvent": [
+          1605.8,
+          367,
+          370.3,
+          365.1,
+          372.3,
+          366.2,
+          365.7,
+          369,
+          20.4
+        ],
+        "firstEventExcluded": {
+          "n": 8,
+          "min": 20.4,
+          "median": 367,
+          "max": 372.3
+        }
+      }
+    }
+  ],
+  "lastStatus": {
+    "type": "status",
+    "t_ms": 15004,
+    "state": "running",
+    "mode": "1080p30",
+    "width": 1920,
+    "height": 1080,
+    "fps_nominal": 30,
+    "fps": 29,
+    "signal_locked": true,
+    "audio_packets": true,
+    "audio_peak_dbfs": -120,
+    "audio_present": false,
+    "frames_in": 450,
+    "frames_out": 450,
+    "filler_frames": 0,
+    "dropped_backpressure": 0,
+    "dropped_late": 0,
+    "audio_resyncs": 0,
+    "audio_dropped": 0,
+    "queue_depth": 0,
+    "queue_cap": 12,
+    "blocked_ms": 0,
+    "max_block_ms": 101,
+    "bytes_out": 1872013029
+  }
+}

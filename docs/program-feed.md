@@ -1,4 +1,23 @@
-# Live program feed (iPad PGM pane)
+# Live program feed (PGM on the desk, iPad and phone)
+
+## From program capture (recommended; #96)
+
+With **program capture** on (`devices.yaml` → `programCapture: { enabled: true }`, see
+`docs/ai/decisions/2026-10-13-streaming-session-architecture.md`, addendum 2026-11-05), the PGM picture comes from the
+shared capture of the UltraStudio: an always-on monitor encoder (the pinned streaming FFmpeg) makes about 10 frames a
+second, 960 px wide (`program.fps` / `program.width`). It shows on the desk (a picture under the status cards), on the
+iPad's PGM pane and on the phone's All cameras view (a Program pane above the rig tiles). Nothing else opens the card.
+When there is no picture the reason is shown instead and the last picture is dropped at once: "No signal on the capture
+card", "Program capture is restarting", "The capture card is in use by another app", "No capture card found", "The
+streaming FFmpeg runtime is not installed…". `GET /api/program/status` then reports `kind: "capture"`; the iPad's
+Camera/Live choice and device list below do not apply. Needs the streaming FFmpeg runtime (`Resources/ffmpeg-runtime/`
+in an installed app, or `BROADCAST_FFMPEG` when run from a checkout).
+
+## Legacy: FFmpeg opens a capture device itself
+
+**On macOS 26 this cannot reach a Blackmagic card** (no shippable DeckLink FFmpeg; DeckLink's CMIO/DAL plug-in is not
+loaded), so DeckLink devices and Blackmagic-named AVFoundation devices are refused with that reason. Other AVFoundation
+devices (USB capture sticks) still work. The rest of this page describes that legacy path.
 
 The switcher's PROGRAM output is fed into a capture device on the Mac Studio in the broadcast rack that runs CamControl.
 With the feed on, the iPad's **PGM pane only** shows that real program picture (lower thirds and all) instead of the

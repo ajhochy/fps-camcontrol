@@ -42,6 +42,7 @@ import { installTrackingRoutes, trackingSnapshot } from './trackingRoutes';
 import { resolveTrackingSources } from '../tracking/sourceResolver';
 import { installTrackingCalibrationRoutes } from './trackingCalibrationRoutes';
 import { installProgramRoutes, programFeedFor } from './programRoutes';
+import { installStreamingRoutes } from './streamingRoutes';
 
 export function createStatusServer(
   state: AppState,
@@ -83,7 +84,8 @@ export function createStatusServer(
     config.tracking = loadConfig().tracking;
   });
   installTrackingCalibrationRoutes(app, config, devices, getTracking);
-  installProgramRoutes(app, config, programFeedFor(config, state), (program) => commitConfigEdit(undefined, (raw) => ({ ...raw, program })), () => !!remoteHub?.enabled);
+  installProgramRoutes(app, config, programFeedFor(config, state), (program) => commitConfigEdit(undefined, (raw) => ({ ...raw, program })), () => !!remoteHub?.enabled, state);
+  installStreamingRoutes(app, config, state, (edit) => commitConfigEdit(undefined, edit));
   // The rigs screen is plain JS/CSS files (not part of the page template) so they can be syntax-checked and
   // tested on their own. dist/ui and src/ui are both two levels below the repo root.
   app.use('/ui', express.static(path.join(__dirname, '../../ui'), { index: false, setHeaders: (res) => { res.setHeader('Cache-Control', 'no-cache'); } }));
@@ -1987,6 +1989,11 @@ function statusHtml(): string {
     min-height: 86px; border: 1px solid var(--border-strong); background: var(--surface);
   }
   .signal-card { position: relative; overflow: hidden; padding: 12px 14px 13px 18px; }
+  .program-preview { margin: 0 0 12px; display: flex; gap: 12px; align-items: center; padding: 8px; border: 1px solid var(--border-strong); background: var(--surface); }
+  .program-preview img { width: 320px; max-width: 45%; aspect-ratio: 16 / 9; object-fit: contain; background: #000; }
+  .program-preview figcaption { color: var(--text-2); font-size: .85rem; }
+  .program-preview.is-off figcaption { color: var(--err-text); }
+  .program-preview[hidden], .program-preview img[hidden] { display: none; }
   .signal-card::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 4px; background: currentColor; }
   .signal-card--live { color: var(--live-text); background: linear-gradient(90deg, #321418, var(--surface) 58%); }
   .signal-card--pvw { color: var(--pvw-text); background: linear-gradient(90deg, #11291c, var(--surface) 58%); }
@@ -2094,6 +2101,8 @@ function statusHtml(): string {
     .signal-card--ctrl { grid-column: 1 / -1; }
     .signal-card__value { font-size: 1.05rem; margin-top: 8px; }
     .health-stack { grid-column: 1 / -1; }
+    .program-preview { flex-direction: column; align-items: stretch; }
+    .program-preview img { width: 100%; max-width: none; }
     .tab-btn { flex: 1 0 auto; padding-inline: 14px; }
     .panel { padding: 14px 12px; }
     .cam-grid { grid-template-columns: 1fr 1fr; gap: 6px; }
@@ -2141,6 +2150,10 @@ function statusHtml(): string {
 </header>
 
 <div class="status-bar" id="status-bar" aria-live="polite" aria-label="Live production status"></div>
+<figure class="program-preview" id="program-preview" hidden>
+  <img id="program-preview-img" alt="Program output" hidden>
+  <figcaption id="program-preview-note" aria-live="polite">Program</figcaption>
+</figure>
 
 <div class="tab-bar" role="tablist" aria-label="CamControl sections">
   <button class="tab-btn active" id="tab-btn-status" role="tab" aria-selected="true" aria-controls="tab-status" onclick="switchTab('status',this)">Status</button>
@@ -3224,6 +3237,41 @@ async function clearSonyFocus(id) {
   } catch (_) { sonyStatus(id, 'Clearing the focus point failed.', true); }
 }
 function sonyStatus(id, message, error) { var el=document.getElementById('sony-status-'+id.replace(/:/g,'-')); if(el){el.textContent=message;el.style.color=error?'var(--err-text)':'var(--text-2)';} }
+
+// Program picture (#96): the switcher's real output from program capture (or the legacy program feed), about 3 frames a
+// second. When there is no picture the reason is shown and the last picture is dropped, never left frozen.
+var programPreview = { on: false, url: null };
+function programPreviewNote(text, off) {
+  var note = document.getElementById('program-preview-note'); if (note) note.textContent = text;
+  var box = document.getElementById('program-preview'); if (box) box.classList.toggle('is-off', !!off);
+}
+function refreshProgramPreview() {
+  fetch('/api/program/status', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (s) {
+    var on = !!(s && s.enabled);
+    document.getElementById('program-preview').hidden = !on;
+    if (on && !programPreview.on) { programPreview.on = true; pollProgramPreview(); }
+    if (!on) programPreview.on = false;
+  }).catch(function () { /* keep the last state */ });
+}
+function pollProgramPreview() {
+  if (!programPreview.on) return;
+  if (document.hidden) { setTimeout(pollProgramPreview, 1000); return; }
+  var img = document.getElementById('program-preview-img');
+  fetch('/api/program/frame?t=' + Date.now(), { cache: 'no-store' }).then(function (r) {
+    if (r.ok) return r.blob();
+    return r.json().catch(function () { return {}; }).then(function (j) { throw new Error(j.error || 'No program picture'); });
+  }).then(function (blob) {
+    var old = programPreview.url;
+    programPreview.url = URL.createObjectURL(blob); img.src = programPreview.url; img.hidden = false;
+    if (old) setTimeout(function () { URL.revokeObjectURL(old); }, 1000);
+    programPreviewNote('Program', false);
+  }).catch(function (e) {
+    img.hidden = true;
+    programPreviewNote('Program: ' + (e && e.message && e.message !== 'Failed to fetch' ? e.message : 'CamControl not reachable'), true);
+  }).then(function () { setTimeout(pollProgramPreview, 333); });
+}
+refreshProgramPreview();
+setInterval(refreshProgramPreview, 5000);
 
 setInterval(refresh, 1000);
 setInterval(refreshControllers, 2000);

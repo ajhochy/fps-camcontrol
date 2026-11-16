@@ -1,0 +1,121 @@
+{
+  "tool": "probe-ffmpeg-runtime",
+  "contractSchema": 1,
+  "ffmpeg": "~/Developer/ffmpeg-runtime-build-8.1.3/ffmpeg",
+  "checkedAt": "2026-11-05T22:19:54.258Z",
+  "failures": [],
+  "checks": {
+    "encoders": {
+      "required": [
+        "h264_videotoolbox",
+        "aac"
+      ],
+      "missing": []
+    },
+    "decoders": {
+      "required": [
+        "h264",
+        "aac",
+        "rawvideo",
+        "pcm_s16le",
+        "pcm_s32le"
+      ],
+      "missing": []
+    },
+    "muxers": {
+      "required": [
+        "tee",
+        "fifo",
+        "flv",
+        "mp4",
+        "matroska",
+        "null"
+      ],
+      "missing": []
+    },
+    "demuxers": {
+      "required": [
+        "matroska,webm",
+        "flv",
+        "mov,mp4,m4a,3gp,3g2,mj2"
+      ],
+      "missing": []
+    },
+    "protocols": {
+      "required": [
+        "file",
+        "pipe",
+        "tcp",
+        "tls",
+        "rtmp",
+        "rtmps",
+        "subfile"
+      ],
+      "missing": []
+    },
+    "filters": {
+      "required": [
+        "fps",
+        "aresample",
+        "setpts",
+        "tpad",
+        "scale",
+        "format",
+        "signalstats",
+        "showinfo"
+      ],
+      "missing": []
+    },
+    "pixelFormats": {
+      "required": [
+        "uyvy422",
+        "yuv420p"
+      ],
+      "missing": []
+    }
+  },
+  "ffprobe": "~/Developer/ffmpeg-runtime-build-8.1.3/ffprobe",
+  "sha256": {
+    "ffmpeg": "5a9ff1ef25b47b3d0186b49ad2c220f25855388dabc6c2e4f232e6c49284f057",
+    "ffprobe": "08ffd9c95a29125492e3cf49f3c28551921a2852a86bc7675762b196d6f2faba"
+  },
+  "version": "8.1.3",
+  "configuration": [
+    "--prefix=$TMPDIR/ffrt-build.CDu5xj/ffinstall",
+    "--disable-gpl",
+    "--disable-nonfree",
+    "--enable-version3",
+    "--disable-autodetect",
+    "--disable-doc",
+    "--disable-ffplay",
+    "--disable-debug",
+    "--enable-videotoolbox",
+    "--enable-openssl",
+    "--enable-protocol='file,pipe,tcp,tls,rtmp,rtmps,subfile'",
+    "--arch=arm64",
+    "--cc=clang",
+    "--enable-pic",
+    "--pkg-config-flags=--static",
+    "--extra-cflags=-I$TMPDIR/ffrt-build.CDu5xj/prefix/include",
+    "--extra-ldflags=-L$TMPDIR/ffrt-build.CDu5xj/prefix/lib"
+  ],
+  "license": "lgpl-3.0-or-later",
+  "tls": [
+    "--enable-openssl"
+  ],
+  "ffprobeVersion": "8.1.3",
+  "functional": {
+    "syntheticEncode": {
+      "ok": true,
+      "stderr": ""
+    },
+    "mp4": "aac,h264",
+    "flv": "aac,h264",
+    "matroskaStdin": "ok",
+    "tls": {
+      "status": "handshake-ok",
+      "detail": "TLS session established (TLSv1.3); HTTP request sent over it (response is not media)"
+    }
+  },
+  "ok": true
+}

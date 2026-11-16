@@ -27,6 +27,8 @@ if (level !== 'smoke') {
       : /\.(?:spec|test)\.(?:ts|cjs|js)$/.test(entry.name) ? [path.join(directory, entry.name)] : []) : [];
   const focused = files(path.join(root, 'tests')).sort();
   if (focused.length) run(process.execPath, ['--test', '--test-concurrency=1', '-r', 'ts-node/register/transpile-only', ...focused]);
+  // Capture helper: container unit test + synthetic and service-mode (#95) end-to-end; no card or SDK needed.
+  run('make', ['-s', '-C', 'native/decklink-capture', 'BUILD=build-check', 'test']);
   run(process.execPath, ['--test', 'scripts/test-electron-release.cjs']);
   run('python3', ['-m', 'unittest', 'discover', '-s', 'pi-bridge/tests', '-v']);
   run(process.execPath, ['scripts/check-tracking.cjs']);

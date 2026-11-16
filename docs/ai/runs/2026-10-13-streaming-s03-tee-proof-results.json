@@ -1,0 +1,2091 @@
+{
+  "generated": "2026-10-13T19:23:29.776Z",
+  "runtime": {
+    "ffmpeg": "developer Homebrew FFmpeg 8.1.2 (not the pinned product runtime; #65 open)",
+    "host": "darwin arm64"
+  },
+  "synthetic": true,
+  "source": "640x360@30 testsrc2 + L=440Hz/R=1000Hz stereo, h264_videotoolbox 2.5 Mbps, AAC 128k",
+  "results": {
+    "baseline": {
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "recording": {
+        "exists": true,
+        "bytes": 2957717,
+        "videoFrames": 420,
+        "expectedVideoFrames": 420,
+        "audioPackets": 658,
+        "videoSpanS": 14.021,
+        "maxVideoGapMs": 54.7,
+        "videoGapsOver2Frames": 0,
+        "maxAudioGapMs": 21.3,
+        "audioGapsOver3Packets": 0,
+        "decodeErrorLines": 0,
+        "wallSeconds": 13.57
+      },
+      "received": {
+        "index": 0,
+        "bytes": 2962412,
+        "connectedAtS": 0.2,
+        "firstTagAtS": 1.37,
+        "closedAtS": 13.57,
+        "video": 420,
+        "audio": 658,
+        "firstVideoIsKey": true,
+        "tsFirstMs": 21,
+        "tsLastMs": 13988,
+        "jumps": [],
+        "undecodableVideoFramesAfterGaps": 0,
+        "firstArrivalMs": 1367.1
+      },
+      "flvDecodeErrorLines": 0,
+      "channels": {
+        "mp4": {
+          "windows100ms": 140,
+          "intact": 140,
+          "silent": 0,
+          "swapped": 0,
+          "mixedOrDamaged": 0,
+          "minLeftAmplitude440": 0.772,
+          "minRightAmplitude1000": 0.746,
+          "pass": true
+        },
+        "flv": {
+          "windows100ms": 140,
+          "intact": 140,
+          "silent": 0,
+          "swapped": 0,
+          "mixedOrDamaged": 0,
+          "minLeftAmplitude440": 0.772,
+          "minRightAmplitude1000": 0.746,
+          "pass": true
+        }
+      },
+      "deliveryJitterMs": {
+        "steadyOffsetMs": 15.6,
+        "maxAboveSteady": 35.3,
+        "minBelowSteady": -463
+      },
+      "pass": true,
+      "elapsedS": 15.6
+    },
+    "reconnect": {
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "killedAtS": 8,
+      "sinkRestartedAtS": 15,
+      "recording": {
+        "exists": true,
+        "bytes": 7359283,
+        "videoFrames": 1020,
+        "expectedVideoFrames": 1020,
+        "audioPackets": 1595,
+        "videoSpanS": 34.021,
+        "maxVideoGapMs": 54.7,
+        "videoGapsOver2Frames": 0,
+        "maxAudioGapMs": 21.3,
+        "audioGapsOver3Packets": 0,
+        "decodeErrorLines": 0,
+        "wallSeconds": 33.57
+      },
+      "segments": [
+        {
+          "index": 0,
+          "bytes": 1657518,
+          "connectedAtS": 0.21,
+          "firstTagAtS": 1.4,
+          "closedAtS": 8,
+          "video": 239,
+          "audio": 373,
+          "firstVideoIsKey": true,
+          "tsFirstMs": 21,
+          "tsLastMs": 7954,
+          "jumps": [],
+          "undecodableVideoFramesAfterGaps": 0,
+          "firstArrivalMs": 1397.2
+        },
+        {
+          "index": 1,
+          "bytes": 3958866,
+          "connectedAtS": 15.13,
+          "firstTagAtS": 17.4,
+          "closedAtS": 33.57,
+          "video": 540,
+          "audio": 844,
+          "firstVideoIsKey": true,
+          "tsFirstMs": 0,
+          "tsLastMs": 17967,
+          "jumps": [],
+          "undecodableVideoFramesAfterGaps": 0,
+          "firstArrivalMs": 17398.9
+        }
+      ],
+      "firstSegmentLastRecordedFrame": 238,
+      "firstSegmentFrameRuns": 1,
+      "publisherRecovery": {
+        "restartRequestToReconnectS": 0.13,
+        "restartRequestToFirstKeyframeArrivedS": 2.4,
+        "receiverProbeLatencyS": 1.19,
+        "restartRequestToFirstKeyframeExclReceiverProbeS": 1.21,
+        "retryCadence": {
+          "failedAttempts": 7,
+          "firstAtS": 8.04,
+          "intervalsS": {
+            "min": 1,
+            "median": 1,
+            "max": 1.01
+          }
+        },
+        "reconnectedStreamStartsAtRecordingFrame": 480,
+        "reconnectedStreamStartsAtRecordingS": 16.02,
+        "reconnectInstantS": 15.13,
+        "startsAtKeyFrame": true,
+        "runsInReconnectedSegment": 1,
+        "framesLostInsideReconnectedSegment": 0,
+        "outageMediaSkippedS": 8.07,
+        "maxFrameAgeMsOnArrivalExclReceiverProbe": 138.2,
+        "decodeErrorLinesInReconnectedSegment": 0,
+        "timestampsRestartAtZeroOnReconnect": true
+      },
+      "channelsAfterReconnect": {
+        "windows100ms": 180,
+        "intact": 180,
+        "silent": 0,
+        "swapped": 0,
+        "mixedOrDamaged": 0,
+        "minLeftAmplitude440": 0.807,
+        "minRightAmplitude1000": 0.827,
+        "pass": true
+      },
+      "stderrExcerpt": [
+        {
+          "at": 0.2,
+          "line": "Output #0, tee, to '[f=mp4:movflags=+frag_keyframe+hybrid_fragmented:flush_packets=1:onfail=ignore]<tmp>/reconnect/recording.mp4|[f=fifo:fifo_format="
+        },
+        {
+          "at": 8.04,
+          "line": "[flv @ 0xb82c15e00] Failed to update header with correct duration."
+        },
+        {
+          "at": 8.04,
+          "line": "[flv @ 0xb82c15e00] Failed to update header with correct filesize."
+        },
+        {
+          "at": 8.04,
+          "line": "[tcp @ 0xb83060a00] Connection to tcp://127.0.0.1:19351?tcp_nodelay=0 failed: Connection refused"
+        },
+        {
+          "at": 8.04,
+          "line": "[rtmp @ 0xb82c19200] Cannot open connection tcp://127.0.0.1:19351?tcp_nodelay=0"
+        },
+        {
+          "at": 8.04,
+          "line": "[fifo @ 0xb82c16580] Error opening rtmp://127.0.0.1:19351/live/s1: Connection refused"
+        },
+        {
+          "at": 8.04,
+          "line": "[fifo @ 0xb82c16580] Recovery failed: Connection refused"
+        },
+        {
+          "at": 9.04,
+          "line": "[tcp @ 0xb83060780] Connection to tcp://127.0.0.1:19351?tcp_nodelay=0 failed: Connection refused"
+        },
+        {
+          "at": 9.04,
+          "line": "[rtmp @ 0xb82c18380] Cannot open connection tcp://127.0.0.1:19351?tcp_nodelay=0"
+        },
+        {
+          "at": 9.04,
+          "line": "[fifo @ 0xb82c16580] Error opening rtmp://127.0.0.1:19351/live/s1: Connection refused"
+        },
+        {
+          "at": 9.04,
+          "line": "[fifo @ 0xb82c16580] Recovery failed: Connection refused"
+        },
+        {
+          "at": 10.04,
+          "line": "[tcp @ 0xb83060be0] Connection to tcp://127.0.0.1:19351?tcp_nodelay=0 failed: Connection refused"
+        },
+        {
+          "at": 10.04,
+          "line": "[rtmp @ 0xb82c18700] Cannot open connection tcp://127.0.0.1:19351?tcp_nodelay=0"
+        },
+        {
+          "at": 10.04,
+          "line": "[fifo @ 0xb82c16580] Error opening rtmp://127.0.0.1:19351/live/s1: Connection refused"
+        },
+        {
+          "at": 10.04,
+          "line": "[fifo @ 0xb82c16580] Recovery failed: Connection refused"
+        },
+        {
+          "at": 11.04,
+          "line": "[tcp @ 0xb830615e0] Connection to tcp://127.0.0.1:19351?tcp_nodelay=0 failed: Connection refused"
+        },
+        {
+          "at": 11.04,
+          "line": "[rtmp @ 0xb82c19480] Cannot open connection tcp://127.0.0.1:19351?tcp_nodelay=0"
+        },
+        {
+          "at": 11.04,
+          "line": "[fifo @ 0xb82c16580] Error opening rtmp://127.0.0.1:19351/live/s1: Connection refused"
+        },
+        {
+          "at": 11.04,
+          "line": "[fifo @ 0xb82c16580] Recovery failed: Connection refused"
+        },
+        {
+          "at": 12.04,
+          "line": "[tcp @ 0xb83060a00] Connection to tcp://127.0.0.1:19351?tcp_nodelay=0 failed: Connection refused"
+        },
+        {
+          "at": 12.04,
+          "line": "[rtmp @ 0xb82c19500] Cannot open connection tcp://127.0.0.1:19351?tcp_nodelay=0"
+        },
+        {
+          "at": 12.04,
+          "line": "[fifo @ 0xb82c16580] Error opening rtmp://127.0.0.1:19351/live/s1: Connection refused"
+        },
+        {
+          "at": 12.04,
+          "line": "[fifo @ 0xb82c16580] Recovery failed: Connection refused"
+        },
+        {
+          "at": 13.05,
+          "line": "[tcp @ 0xb83060780] Connection to tcp://127.0.0.1:19351?tcp_nodelay=0 failed: Connection refused"
+        },
+        {
+          "at": 13.05,
+          "line": "[rtmp @ 0xb82c18780] Cannot open connection tcp://127.0.0.1:19351?tcp_nodelay=0"
+        },
+        {
+          "at": 13.05,
+          "line": "[fifo @ 0xb82c16580] Error opening rtmp://127.0.0.1:19351/live/s1: Connection refused"
+        },
+        {
+          "at": 13.05,
+          "line": "[fifo @ 0xb82c16580] Recovery failed: Connection refused"
+        },
+        {
+          "at": 14.05,
+          "line": "[tcp @ 0xb830612c0] Connection to tcp://127.0.0.1:19351?tcp_nodelay=0 failed: Connection refused"
+        },
+        {
+          "at": 14.05,
+          "line": "[rtmp @ 0xb82c19780] Cannot open connection tcp://127.0.0.1:19351?tcp_nodelay=0"
+        },
+        {
+          "at": 14.05,
+          "line": "[fifo @ 0xb82c16580] Error opening rtmp://127.0.0.1:19351/live/s1: Connection refused"
+        },
+        {
+          "at": 14.05,
+          "line": "[fifo @ 0xb82c16580] Recovery failed: Connection refused"
+        },
+        {
+          "at": 15.13,
+          "line": "[fifo @ 0xb82c16580] Recovery successful"
+        },
+        {
+          "at": 33.57,
+          "line": "[flv @ 0xb82c15e00] Failed to update header with correct duration."
+        },
+        {
+          "at": 33.57,
+          "line": "[flv @ 0xb82c15e00] Failed to update header with correct filesize."
+        },
+        {
+          "at": 33.57,
+          "line": "[out#0/tee @ 0xb83024a80] video:6623KiB audio:535KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: unknown"
+        }
+      ],
+      "faultLog": [
+        {
+          "plannedAt": 8,
+          "actualAt": 8,
+          "action": "killSink",
+          "doneAt": 8
+        },
+        {
+          "plannedAt": 15,
+          "actualAt": 15,
+          "action": "restartSink",
+          "doneAt": 15.19
+        }
+      ],
+      "sinkEvents": [
+        {
+          "at": 0,
+          "event": "sink listening (segment 0)"
+        },
+        {
+          "at": 0.21,
+          "event": "publisher connected (segment 0)"
+        },
+        {
+          "at": 1.4,
+          "event": "segment 0 first tag"
+        },
+        {
+          "at": 8,
+          "event": "sink killed"
+        },
+        {
+          "at": 15.13,
+          "event": "publisher connected (segment 1)"
+        },
+        {
+          "at": 15.19,
+          "event": "sink listening (segment 1)"
+        },
+        {
+          "at": 17.4,
+          "event": "segment 1 first tag"
+        },
+        {
+          "at": 35.08,
+          "event": "sink killed"
+        }
+      ],
+      "pass": true,
+      "elapsedS": 35.8
+    },
+    "reconnect-late-phase": {
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "killedAtS": 8,
+      "sinkRestartedAtS": 16.9,
+      "recording": {
+        "exists": true,
+        "bytes": 7359283,
+        "videoFrames": 1020,
+        "expectedVideoFrames": 1020,
+        "audioPackets": 1595,
+        "videoSpanS": 34.021,
+        "maxVideoGapMs": 54.7,
+        "videoGapsOver2Frames": 0,
+        "maxAudioGapMs": 21.3,
+        "audioGapsOver3Packets": 0,
+        "decodeErrorLines": 0,
+        "wallSeconds": 33.57
+      },
+      "segments": [
+        {
+          "index": 0,
+          "bytes": 1657518,
+          "connectedAtS": 0.21,
+          "firstTagAtS": 1.37,
+          "closedAtS": 8.01,
+          "video": 239,
+          "audio": 373,
+          "firstVideoIsKey": true,
+          "tsFirstMs": 21,
+          "tsLastMs": 7954,
+          "jumps": [],
+          "undecodableVideoFramesAfterGaps": 0,
+          "firstArrivalMs": 1374
+        },
+        {
+          "index": 1,
+          "bytes": 3521781,
+          "connectedAtS": 17.1,
+          "firstTagAtS": 19.38,
+          "closedAtS": 33.57,
+          "video": 480,
+          "audio": 750,
+          "firstVideoIsKey": true,
+          "tsFirstMs": 0,
+          "tsLastMs": 15967,
+          "jumps": [],
+          "undecodableVideoFramesAfterGaps": 0,
+          "firstArrivalMs": 19375.5
+        }
+      ],
+      "firstSegmentLastRecordedFrame": 238,
+      "firstSegmentFrameRuns": 1,
+      "publisherRecovery": {
+        "restartRequestToReconnectS": 0.2,
+        "restartRequestToFirstKeyframeArrivedS": 2.48,
+        "receiverProbeLatencyS": 1.17,
+        "restartRequestToFirstKeyframeExclReceiverProbeS": 1.31,
+        "retryCadence": {
+          "failedAttempts": 9,
+          "firstAtS": 8.04,
+          "intervalsS": {
+            "min": 1,
+            "median": 1,
+            "max": 1.01
+          }
+        },
+        "reconnectedStreamStartsAtRecordingFrame": 540,
+        "reconnectedStreamStartsAtRecordingS": 18.02,
+        "reconnectInstantS": 17.1,
+        "startsAtKeyFrame": true,
+        "runsInReconnectedSegment": 1,
+        "framesLostInsideReconnectedSegment": 0,
+        "outageMediaSkippedS": 10.07,
+        "maxFrameAgeMsOnArrivalExclReceiverProbe": 169.8,
+        "decodeErrorLinesInReconnectedSegment": 0,
+        "timestampsRestartAtZeroOnReconnect": true
+      },
+      "channelsAfterReconnect": {
+        "windows100ms": 160,
+        "intact": 160,
+        "silent": 0,
+        "swapped": 0,
+        "mixedOrDamaged": 0,
+        "minLeftAmplitude440": 0.885,
+        "minRightAmplitude1000": 0.891,
+        "pass": true
+      },
+      "stderrExcerpt": [
+        {
+          "at": 0.21,
+          "line": "Output #0, tee, to '[f=mp4:movflags=+frag_keyframe+hybrid_fragmented:flush_packets=1:onfail=ignore]<tmp>/reconnect-late-phase/recording.mp4|[f=fifo:f"
+        },
+        {
+          "at": 8.04,
+          "line": "[flv @ 0x98901d680] Failed to update header with correct duration."
+        },
+        {
+          "at": 8.04,
+          "line": "[flv @ 0x98901d680] Failed to update header with correct filesize."
+        },
+        {
+          "at": 8.04,
+          "line": "[tcp @ 0x9890548c0] Connection to tcp://127.0.0.1:19351?tcp_nodelay=0 failed: Connection refused"
+        },
+        {
+          "at": 8.04,
+          "line": "[rtmp @ 0x988c1d600] Cannot open connection tcp://127.0.0.1:19351?tcp_nodelay=0"
+        },
+        {
+          "at": 8.04,
+          "line": "[fifo @ 0x98901d400] Error opening rtmp://127.0.0.1:19351/live/s1: Connection refused"
+        },
+        {
+          "at": 8.04,
+          "line": "[fifo @ 0x98901d400] Recovery failed: Connection refused"
+        },
+        {
+          "at": 9.04,
+          "line": "[tcp @ 0x9890548c0] Connection to tcp://127.0.0.1:19351?tcp_nodelay=0 failed: Connection refused"
+        },
+        {
+          "at": 9.04,
+          "line": "[rtmp @ 0x988c1cc00] Cannot open connection tcp://127.0.0.1:19351?tcp_nodelay=0"
+        },
+        {
+          "at": 9.04,
+          "line": "[fifo @ 0x98901d400] Error opening rtmp://127.0.0.1:19351/live/s1: Connection refused"
+        },
+        {
+          "at": 9.04,
+          "line": "[fifo @ 0x98901d400] Recovery failed: Connection refused"
+        },
+        {
+          "at": 10.04,
+          "line": "[tcp @ 0x9890548c0] Connection to tcp://127.0.0.1:19351?tcp_nodelay=0 failed: Connection refused"
+        },
+        {
+          "at": 10.04,
+          "line": "[rtmp @ 0x988c1cb00] Cannot open connection tcp://127.0.0.1:19351?tcp_nodelay=0"
+        },
+        {
+          "at": 10.04,
+          "line": "[fifo @ 0x98901d400] Error opening rtmp://127.0.0.1:19351/live/s1: Connection refused"
+        },
+        {
+          "at": 10.04,
+          "line": "[fifo @ 0x98901d400] Recovery failed: Connection refused"
+        },
+        {
+          "at": 11.04,
+          "line": "[tcp @ 0x9890548c0] Connection to tcp://127.0.0.1:19351?tcp_nodelay=0 failed: Connection refused"
+        },
+        {
+          "at": 11.04,
+          "line": "[rtmp @ 0x988c1d600] Cannot open connection tcp://127.0.0.1:19351?tcp_nodelay=0"
+        },
+        {
+          "at": 11.04,
+          "line": "[fifo @ 0x98901d400] Error opening rtmp://127.0.0.1:19351/live/s1: Connection refused"
+        },
+        {
+          "at": 11.04,
+          "line": "[fifo @ 0x98901d400] Recovery failed: Connection refused"
+        },
+        {
+          "at": 12.04,
+          "line": "[tcp @ 0x9890548c0] Connection to tcp://127.0.0.1:19351?tcp_nodelay=0 failed: Connection refused"
+        },
+        {
+          "at": 12.04,
+          "line": "[rtmp @ 0x988c1d980] Cannot open connection tcp://127.0.0.1:19351?tcp_nodelay=0"
+        },
+        {
+          "at": 12.04,
+          "line": "[fifo @ 0x98901d400] Error opening rtmp://127.0.0.1:19351/live/s1: Connection refused"
+        },
+        {
+          "at": 12.04,
+          "line": "[fifo @ 0x98901d400] Recovery failed: Connection refused"
+        },
+        {
+          "at": 13.05,
+          "line": "[tcp @ 0x9890548c0] Connection to tcp://127.0.0.1:19351?tcp_nodelay=0 failed: Connection refused"
+        },
+        {
+          "at": 13.05,
+          "line": "[rtmp @ 0x988c1c980] Cannot open connection tcp://127.0.0.1:19351?tcp_nodelay=0"
+        },
+        {
+          "at": 13.05,
+          "line": "[fifo @ 0x98901d400] Error opening rtmp://127.0.0.1:19351/live/s1: Connection refused"
+        },
+        {
+          "at": 13.05,
+          "line": "[fifo @ 0x98901d400] Recovery failed: Connection refused"
+        },
+        {
+          "at": 14.05,
+          "line": "[tcp @ 0x9890548c0] Connection to tcp://127.0.0.1:19351?tcp_nodelay=0 failed: Connection refused"
+        },
+        {
+          "at": 14.05,
+          "line": "[rtmp @ 0x988c1c380] Cannot open connection tcp://127.0.0.1:19351?tcp_nodelay=0"
+        },
+        {
+          "at": 14.05,
+          "line": "[fifo @ 0x98901d400] Error opening rtmp://127.0.0.1:19351/live/s1: Connection refused"
+        },
+        {
+          "at": 14.05,
+          "line": "[fifo @ 0x98901d400] Recovery failed: Connection refused"
+        },
+        {
+          "at": 15.05,
+          "line": "[tcp @ 0x9890548c0] Connection to tcp://127.0.0.1:19351?tcp_nodelay=0 failed: Connection refused"
+        },
+        {
+          "at": 15.05,
+          "line": "[rtmp @ 0x988c1d680] Cannot open connection tcp://127.0.0.1:19351?tcp_nodelay=0"
+        },
+        {
+          "at": 15.05,
+          "line": "[fifo @ 0x98901d400] Error opening rtmp://127.0.0.1:19351/live/s1: Connection refused"
+        },
+        {
+          "at": 15.05,
+          "line": "[fifo @ 0x98901d400] Recovery failed: Connection refused"
+        },
+        {
+          "at": 16.05,
+          "line": "[tcp @ 0x9890548c0] Connection to tcp://127.0.0.1:19351?tcp_nodelay=0 failed: Connection refused"
+        },
+        {
+          "at": 16.05,
+          "line": "[rtmp @ 0x988c1c400] Cannot open connection tcp://127.0.0.1:19351?tcp_nodelay=0"
+        },
+        {
+          "at": 16.05,
+          "line": "[fifo @ 0x98901d400] Error opening rtmp://127.0.0.1:19351/live/s1: Connection refused"
+        },
+        {
+          "at": 16.05,
+          "line": "[fifo @ 0x98901d400] Recovery failed: Connection refused"
+        },
+        {
+          "at": 17.1,
+          "line": "[fifo @ 0x98901d400] Recovery successful"
+        }
+      ],
+      "faultLog": [
+        {
+          "plannedAt": 8,
+          "actualAt": 8,
+          "action": "killSink",
+          "doneAt": 8.01
+        },
+        {
+          "plannedAt": 16.9,
+          "actualAt": 16.9,
+          "action": "restartSink",
+          "doneAt": 17.1
+        }
+      ],
+      "sinkEvents": [
+        {
+          "at": 0,
+          "event": "sink listening (segment 0)"
+        },
+        {
+          "at": 0.21,
+          "event": "publisher connected (segment 0)"
+        },
+        {
+          "at": 1.37,
+          "event": "segment 0 first tag"
+        },
+        {
+          "at": 8,
+          "event": "sink killed"
+        },
+        {
+          "at": 17.1,
+          "event": "sink listening (segment 1)"
+        },
+        {
+          "at": 17.1,
+          "event": "publisher connected (segment 1)"
+        },
+        {
+          "at": 19.38,
+          "event": "segment 1 first tag"
+        },
+        {
+          "at": 35.08,
+          "event": "sink killed"
+        }
+      ],
+      "pass": true,
+      "elapsedS": 35.7
+    },
+    "stall-sweep": {
+      "stall-q60-drop": {
+        "exit": {
+          "code": 0,
+          "signal": null
+        },
+        "params": {
+          "queueSize": 60
+        },
+        "sinkSegments": 1,
+        "stallAtS": 6,
+        "resumeAtS": 18,
+        "recording": {
+          "exists": true,
+          "bytes": 6481507,
+          "videoFrames": 900,
+          "expectedVideoFrames": 900,
+          "audioPackets": 1408,
+          "videoSpanS": 30.021,
+          "maxVideoGapMs": 54.7,
+          "videoGapsOver2Frames": 0,
+          "maxAudioGapMs": 21.3,
+          "audioGapsOver3Packets": 0,
+          "decodeErrorLines": 0,
+          "wallSeconds": 29.58
+        },
+        "encoderBackpressure": {
+          "maxBlockedS": 0.01,
+          "finalWallMinusMediaS": -0.39,
+          "statsSamples": 30
+        },
+        "received": {
+          "index": 0,
+          "bytes": 4522522,
+          "connectedAtS": 0.2,
+          "firstTagAtS": 1.37,
+          "closedAtS": 29.57,
+          "video": 626,
+          "audio": 977,
+          "firstVideoIsKey": true,
+          "tsFirstMs": 21,
+          "tsLastMs": 29988,
+          "jumps": [
+            {
+              "atTs": 8821,
+              "gapMs": 5200,
+              "nextIsKey": true
+            },
+            {
+              "atTs": 14021,
+              "gapMs": 4000,
+              "nextIsKey": true
+            }
+          ],
+          "undecodableVideoFramesAfterGaps": 0,
+          "firstArrivalMs": 1372.6
+        },
+        "receivedVideoVsEncoded": {
+          "encoded": 900,
+          "received": 626,
+          "notDelivered": 274
+        },
+        "fullQueueWorstCase": {
+          "queue_size=30": {
+            "maxBytes": 103287,
+            "maxSpanMs": 388
+          },
+          "queue_size=60": {
+            "maxBytes": 190497,
+            "maxSpanMs": 788
+          },
+          "queue_size=240": {
+            "maxBytes": 711926,
+            "maxSpanMs": 3121.4
+          }
+        },
+        "dropRuns": [
+          {
+            "afterFrame": 264,
+            "frames": 155,
+            "seconds": 5.2
+          },
+          {
+            "afterFrame": 420,
+            "frames": 119,
+            "seconds": 4
+          }
+        ],
+        "runs": 3,
+        "firstRunAfterDropStartsWithKey": [
+          true,
+          true
+        ],
+        "undecodableFramesAfterDrops": 0,
+        "ageMsOnArrival": {
+          "maxAfterResume": 11968.5,
+          "maxAfterResumePlus0_5s": 8.6,
+          "framesOlderThan1sAfterResume": 86,
+          "staleFramesAfterFirstDropGap": 1,
+          "maxAgeMsAfterFirstDropGap": 4001.7
+        },
+        "rssKbAtStall": 47440,
+        "rssKbAtResume": 48048,
+        "rssKbAtEnd": 48080,
+        "rssKbMax": 50608,
+        "rssGrowthKbStallToEnd": 640,
+        "rss": [
+          {
+            "at": 1,
+            "kb": 50608
+          },
+          {
+            "at": 4,
+            "kb": 47440
+          },
+          {
+            "at": 7,
+            "kb": 47520
+          },
+          {
+            "at": 10,
+            "kb": 47744
+          },
+          {
+            "at": 13,
+            "kb": 47696
+          },
+          {
+            "at": 16,
+            "kb": 47920
+          },
+          {
+            "at": 19,
+            "kb": 48048
+          },
+          {
+            "at": 22,
+            "kb": 48096
+          },
+          {
+            "at": 25,
+            "kb": 48080
+          },
+          {
+            "at": 28,
+            "kb": 48192
+          }
+        ],
+        "flvDecodeErrorLines": 0,
+        "stderrExcerpt": [
+          {
+            "at": 0.2,
+            "line": "Output #0, tee, to '[f=mp4:movflags=+frag_keyframe+hybrid_fragmented:flush_packets=1:onfail=ignore]<tmp>/stall-q60-drop/recording.mp4|[f=fifo:fifo_fo"
+          },
+          {
+            "at": 9.64,
+            "line": "[fifo @ 0xcaac19400] FIFO queue full"
+          },
+          {
+            "at": 14.84,
+            "line": "[fifo @ 0xcaac19400] FIFO queue full"
+          },
+          {
+            "at": 13.31,
+            "line": "[fifo @ 0xcaac19400] FIFO queue flushed"
+          },
+          {
+            "at": 18.01,
+            "line": "[fifo @ 0xcaac19400] FIFO queue flushed"
+          },
+          {
+            "at": 29.57,
+            "line": "[flv @ 0xcaac19680] Failed to update header with correct duration."
+          },
+          {
+            "at": 29.57,
+            "line": "[flv @ 0xcaac19680] Failed to update header with correct filesize."
+          },
+          {
+            "at": 29.57,
+            "line": "[out#0/tee @ 0xcab00cfc0] video:5831KiB audio:472KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: unknown"
+          }
+        ],
+        "faultLog": [
+          {
+            "plannedAt": 6,
+            "actualAt": 6,
+            "action": "stall",
+            "doneAt": 6
+          },
+          {
+            "plannedAt": 18,
+            "actualAt": 18,
+            "action": "resume",
+            "doneAt": 18
+          }
+        ],
+        "sinkEvents": [
+          {
+            "at": 0,
+            "event": "sink listening (segment 0)"
+          },
+          {
+            "at": 0.2,
+            "event": "publisher connected (segment 0)"
+          },
+          {
+            "at": 1.37,
+            "event": "segment 0 first tag"
+          },
+          {
+            "at": 6,
+            "event": "stall (receiver SIGSTOP)"
+          },
+          {
+            "at": 18,
+            "event": "resume (receiver SIGCONT)"
+          },
+          {
+            "at": 31.08,
+            "event": "sink killed"
+          }
+        ],
+        "encoderBlockedAsExpected": true,
+        "pass": true
+      },
+      "stall-q30-drop": {
+        "exit": {
+          "code": 0,
+          "signal": null
+        },
+        "params": {
+          "queueSize": 30
+        },
+        "sinkSegments": 1,
+        "stallAtS": 6,
+        "resumeAtS": 18,
+        "recording": {
+          "exists": true,
+          "bytes": 6481507,
+          "videoFrames": 900,
+          "expectedVideoFrames": 900,
+          "audioPackets": 1408,
+          "videoSpanS": 30.021,
+          "maxVideoGapMs": 54.7,
+          "videoGapsOver2Frames": 0,
+          "maxAudioGapMs": 21.3,
+          "audioGapsOver3Packets": 0,
+          "decodeErrorLines": 0,
+          "wallSeconds": 29.58
+        },
+        "encoderBackpressure": {
+          "maxBlockedS": 0.01,
+          "finalWallMinusMediaS": -0.39,
+          "statsSamples": 30
+        },
+        "received": {
+          "index": 0,
+          "bytes": 4405477,
+          "connectedAtS": 0.2,
+          "firstTagAtS": 1.44,
+          "closedAtS": 29.58,
+          "video": 610,
+          "audio": 950,
+          "firstVideoIsKey": true,
+          "tsFirstMs": 21,
+          "tsLastMs": 29454,
+          "jumps": [
+            {
+              "atTs": 8821,
+              "gapMs": 5200,
+              "nextIsKey": true
+            },
+            {
+              "atTs": 14021,
+              "gapMs": 4000,
+              "nextIsKey": true
+            }
+          ],
+          "undecodableVideoFramesAfterGaps": 0,
+          "firstArrivalMs": 1441.5
+        },
+        "receivedVideoVsEncoded": {
+          "encoded": 900,
+          "received": 610,
+          "notDelivered": 290
+        },
+        "fullQueueWorstCase": {
+          "queue_size=30": {
+            "maxBytes": 103287,
+            "maxSpanMs": 388
+          },
+          "queue_size=60": {
+            "maxBytes": 190497,
+            "maxSpanMs": 788
+          },
+          "queue_size=240": {
+            "maxBytes": 711926,
+            "maxSpanMs": 3121.4
+          }
+        },
+        "dropRuns": [
+          {
+            "afterFrame": 264,
+            "frames": 155,
+            "seconds": 5.2
+          },
+          {
+            "afterFrame": 420,
+            "frames": 119,
+            "seconds": 4
+          }
+        ],
+        "runs": 3,
+        "firstRunAfterDropStartsWithKey": [
+          true,
+          true
+        ],
+        "undecodableFramesAfterDrops": 0,
+        "ageMsOnArrival": {
+          "maxAfterResume": 11961.6,
+          "maxAfterResumePlus0_5s": 34.4,
+          "framesOlderThan1sAfterResume": 88,
+          "staleFramesAfterFirstDropGap": 1,
+          "maxAgeMsAfterFirstDropGap": 4001.9
+        },
+        "rssKbAtStall": 47344,
+        "rssKbAtResume": 47952,
+        "rssKbAtEnd": 47952,
+        "rssKbMax": 50912,
+        "rssGrowthKbStallToEnd": 608,
+        "rss": [
+          {
+            "at": 1,
+            "kb": 50912
+          },
+          {
+            "at": 4,
+            "kb": 47344
+          },
+          {
+            "at": 7,
+            "kb": 47552
+          },
+          {
+            "at": 10,
+            "kb": 47696
+          },
+          {
+            "at": 13,
+            "kb": 47664
+          },
+          {
+            "at": 16,
+            "kb": 47792
+          },
+          {
+            "at": 19,
+            "kb": 47952
+          },
+          {
+            "at": 22,
+            "kb": 47936
+          },
+          {
+            "at": 25,
+            "kb": 47888
+          },
+          {
+            "at": 28,
+            "kb": 48032
+          }
+        ],
+        "flvDecodeErrorLines": 0,
+        "stderrExcerpt": [
+          {
+            "at": 0.2,
+            "line": "Output #0, tee, to '[f=mp4:movflags=+frag_keyframe+hybrid_fragmented:flush_packets=1:onfail=ignore]<tmp>/stall-q30-drop/recording.mp4|[f=fifo:fifo_fo"
+          },
+          {
+            "at": 9.31,
+            "line": "[fifo @ 0x7fcc16580] FIFO queue full"
+          },
+          {
+            "at": 14.5,
+            "line": "[fifo @ 0x7fcc16580] FIFO queue full"
+          },
+          {
+            "at": 29.55,
+            "line": "[fifo @ 0x7fcc16580] FIFO queue full"
+          },
+          {
+            "at": 13.35,
+            "line": "[fifo @ 0x7fcc16580] FIFO queue flushed"
+          },
+          {
+            "at": 18.01,
+            "line": "[fifo @ 0x7fcc16580] FIFO queue flushed"
+          },
+          {
+            "at": 29.55,
+            "line": "[fifo @ 0x7fcc16580] FIFO queue flushed"
+          },
+          {
+            "at": 29.57,
+            "line": "[flv @ 0x7fcc15e00] Failed to update header with correct duration."
+          },
+          {
+            "at": 29.57,
+            "line": "[flv @ 0x7fcc15e00] Failed to update header with correct filesize."
+          },
+          {
+            "at": 29.57,
+            "line": "[out#0/tee @ 0x7fd020a80] video:5831KiB audio:472KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: unknown"
+          }
+        ],
+        "faultLog": [
+          {
+            "plannedAt": 6,
+            "actualAt": 6,
+            "action": "stall",
+            "doneAt": 6
+          },
+          {
+            "plannedAt": 18,
+            "actualAt": 18,
+            "action": "resume",
+            "doneAt": 18
+          }
+        ],
+        "sinkEvents": [
+          {
+            "at": 0,
+            "event": "sink listening (segment 0)"
+          },
+          {
+            "at": 0.2,
+            "event": "publisher connected (segment 0)"
+          },
+          {
+            "at": 1.44,
+            "event": "segment 0 first tag"
+          },
+          {
+            "at": 6,
+            "event": "stall (receiver SIGSTOP)"
+          },
+          {
+            "at": 18,
+            "event": "resume (receiver SIGCONT)"
+          },
+          {
+            "at": 31.08,
+            "event": "sink killed"
+          }
+        ],
+        "encoderBlockedAsExpected": true,
+        "pass": true
+      },
+      "stall-q240-drop": {
+        "exit": {
+          "code": 0,
+          "signal": null
+        },
+        "params": {
+          "queueSize": 240
+        },
+        "sinkSegments": 1,
+        "stallAtS": 6,
+        "resumeAtS": 18,
+        "recording": {
+          "exists": true,
+          "bytes": 6481507,
+          "videoFrames": 900,
+          "expectedVideoFrames": 900,
+          "audioPackets": 1408,
+          "videoSpanS": 30.021,
+          "maxVideoGapMs": 54.7,
+          "videoGapsOver2Frames": 0,
+          "maxAudioGapMs": 21.3,
+          "audioGapsOver3Packets": 0,
+          "decodeErrorLines": 0,
+          "wallSeconds": 29.58
+        },
+        "encoderBackpressure": {
+          "maxBlockedS": 0.01,
+          "finalWallMinusMediaS": -0.39,
+          "statsSamples": 30
+        },
+        "received": {
+          "index": 0,
+          "bytes": 4522522,
+          "connectedAtS": 0.2,
+          "firstTagAtS": 1.41,
+          "closedAtS": 29.57,
+          "video": 626,
+          "audio": 977,
+          "firstVideoIsKey": true,
+          "tsFirstMs": 21,
+          "tsLastMs": 29988,
+          "jumps": [
+            {
+              "atTs": 8821,
+              "gapMs": 5200,
+              "nextIsKey": true
+            },
+            {
+              "atTs": 14021,
+              "gapMs": 4000,
+              "nextIsKey": true
+            }
+          ],
+          "undecodableVideoFramesAfterGaps": 0,
+          "firstArrivalMs": 1408
+        },
+        "receivedVideoVsEncoded": {
+          "encoded": 900,
+          "received": 626,
+          "notDelivered": 274
+        },
+        "fullQueueWorstCase": {
+          "queue_size=30": {
+            "maxBytes": 103287,
+            "maxSpanMs": 388
+          },
+          "queue_size=60": {
+            "maxBytes": 190497,
+            "maxSpanMs": 788
+          },
+          "queue_size=240": {
+            "maxBytes": 711926,
+            "maxSpanMs": 3121.4
+          }
+        },
+        "dropRuns": [
+          {
+            "afterFrame": 264,
+            "frames": 155,
+            "seconds": 5.2
+          },
+          {
+            "afterFrame": 420,
+            "frames": 119,
+            "seconds": 4
+          }
+        ],
+        "runs": 3,
+        "firstRunAfterDropStartsWithKey": [
+          true,
+          true
+        ],
+        "undecodableFramesAfterDrops": 0,
+        "ageMsOnArrival": {
+          "maxAfterResume": 11998.2,
+          "maxAfterResumePlus0_5s": 8.1,
+          "framesOlderThan1sAfterResume": 88,
+          "staleFramesAfterFirstDropGap": 1,
+          "maxAgeMsAfterFirstDropGap": 4001
+        },
+        "rssKbAtStall": 47440,
+        "rssKbAtResume": 48928,
+        "rssKbAtEnd": 48912,
+        "rssKbMax": 51008,
+        "rssGrowthKbStallToEnd": 1472,
+        "rss": [
+          {
+            "at": 1,
+            "kb": 51008
+          },
+          {
+            "at": 4,
+            "kb": 47440
+          },
+          {
+            "at": 7,
+            "kb": 47648
+          },
+          {
+            "at": 10,
+            "kb": 47984
+          },
+          {
+            "at": 13,
+            "kb": 48368
+          },
+          {
+            "at": 16,
+            "kb": 48592
+          },
+          {
+            "at": 19,
+            "kb": 48928
+          },
+          {
+            "at": 22,
+            "kb": 48912
+          },
+          {
+            "at": 25,
+            "kb": 48896
+          },
+          {
+            "at": 28,
+            "kb": 49024
+          }
+        ],
+        "flvDecodeErrorLines": 0,
+        "stderrExcerpt": [
+          {
+            "at": 0.2,
+            "line": "Output #0, tee, to '[f=mp4:movflags=+frag_keyframe+hybrid_fragmented:flush_packets=1:onfail=ignore]<tmp>/stall-q240-drop/recording.mp4|[f=fifo:fifo_f"
+          },
+          {
+            "at": 12.01,
+            "line": "[fifo @ 0x72ec11400] FIFO queue full"
+          },
+          {
+            "at": 17.2,
+            "line": "[fifo @ 0x72ec11400] FIFO queue full"
+          },
+          {
+            "at": 13.42,
+            "line": "[fifo @ 0x72ec11400] FIFO queue flushed"
+          },
+          {
+            "at": 18.01,
+            "line": "[fifo @ 0x72ec11400] FIFO queue flushed"
+          },
+          {
+            "at": 29.57,
+            "line": "[flv @ 0x72ec11680] Failed to update header with correct duration."
+          },
+          {
+            "at": 29.57,
+            "line": "[flv @ 0x72ec11680] Failed to update header with correct filesize."
+          },
+          {
+            "at": 29.57,
+            "line": "[out#0/tee @ 0x72f02ca80] video:5831KiB audio:472KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: unknown"
+          }
+        ],
+        "faultLog": [
+          {
+            "plannedAt": 6,
+            "actualAt": 6,
+            "action": "stall",
+            "doneAt": 6
+          },
+          {
+            "plannedAt": 18,
+            "actualAt": 18,
+            "action": "resume",
+            "doneAt": 18
+          }
+        ],
+        "sinkEvents": [
+          {
+            "at": 0,
+            "event": "sink listening (segment 0)"
+          },
+          {
+            "at": 0.2,
+            "event": "publisher connected (segment 0)"
+          },
+          {
+            "at": 1.41,
+            "event": "segment 0 first tag"
+          },
+          {
+            "at": 6,
+            "event": "stall (receiver SIGSTOP)"
+          },
+          {
+            "at": 18,
+            "event": "resume (receiver SIGCONT)"
+          },
+          {
+            "at": 31.08,
+            "event": "sink killed"
+          }
+        ],
+        "encoderBlockedAsExpected": true,
+        "pass": true
+      },
+      "stall-q60-nodrop": {
+        "exit": {
+          "code": 0,
+          "signal": null
+        },
+        "params": {
+          "queueSize": 60,
+          "dropOnOverflow": false
+        },
+        "sinkSegments": 1,
+        "stallAtS": 6,
+        "resumeAtS": 18,
+        "recording": {
+          "exists": true,
+          "bytes": 6481507,
+          "videoFrames": 900,
+          "expectedVideoFrames": 900,
+          "audioPackets": 1408,
+          "videoSpanS": 30.021,
+          "maxVideoGapMs": 54.7,
+          "videoGapsOver2Frames": 0,
+          "maxAudioGapMs": 21.3,
+          "audioGapsOver3Packets": 0,
+          "decodeErrorLines": 0,
+          "wallSeconds": 36.92
+        },
+        "encoderBackpressure": {
+          "maxBlockedS": 1.01,
+          "finalWallMinusMediaS": 6.95,
+          "statsSamples": 37
+        },
+        "received": {
+          "index": 0,
+          "bytes": 6496936,
+          "connectedAtS": 0.2,
+          "firstTagAtS": 1.41,
+          "closedAtS": 36.91,
+          "video": 900,
+          "audio": 1408,
+          "firstVideoIsKey": true,
+          "tsFirstMs": 21,
+          "tsLastMs": 29988,
+          "jumps": [],
+          "undecodableVideoFramesAfterGaps": 0,
+          "firstArrivalMs": 1409.3
+        },
+        "receivedVideoVsEncoded": {
+          "encoded": 900,
+          "received": 900,
+          "notDelivered": 0
+        },
+        "fullQueueWorstCase": {
+          "queue_size=30": {
+            "maxBytes": 103287,
+            "maxSpanMs": 388
+          },
+          "queue_size=60": {
+            "maxBytes": 190497,
+            "maxSpanMs": 788
+          },
+          "queue_size=240": {
+            "maxBytes": 711926,
+            "maxSpanMs": 3121.4
+          }
+        },
+        "dropRuns": [],
+        "runs": 1,
+        "firstRunAfterDropStartsWithKey": [],
+        "undecodableFramesAfterDrops": 0,
+        "ageMsOnArrival": {
+          "maxAfterResume": 11998.9,
+          "maxAfterResumePlus0_5s": 7814.9,
+          "framesOlderThan1sAfterResume": 722,
+          "staleFramesAfterFirstDropGap": 0,
+          "maxAgeMsAfterFirstDropGap": 0
+        },
+        "rssKbAtStall": 47376,
+        "rssKbAtResume": 51984,
+        "rssKbAtEnd": 48256,
+        "rssKbMax": 52016,
+        "rssGrowthKbStallToEnd": 880,
+        "rss": [
+          {
+            "at": 1,
+            "kb": 50640
+          },
+          {
+            "at": 4,
+            "kb": 47376
+          },
+          {
+            "at": 7,
+            "kb": 47584
+          },
+          {
+            "at": 10,
+            "kb": 47808
+          },
+          {
+            "at": 13,
+            "kb": 47808
+          },
+          {
+            "at": 16,
+            "kb": 49296
+          },
+          {
+            "at": 19,
+            "kb": 51984
+          },
+          {
+            "at": 22,
+            "kb": 48192
+          },
+          {
+            "at": 25,
+            "kb": 48160
+          },
+          {
+            "at": 28,
+            "kb": 48240
+          },
+          {
+            "at": 31,
+            "kb": 48256
+          },
+          {
+            "at": 34.1,
+            "kb": 48336
+          }
+        ],
+        "flvDecodeErrorLines": 0,
+        "stderrExcerpt": [
+          {
+            "at": 0.2,
+            "line": "Output #0, tee, to '[f=mp4:movflags=+frag_keyframe+hybrid_fragmented:flush_packets=1:onfail=ignore]<tmp>/stall-q60-nodrop/recording.mp4|[f=fifo:fifo_"
+          },
+          {
+            "at": 36.91,
+            "line": "[flv @ 0x7acc15e00] Failed to update header with correct duration."
+          },
+          {
+            "at": 36.91,
+            "line": "[flv @ 0x7acc15e00] Failed to update header with correct filesize."
+          },
+          {
+            "at": 36.91,
+            "line": "[out#0/tee @ 0x7ad020a80] video:5831KiB audio:472KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: unknown"
+          }
+        ],
+        "faultLog": [
+          {
+            "plannedAt": 6,
+            "actualAt": 6,
+            "action": "stall",
+            "doneAt": 6
+          },
+          {
+            "plannedAt": 18,
+            "actualAt": 18,
+            "action": "resume",
+            "doneAt": 18
+          }
+        ],
+        "sinkEvents": [
+          {
+            "at": 0,
+            "event": "sink listening (segment 0)"
+          },
+          {
+            "at": 0.2,
+            "event": "publisher connected (segment 0)"
+          },
+          {
+            "at": 1.41,
+            "event": "segment 0 first tag"
+          },
+          {
+            "at": 6,
+            "event": "stall (receiver SIGSTOP)"
+          },
+          {
+            "at": 18,
+            "event": "resume (receiver SIGCONT)"
+          },
+          {
+            "at": 38.42,
+            "event": "sink killed"
+          }
+        ],
+        "encoderBlockedAsExpected": true,
+        "pass": true
+      },
+      "stall-q60-rwtimeout3s": {
+        "exit": {
+          "code": 0,
+          "signal": null
+        },
+        "params": {
+          "queueSize": 60,
+          "rwTimeoutMicros": 3000000,
+          "autoRelisten": true
+        },
+        "sinkSegments": 3,
+        "stallAtS": 6,
+        "resumeAtS": 18,
+        "recording": {
+          "exists": true,
+          "bytes": 6481507,
+          "videoFrames": 900,
+          "expectedVideoFrames": 900,
+          "audioPackets": 1408,
+          "videoSpanS": 30.021,
+          "maxVideoGapMs": 54.7,
+          "videoGapsOver2Frames": 0,
+          "maxAudioGapMs": 21.3,
+          "audioGapsOver3Packets": 0,
+          "decodeErrorLines": 0,
+          "wallSeconds": 29.66
+        },
+        "encoderBackpressure": {
+          "maxBlockedS": 0.03,
+          "finalWallMinusMediaS": -0.39,
+          "statsSamples": 30
+        },
+        "received": {
+          "index": 0,
+          "bytes": 1854509,
+          "connectedAtS": 0.2,
+          "firstTagAtS": 1.41,
+          "closedAtS": 18.03,
+          "video": 265,
+          "audio": 416,
+          "firstVideoIsKey": true,
+          "tsFirstMs": 21,
+          "tsLastMs": 8821,
+          "jumps": [],
+          "undecodableVideoFramesAfterGaps": 0,
+          "firstArrivalMs": 1406.7
+        },
+        "allSegments": [
+          {
+            "index": 0,
+            "connectedAtS": 0.2,
+            "firstTagAtS": 1.41,
+            "video": 265,
+            "firstVideoIsKey": true
+          },
+          {
+            "index": 1,
+            "connectedAtS": 18.41,
+            "firstTagAtS": 21.41,
+            "video": 300,
+            "firstVideoIsKey": true
+          },
+          {
+            "index": 2,
+            "connectedAtS": null,
+            "firstTagAtS": null,
+            "video": 0,
+            "firstVideoIsKey": null
+          }
+        ],
+        "receivedVideoVsEncoded": {
+          "encoded": 900,
+          "received": 565,
+          "notDelivered": 335
+        },
+        "fullQueueWorstCase": {
+          "queue_size=30": {
+            "maxBytes": 103287,
+            "maxSpanMs": 388
+          },
+          "queue_size=60": {
+            "maxBytes": 190497,
+            "maxSpanMs": 788
+          },
+          "queue_size=240": {
+            "maxBytes": 711926,
+            "maxSpanMs": 3121.4
+          }
+        },
+        "dropRuns": [
+          {
+            "afterFrame": 264,
+            "frames": 335,
+            "seconds": 11.2
+          }
+        ],
+        "runs": 2,
+        "firstRunAfterDropStartsWithKey": [
+          true
+        ],
+        "undecodableFramesAfterDrops": 0,
+        "ageMsOnArrival": {
+          "maxAfterResume": 11998.8,
+          "maxAfterResumePlus0_5s": 132.7,
+          "framesOlderThan1sAfterResume": 87,
+          "staleFramesAfterFirstDropGap": 0,
+          "maxAgeMsAfterFirstDropGap": 132.7
+        },
+        "rssKbAtStall": 47504,
+        "rssKbAtResume": 48080,
+        "rssKbAtEnd": 48096,
+        "rssKbMax": 50912,
+        "rssGrowthKbStallToEnd": 592,
+        "rss": [
+          {
+            "at": 1,
+            "kb": 50912
+          },
+          {
+            "at": 4,
+            "kb": 47552
+          },
+          {
+            "at": 7,
+            "kb": 47712
+          },
+          {
+            "at": 10,
+            "kb": 47872
+          },
+          {
+            "at": 13,
+            "kb": 47888
+          },
+          {
+            "at": 16,
+            "kb": 48016
+          },
+          {
+            "at": 19,
+            "kb": 48080
+          },
+          {
+            "at": 22,
+            "kb": 48064
+          },
+          {
+            "at": 25,
+            "kb": 48016
+          },
+          {
+            "at": 28,
+            "kb": 48176
+          }
+        ],
+        "flvDecodeErrorLines": 3,
+        "stderrExcerpt": [
+          {
+            "at": 9.7,
+            "line": "[fifo @ 0x88ac19400] FIFO queue full"
+          },
+          {
+            "at": 13.4,
+            "line": "[fifo @ 0x88ac19400] Error opening rtmp://127.0.0.1:19351/live/s1: Connection refused"
+          },
+          {
+            "at": 14.4,
+            "line": "[fifo @ 0x88ac19400] Error opening rtmp://127.0.0.1:19351/live/s1: Connection refused"
+          },
+          {
+            "at": 15.4,
+            "line": "[fifo @ 0x88ac19400] Error opening rtmp://127.0.0.1:19351/live/s1: Connection refused"
+          },
+          {
+            "at": 16.4,
+            "line": "[fifo @ 0x88ac19400] Error opening rtmp://127.0.0.1:19351/live/s1: Connection refused"
+          },
+          {
+            "at": 17.41,
+            "line": "[fifo @ 0x88ac19400] Error opening rtmp://127.0.0.1:19351/live/s1: Connection refused"
+          },
+          {
+            "at": 0.2,
+            "line": "Output #0, tee, to '[f=mp4:movflags=+frag_keyframe+hybrid_fragmented:flush_packets=1:onfail=ignore]<tmp>/stall-q60-rwtimeout3s/recording.mp4|[f=fifo:"
+          },
+          {
+            "at": 12.06,
+            "line": "[flv @ 0x88ac19680] Failed to update header with correct duration."
+          },
+          {
+            "at": 12.06,
+            "line": "[flv @ 0x88ac19680] Failed to update header with correct filesize."
+          },
+          {
+            "at": 13.4,
+            "line": "[tcp @ 0x88b0b3700] Connection to tcp://127.0.0.1:19351?tcp_nodelay=0 failed: Connection refused"
+          },
+          {
+            "at": 13.4,
+            "line": "[rtmp @ 0x88b1bc300] Cannot open connection tcp://127.0.0.1:19351?tcp_nodelay=0"
+          },
+          {
+            "at": 13.4,
+            "line": "[fifo @ 0x88ac19400] Recovery failed: Connection refused"
+          },
+          {
+            "at": 13.4,
+            "line": "[fifo @ 0x88ac19400] FIFO queue flushed"
+          },
+          {
+            "at": 14.4,
+            "line": "[tcp @ 0x88b0b3700] Connection to tcp://127.0.0.1:19351?tcp_nodelay=0 failed: Connection refused"
+          }
+        ],
+        "faultLog": [
+          {
+            "plannedAt": 6,
+            "actualAt": 6,
+            "action": "stall",
+            "doneAt": 6
+          },
+          {
+            "plannedAt": 18,
+            "actualAt": 18,
+            "action": "resume",
+            "doneAt": 18
+          }
+        ],
+        "sinkEvents": [
+          {
+            "at": 0,
+            "event": "sink listening (segment 0)"
+          },
+          {
+            "at": 0.2,
+            "event": "publisher connected (segment 0)"
+          },
+          {
+            "at": 1.41,
+            "event": "segment 0 first tag"
+          },
+          {
+            "at": 6,
+            "event": "stall (receiver SIGSTOP)"
+          },
+          {
+            "at": 18,
+            "event": "resume (receiver SIGCONT)"
+          },
+          {
+            "at": 18.03,
+            "event": "receiver exited; relistening"
+          },
+          {
+            "at": 18.11,
+            "event": "sink listening (segment 1)"
+          },
+          {
+            "at": 18.41,
+            "event": "publisher connected (segment 1)"
+          },
+          {
+            "at": 21.41,
+            "event": "segment 1 first tag"
+          },
+          {
+            "at": 29.57,
+            "event": "receiver exited; relistening"
+          },
+          {
+            "at": 29.66,
+            "event": "sink listening (segment 2)"
+          },
+          {
+            "at": 31.16,
+            "event": "sink killed"
+          }
+        ],
+        "encoderBlockedAsExpected": true,
+        "pass": true
+      },
+      "elapsedS": 166,
+      "pass": true
+    },
+    "initialRecordingFailure": {
+      "abort": {
+        "exit": {
+          "code": 254,
+          "signal": null
+        },
+        "publisherConnections": 0,
+        "mediaTagsReceived": 0,
+        "recordingExists": false,
+        "wallSeconds": 0.21,
+        "stderrExcerpt": [
+          {
+            "at": 0.2,
+            "line": "[tee @ 0x8aec14500] Slave '[f=mp4:movflags=+frag_keyframe+hybrid_fragmented:flush_packets=1:onfail=abort]<tmp>/no-such-dir/recording.mp4': error open"
+          },
+          {
+            "at": 0.2,
+            "line": "[tee @ 0x8aec14500] Slave muxer #0 failed, aborting."
+          },
+          {
+            "at": 0.2,
+            "line": "[out#0/tee @ 0x8af024a80] Could not write header (incorrect codec parameters ?): No such file or directory"
+          },
+          {
+            "at": 0.2,
+            "line": "[vf#0:0 @ 0x8af034000] Error sending frames to consumers: No such file or directory"
+          },
+          {
+            "at": 0.2,
+            "line": "[vf#0:0 @ 0x8af034000] Task finished with error code: -2 (No such file or directory)"
+          },
+          {
+            "at": 0.2,
+            "line": "[out#0/tee @ 0x8af024a80] Nothing was written into output file, because at least one of its streams received no packets."
+          }
+        ]
+      },
+      "ignore": {
+        "exit": {
+          "code": 0,
+          "signal": null
+        },
+        "publisherConnections": 1,
+        "mediaTagsReceived": 466,
+        "recordingExists": false,
+        "wallSeconds": 5.57,
+        "stderrExcerpt": [
+          {
+            "at": 0.21,
+            "line": "[tee @ 0xa0cc18500] Slave '[f=mp4:movflags=+frag_keyframe+hybrid_fragmented:flush_packets=1:onfail=ignore]<tmp>/no-such-dir/recording.mp4': error ope"
+          },
+          {
+            "at": 0.21,
+            "line": "[tee @ 0xa0cc18500] Slave muxer #0 failed: No such file or directory, continuing with 1/2 slaves."
+          },
+          {
+            "at": 0.21,
+            "line": "Output #0, tee, to '[f=mp4:movflags=+frag_keyframe+hybrid_fragmented:flush_packets=1:onfail=ignore]<tmp>/no-such-dir/recording.mp4|[f=fifo:fifo_forma"
+          },
+          {
+            "at": 5.57,
+            "line": "[flv @ 0xa0cc19400] Failed to update header with correct duration."
+          },
+          {
+            "at": 5.57,
+            "line": "[flv @ 0xa0cc19400] Failed to update header with correct filesize."
+          },
+          {
+            "at": 5.57,
+            "line": "[out#0/tee @ 0xa0d00cfc0] video:1085KiB audio:94KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: unknown"
+          }
+        ]
+      },
+      "pass": true,
+      "elapsedS": 8.9
+    },
+    "recordingViaInheritedFd": {
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "recording": {
+        "exists": true,
+        "bytes": 1660012,
+        "videoFrames": 240,
+        "expectedVideoFrames": 240,
+        "audioPackets": 376,
+        "videoSpanS": 8.021,
+        "maxVideoGapMs": 54.7,
+        "videoGapsOver2Frames": 0,
+        "maxAudioGapMs": 21.3,
+        "audioGapsOver3Packets": 0,
+        "decodeErrorLines": 0,
+        "wallSeconds": 7.83
+      },
+      "topLevelBoxes": [
+        "ftyp",
+        "free",
+        "mdat",
+        "moov"
+      ],
+      "supervisorRefusals": {
+        "missingDirectory": "ENOENT",
+        "existingFile": "EEXIST"
+      },
+      "received": {
+        "index": 0,
+        "bytes": 1661053,
+        "connectedAtS": 0.2,
+        "firstTagAtS": 1.43,
+        "closedAtS": 7.83,
+        "video": 240,
+        "audio": 376,
+        "firstVideoIsKey": true,
+        "tsFirstMs": 21,
+        "tsLastMs": 7988,
+        "jumps": [],
+        "undecodableVideoFramesAfterGaps": 0,
+        "firstArrivalMs": 1429.8
+      },
+      "channels": {
+        "windows100ms": 80,
+        "intact": 80,
+        "silent": 0,
+        "swapped": 0,
+        "mixedOrDamaged": 0,
+        "minLeftAmplitude440": 0.772,
+        "minRightAmplitude1000": 0.746,
+        "pass": true
+      },
+      "pass": true,
+      "elapsedS": 9.6
+    },
+    "recordingFailureMidSession": {
+      "ignore": {
+        "exit": {
+          "code": 0,
+          "signal": null
+        },
+        "wallSeconds": 17.58,
+        "recording": {
+          "exists": true,
+          "bytes": 2560000,
+          "videoFrames": 365,
+          "expectedVideoFrames": 540,
+          "audioPackets": 564,
+          "videoSpanS": 12.188,
+          "maxVideoGapMs": 54.7,
+          "videoGapsOver2Frames": 0,
+          "maxAudioGapMs": 21.3,
+          "audioGapsOver3Packets": 0,
+          "decodeErrorLines": 6,
+          "wallSeconds": 17.58
+        },
+        "received": {
+          "index": 0,
+          "bytes": 3856040,
+          "connectedAtS": 0.19,
+          "firstTagAtS": 1.37,
+          "closedAtS": 17.58,
+          "video": 540,
+          "audio": 845,
+          "firstVideoIsKey": true,
+          "tsFirstMs": 21,
+          "tsLastMs": 17988,
+          "jumps": [],
+          "undecodableVideoFramesAfterGaps": 0,
+          "firstArrivalMs": 1374.7
+        },
+        "receivedSpanS": 17.97,
+        "stderrExcerpt": [
+          {
+            "at": 0.19,
+            "line": "Output #0, tee, to '[f=mp4:movflags=+frag_keyframe+hybrid_fragmented:flush_packets=1:onfail=ignore]<tmp>/midfail-ignore/recording.mp4|[f=fifo:fifo_fo"
+          },
+          {
+            "at": 14.04,
+            "line": "[tee @ 0x7cac10500] Slave muxer #0 failed: File too large, continuing with 1/2 slaves."
+          },
+          {
+            "at": 17.57,
+            "line": "[flv @ 0x7cac11680] Failed to update header with correct duration."
+          },
+          {
+            "at": 17.57,
+            "line": "[flv @ 0x7cac11680] Failed to update header with correct filesize."
+          },
+          {
+            "at": 17.57,
+            "line": "[out#0/tee @ 0x7cb028a80] video:3458KiB audio:283KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: unknown"
+          }
+        ]
+      },
+      "abort": {
+        "exit": {
+          "code": 229,
+          "signal": null
+        },
+        "wallSeconds": 14.08,
+        "recording": {
+          "exists": true,
+          "bytes": 2560000,
+          "videoFrames": 365,
+          "expectedVideoFrames": 540,
+          "audioPackets": 564,
+          "videoSpanS": 12.188,
+          "maxVideoGapMs": 54.7,
+          "videoGapsOver2Frames": 0,
+          "maxAudioGapMs": 21.3,
+          "audioGapsOver3Packets": 0,
+          "decodeErrorLines": 6,
+          "wallSeconds": 14.08
+        },
+        "received": {
+          "index": 0,
+          "bytes": 2994285,
+          "connectedAtS": 0.2,
+          "firstTagAtS": 1.37,
+          "closedAtS": 14.08,
+          "video": 422,
+          "audio": 662,
+          "firstVideoIsKey": true,
+          "tsFirstMs": 21,
+          "tsLastMs": 14054,
+          "jumps": [],
+          "undecodableVideoFramesAfterGaps": 0,
+          "firstArrivalMs": 1374.2
+        },
+        "receivedSpanS": 14.03,
+        "stderrExcerpt": [
+          {
+            "at": 0.2,
+            "line": "Output #0, tee, to '[f=mp4:movflags=+frag_keyframe+hybrid_fragmented:flush_packets=1:onfail=abort]<tmp>/midfail-abort/recording.mp4|[f=fifo:fifo_form"
+          },
+          {
+            "at": 14.03,
+            "line": "[tee @ 0x8b9020500] Slave muxer #0 failed, aborting."
+          },
+          {
+            "at": 14.03,
+            "line": "[vost#0:0/h264_videotoolbox @ 0x8b8c78000] Error submitting a packet to the muxer: File too large"
+          },
+          {
+            "at": 14.03,
+            "line": "[out#0/tee @ 0x8b9024a80] Error muxing a packet"
+          },
+          {
+            "at": 14.03,
+            "line": "[out#0/tee @ 0x8b9024a80] Task finished with error code: -27 (File too large)"
+          },
+          {
+            "at": 14.08,
+            "line": "[flv @ 0x8b9021680] Failed to update header with correct duration."
+          },
+          {
+            "at": 14.08,
+            "line": "[flv @ 0x8b9021680] Failed to update header with correct filesize."
+          },
+          {
+            "at": 14.08,
+            "line": "[out#0/tee @ 0x8b9024a80] video:2683KiB audio:221KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: unknown"
+          }
+        ]
+      },
+      "pass": true,
+      "elapsedS": 35.2
+    }
+  },
+  "overallPass": true
+}
