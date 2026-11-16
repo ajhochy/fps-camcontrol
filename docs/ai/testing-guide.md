@@ -65,8 +65,13 @@ Manual only: a real iPad with a real Xbox controller (checklist in the PR / `doc
 ```bash
 make -C native/decklink-capture test        # mkv unit + synthetic_e2e.sh + serve_e2e.sh (service mode: fan-out, stall, attach/detach, EOF, format change)
 CAMCONTROL_NO_CONTROLLER=1 node --test --test-concurrency=1 -r ts-node/register/transpile-only \
-  tests/program/captureService.spec.ts tests/contract/issue-69.spec.ts tests/contract/issue-70.spec.ts
+  tests/program/captureService.spec.ts tests/contract/issue-69.spec.ts tests/contract/issue-70.spec.ts tests/contract/issue-96.spec.ts
 ```
+
+The sandbox self-test adds program-capture checks (#96) when the synthetic helper builds and an FFmpeg exists
+(`BROADCAST_FFMPEG`, else Homebrew); otherwise it prints that they were skipped. Interactive sandbox with a synthetic
+program capture: `CAMCONTROL_CAPTURE_SYNTHETIC=1 CAMCONTROL_CAPTURE_SYNTHETIC_LOSS=20:15:nosignal CAMCONTROL_CAPTURE_BIN=…/build-test/camcontrol-capture BROADCAST_FFMPEG=… pnpm sandbox`,
+then `PUT /api/streaming/capture {"enabled":true}`; desk `/`, iPad `/remote`, phone `/ui/remote/iphone/index.html`.
 
 `scripts/checks.cjs issue` runs both (the helper suites via `make … BUILD=build-check test`). The spec files build the
 synthetic helper into `native/decklink-capture/build-test/` and use a scripted fake helper (`tests/program/fakeCaptureHelper.cjs`)
