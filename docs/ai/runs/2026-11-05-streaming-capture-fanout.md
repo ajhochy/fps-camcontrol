@@ -31,7 +31,7 @@ Evidence (synthetic):
 - `tests/program/captureService.spec.ts` (6): attach/stats/detach and no FIFOs left; crash → backoff restarts, `auto` re-attached each time, `never` ended `capture-lost` and stayed ended, no false "lost" counts; busy card and missing device retry with growing backoff; format change restarts at once; wedged helper (no status) killed and replaced; stop escalates to SIGKILL; **real helper + real FFmpeg consumers**: stalled consumer dropped with 0 backpressure on the monitor, late consumer 55–75 frames in ~2 s, helper SIGKILL → restart, monitor re-attached with frames flowing.
 - FIFO throughput: 1080p30 UYVY at full rate through one FIFO, 301/301 frames, 0 drops.
 
-Physical: with Wirecast capturing from the UltraStudio (`--list-devices`: `busy_flags: 1`), `camcontrol-capture --serve` reported `device-busy`, exit 4, before enabling the input; Wirecast's capture was undisturbed (`busy_flags` still 1). **The ≤30 s two-consumer real-card run (frame counts within ±2 %, 0 decode errors) is NOT done**: the card was in use by Wirecast. It needs Wirecast closed.
+Physical: with Wirecast capturing from the UltraStudio (`--list-devices`: `busy_flags: 1`), `camcontrol-capture --serve` reported `device-busy`, exit 4, before enabling the input; Wirecast's capture was undisturbed (`busy_flags` still 1). The ≤30 s two-consumer real-card run was blocked that day (Wirecast held the card); it was done on 2026-11-16, see below.
 
 ## #69: streaming settings and locks
 
@@ -65,3 +65,14 @@ node scripts/checks.cjs issue
 ## Verification gate (after the review fixes)
 
 Every `scripts/checks.cjs` step run individually (the runner stops at its first failure): build, page JS, 9 unit suites, helper `make test`, Pi bridge, electron-release, sandbox `--smoke` and `--selftest`, `git diff --check`: pass. Focused tests 146/154, all new suites pass. Pre-existing and identical on clean `45a93c8`: 8 tracking-area failures (issue-23-c4, tracking-sidecar ×4, app-integration ×2, runtime-startup); `tests/tracking/manager.spec.cjs` + `calibration.spec.cjs` fail 16 and never exit; `check-tracking.cjs` needs the staged tracking runtime. An independent review found no high-severity defects; the six lower ones it raised that were real are fixed (attach timeout, startup watchdog, restart/stop race, double close in the refused-attach path, late attach event, auto-consumer retry).
+
+## 2026-11-16: real-card two-consumer run (#95 acceptance, **physical**)
+
+AJ closed Wirecast and authorized the run. `--list-devices`: `busy_flags: 0` before and after. `CaptureService` started the DeckLink build of the helper in `--serve` mode on the UltraStudio Recorder 3G; two consumers attached at once for 20.0 s: a copy-to-Matroska monitor (`auto`) and a Record-only `OutputSessions` session encoding MP4 with the pinned FFmpeg 8.1.3 (`never`). Signal locked, 1080p30, filler 0.
+
+| Consumer | Helper frames out | Dropped (backpressure / units) | File | Decode errors |
+| --- | --- | --- | --- | --- |
+| monitor | 596 | 0 / 0 | rawvideo 1920x1080 30/1, 602 packets, 20.066 s | 0 |
+| session-1 (MP4) | 595 | 0 / 0 | h264 1920x1080 30/1, 601 frames + AAC, 20.055 s | 0 |
+
+Both within ±2 % of 30 fps × duration; `consumersLost: 0`; session ended `stopped`, encoder exit 0; status went `running/locked/ok` throughout. Picture changed across the clip (luma average 108–203, not filler); embedded audio is digital silence on this input (peak -101 dBFS), unchanged from 2026-10-22. Footage deleted after measuring. Report: [2026-11-16-realcard-two-consumers.json](2026-11-16-realcard-two-consumers.json). Still open physically: cable-pull / device-disconnect (#70), embedded audio and lip-sync on a real source.

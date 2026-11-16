@@ -1,0 +1,139 @@
+{
+  "at": "2026-11-16T23:11:57.705Z",
+  "kind": "physical",
+  "device": "UltraStudio Recorder 3G",
+  "seconds": 20,
+  "wallSecondsAttached": 20.028,
+  "statusTransitions": [
+    {
+      "t": 1794870696431,
+      "k": "running/unknown/unknown",
+      "fps": 0
+    },
+    {
+      "t": 1794870697468,
+      "k": "running/locked/ok",
+      "mode": "1080p30",
+      "fps": 6
+    },
+    {
+      "t": 1794870717703,
+      "k": "running/unknown/ok",
+      "mode": "1080p30",
+      "fps": 30
+    },
+    {
+      "t": 1794870717705,
+      "k": "stopped/unknown/ok",
+      "mode": "1080p30",
+      "fps": 30
+    }
+  ],
+  "captureAtStop": {
+    "process": "running",
+    "signal": "locked",
+    "device": "ok",
+    "mode": "1080p30",
+    "fps": 30,
+    "fillerFrames": 0,
+    "consumersLost": 0,
+    "consumers": [
+      {
+        "id": "monitor",
+        "restart": "auto",
+        "state": "attached",
+        "attaches": 1,
+        "framesOut": 596,
+        "droppedBackpressure": 0,
+        "droppedUnits": 0,
+        "queueDepth": 0,
+        "maxBlockMs": 0
+      },
+      {
+        "id": "session-1",
+        "restart": "never",
+        "state": "attached",
+        "attaches": 1,
+        "framesOut": 595,
+        "droppedBackpressure": 0,
+        "droppedUnits": 0,
+        "queueDepth": 0,
+        "maxBlockMs": 0
+      }
+    ]
+  },
+  "session": {
+    "endReason": "stopped",
+    "encoderExit": {
+      "code": 0,
+      "signal": null
+    }
+  },
+  "monitor": {
+    "probe": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "codec_name": "rawvideo",
+          "width": 1920,
+          "height": 1080,
+          "r_frame_rate": "30/1",
+          "nb_read_packets": "602"
+        },
+        {
+          "codec_name": "pcm_s32le",
+          "r_frame_rate": "0/0",
+          "nb_read_packets": "602"
+        }
+      ],
+      "format": {
+        "duration": "20.066000"
+      }
+    },
+    "decodeErrors": ""
+  },
+  "recording": {
+    "probe": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "codec_name": "h264",
+          "width": 1920,
+          "height": 1080,
+          "r_frame_rate": "30/1",
+          "nb_read_packets": "601"
+        },
+        {
+          "codec_name": "aac",
+          "r_frame_rate": "0/0",
+          "nb_read_packets": "941"
+        }
+      ],
+      "format": {
+        "duration": "20.054688"
+      }
+    },
+    "decodeErrors": ""
+  },
+  "log": [],
+  "pictureCheck": {
+    "yavgEvery150Frames": [
+      141.154,
+      141.176,
+      194.155,
+      203.202,
+      108.083
+    ],
+    "audioPeakDbfs": -101.09,
+    "note": "changing picture (not filler/black); embedded audio is digital silence on this input, as on 2026-10-22. Footage deleted after measuring, never committed."
+  },
+  "preconditions": {
+    "wirecastRunning": false,
+    "busyFlagsBefore": 0,
+    "busyFlagsAfter": 0,
+    "authorizedBy": "AJ (\"Wirecast is closed\")",
+    "ffmpeg": "pinned 8.1.3 (sha256 5a9ff1ef\u2026f057)"
+  }
+}
