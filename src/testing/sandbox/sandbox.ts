@@ -1,4 +1,4 @@
-import { spawn, ChildProcess } from 'child_process';
+import { execFileSync, spawn, ChildProcess } from 'child_process';
 import { WebSocket } from 'ws';
 import fs from 'fs';
 import path from 'path';
@@ -127,7 +127,11 @@ async function selfTest(): Promise<number> {
   prepareRunDir();
   const fakes = await startFakes(0);
   // The self-test's app has the fake program feed (no capture card here, and never a real ffmpeg capture in a test).
-  const selfTestEnv = { CAMCONTROL_FAKE_PROGRAM: '1' };
+  // #96: when the synthetic capture helper builds and an FFmpeg exists, they stand in for the card (program capture is
+  // off until the block below switches it on; the synthetic source loses its signal 6-10 s after each helper start).
+  const captureFfmpeg = process.env.BROADCAST_FFMPEG || ['/opt/homebrew/bin/ffmpeg', '/usr/local/bin/ffmpeg'].find((f) => fs.existsSync(f));
+  const captureHelper = (() => { try { execFileSync('make', ['-s', '-C', path.join(root, 'native/decklink-capture'), 'BUILD=build-test'], { stdio: 'ignore' }); return path.join(root, 'native/decklink-capture/build-test/camcontrol-capture'); } catch { return undefined; } })();
+  const selfTestEnv = { CAMCONTROL_FAKE_PROGRAM: '1', ...(captureHelper && captureFfmpeg ? { CAMCONTROL_CAPTURE_SYNTHETIC: '1', CAMCONTROL_CAPTURE_SYNTHETIC_LOSS: '6:4:nosignal', CAMCONTROL_CAPTURE_BIN: captureHelper, BROADCAST_FFMPEG: captureFfmpeg } : {}) };
   let app = startApp(selfTestEnv);
   const base = `http://127.0.0.1:${APP_PORT}`;
   const control = `http://127.0.0.1:${SONY_PORT}/__sandbox`;
@@ -963,6 +967,26 @@ async function selfTest(): Promise<number> {
       const off = await put('/api/program', { enabled: false });
       check('program feed: the desk switches it off again and frames stop (409)', off.status === 200 && off.body.enabled === false && (await api('/api/program/frame')).status === 409);
       await post('/api/remote/enabled', { enabled: false });
+    }
+
+    // ---- #96: PGM from the shared program capture (synthetic helper + FFmpeg monitor), no signal said plainly.
+    if (captureHelper && captureFfmpeg) {
+      const on = await put('/api/streaming/capture', { enabled: true });
+      check('program capture: the desk switches it on (sandbox config only)', on.status === 200 && on.body.programCapture?.enabled === true);
+      const jpeg = await waitFor('a program frame from the capture', async () => { const f = await api('/api/program/frame'); return f.status === 200 && f.type.includes('image/jpeg') ? f : undefined; }, 15000).catch(() => undefined);
+      const ps = await api('/api/program/status');
+      check('program capture: PGM frames are JPEGs from the capture monitor (status kind capture)', !!jpeg && ps.body.kind === 'capture' && ps.body.enabled === true);
+      const lost = await waitFor('the synthetic signal loss', async () => { const f = await api('/api/program/frame'); return f.status === 503 ? f : undefined; }, 15000).catch(() => undefined);
+      check('program capture: no signal is a 503 with the reason, not a frozen frame', lost?.body?.error === 'No signal on the capture card', JSON.stringify(lost?.body));
+      check('program capture: the PGM status says so too', (await api('/api/program/status')).body.error === 'No signal on the capture card');
+      check('program capture: frames return with the signal', !!(await waitFor('frames again', async () => (await api('/api/program/frame')).status === 200, 15000).catch(() => undefined)));
+      const desk = await api('/');
+      check('program capture: the desk page has the program picture', typeof desk.body === 'string' && desk.body.includes('id="program-preview"'));
+      const offAgain = await put('/api/streaming/capture', { enabled: false });
+      const after = await api('/api/program/status');
+      check('program capture: switched off, the PGM feed is the legacy one again (off: 409)', offAgain.status === 200 && after.body.kind !== 'capture' && after.body.enabled === false && (await api('/api/program/frame')).status === 409);
+    } else {
+      console.log('  - program capture checks skipped: no capture helper build or no FFmpeg on this machine');
     }
   } catch (error) {
     check('the self-test ran to completion', false, String(error instanceof Error ? error.message : error));

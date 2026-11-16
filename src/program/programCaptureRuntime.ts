@@ -4,11 +4,14 @@ import type { OutputSessions } from '../broadcast/outputSession';
 import type { ProgramCaptureConfig } from '../broadcast/streamingConfig';
 import { getResourcePath } from '../config/paths';
 import type { CaptureService } from './captureService';
+import type { ProgramMonitor } from './programMonitor';
 
 /** The running capture service and output sessions of one app instance (never serialized; status goes through AppState). */
 export interface ProgramCaptureRuntime {
   capture: CaptureService;
   sessions: OutputSessions;
+  /** The always-on monitor encoder feeding the PGM previews (#96). */
+  monitor?: ProgramMonitor;
   /** Apply new programCapture settings: restart the service, or stop it when disabled. Refused while a session runs. */
   applyCapture(cfg: ProgramCaptureConfig): Promise<void>;
 }

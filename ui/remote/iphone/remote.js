@@ -486,13 +486,16 @@
       n.img.alt = 'Live view of ' + pane.label;
       if (n.img.hidden) n.img.hidden = false;
       // An overlay at the foot of the picture: nothing changes size when the feed drops.
-      n.note.textContent = pane.programOffline ? 'Program feed offline — showing camera' : '';
+      n.note.textContent = pane.programOffline ? 'Program feed offline' + (programFrame.error ? ': ' + programFrame.error : '') + ' — showing camera' : '';
       n.note.className = 'pane-note' + (pane.programOffline ? ' feed-off' : '');
       return;
     }
     n.img.hidden = true;
     var text, cls = '';
-    if (!pane.rigId) text = pane.healthText || 'No camera';
+    // The program feed is on but has no picture and there is no camera picture to fall back to: say why (no signal,
+    // capture down) rather than the rig's own text.
+    if (pane.programOffline) { text = 'Program feed offline' + (programFrame.error ? ': ' + programFrame.error : ''); cls = 'check'; }
+    else if (!pane.rigId) text = pane.healthText || 'No camera';
     else if (!pane.wantsPicture) { text = pane.healthText; cls = pane.healthLevel; }
     else if (f && f.error) { text = f.error; cls = 'check'; }
     else text = 'Waiting for picture…';
@@ -504,6 +507,7 @@
     if (!nodes.pvw) { buildPane(el.paneEls.pvw, 'pvw', true); buildPane(el.paneEls.pgm, 'pgm', true); nodes.pvw.note.textContent = nodes.pgm.note.textContent = 'Waiting for the camera list…'; }
     if (!status || !rigs || !cameras.length) return;
     var programOn = !!(programStatus && programStatus.enabled);
+    document.documentElement.dataset.programFeed = programOn ? 'on' : 'off';   // phone All cameras shows the PGM pane then
     programFrame.wanted = programOn;
     if (programOn && !programFrame.running) runProgramLoop();
     plan = M.multiviewPlan(cameras, status, rigs, programOn ? programFresh() : null);
@@ -578,7 +582,8 @@
       if (document.hidden) { setTimeout(step, 500); return; }
       var base = Math.round(1000 / ((programStatus && programStatus.fps) || 10));
       fetch('/api/program/frame?t=' + Date.now(), { cache: 'no-store' })
-        .then(function (r) { if (r.ok) return r.blob(); throw new Error('HTTP ' + r.status); })
+        // The server says why there is no picture (no signal, capture down): drop the old one at once and show the reason.
+        .then(function (r) { if (r.ok) return r.blob(); return r.json().catch(function () { return {}; }).then(function (j) { var e = new Error(j.error || ('HTTP ' + r.status)); e.fromServer = true; throw e; }); })
         .then(function (blob) {
           var old = f.url, was = programFresh();
           f.url = URL.createObjectURL(blob); f.at = Date.now(); f.error = '';
@@ -586,7 +591,7 @@
           if (old) setTimeout(function () { URL.revokeObjectURL(old); }, 1500);
           if (!was) renderMultiview(); else if (plan && nodes.pgm) updatePaneMedia(nodes.pgm, plan.pgm);
         })
-        .catch(function (e) { f.error = e && e.message; f.delay = M.nextFrameDelay(f.delay, false, base); })
+        .catch(function (e) { f.error = e && e.message; if (e && e.fromServer && f.at) { f.at = 0; renderMultiview(); } f.delay = M.nextFrameDelay(f.delay, false, base); })
         .then(function () { setTimeout(step, f.delay); });
     })();
   }
@@ -1157,6 +1162,11 @@
       var st = r[0], devices = r[1].devices || [];
       programStatus = st;
       showProgramMode(!!st.enabled);
+      if (st.kind === 'capture') {   // program capture (set on the desk Mac) feeds PGM; there is nothing to choose here
+        programEls.row.hidden = true;
+        programSay(st.error ? 'Program capture: ' + st.error : 'Live program from program capture.', !!st.error);
+        return;
+      }
       programEls.select.textContent = '';
       var none = document.createElement('option'); none.value = ''; none.textContent = devices.length ? 'Choose a capture device…' : 'No capture devices found';
       programEls.select.appendChild(none);

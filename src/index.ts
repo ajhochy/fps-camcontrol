@@ -38,6 +38,7 @@ import { CaptureService } from './program/captureService';
 import { OutputSessions } from './broadcast/outputSession';
 import type { ProgramCaptureConfig } from './broadcast/streamingConfig';
 import { registerProgramCapture, resolveBroadcastFfmpeg } from './program/programCaptureRuntime';
+import { ProgramMonitor } from './program/programMonitor';
 
 export interface ApplicationLifecycle {
   server: ReturnType<typeof startStatusServer>;
@@ -75,19 +76,29 @@ export async function startApplication(
   // sessions attach to it. A suspended-input instance (the second Electron variant) never starts it: two owners of one
   // card must never exist.
   const captureLog = (level: 'info' | 'warn', msg: string, extra?: Record<string, unknown>) => logger[level](extra ?? {}, msg);
-  const captureOptions = (c: ProgramCaptureConfig) => ({ helperOptions: { device: c.device ?? undefined, mode: c.mode, queueFrames: c.queueFrames }, stallMs: c.stallMs, log: captureLog });
+  // Development/test only (the sandbox): the synthetic helper (bars + tone, optional signal loss) stands in for the card.
+  // An installed app (CAMCONTROL_RESOURCES set) ignores it.
+  const syntheticCapture = process.env.CAMCONTROL_CAPTURE_SYNTHETIC === '1' && !process.env.CAMCONTROL_RESOURCES
+    ? { synthetic: true, syntheticLoss: process.env.CAMCONTROL_CAPTURE_SYNTHETIC_LOSS || undefined } : {};
+  const captureOptions = (c: ProgramCaptureConfig) => ({ helperOptions: { device: c.device ?? undefined, mode: c.mode, queueFrames: c.queueFrames, ...syntheticCapture }, stallMs: c.stallMs, log: captureLog });
   const capture = new CaptureService(captureOptions(config.programCapture!));
   const sessions = new OutputSessions(capture, { ffmpeg: resolveBroadcastFfmpeg, log: captureLog });
+  // The PGM previews (desk, iPad, phone) come from this monitor encoder while capture is on (#96); fps/width are the
+  // existing program-preview settings.
+  const monitor = new ProgramMonitor(capture, { ffmpeg: resolveBroadcastFfmpeg, fps: config.program!.fps, width: config.program!.width });
   capture.on('status', (s) => { state.programCapture = capture.enabled ? s : null; state.outputSession = sessions.status(); });
   registerProgramCapture(state, {
-    capture, sessions,
+    capture, sessions, monitor,
     applyCapture: async (c) => {
       if (sessions.running()) throw new Error('A session is running');
-      if (c.enabled && !controlsPaused) await capture.restart(captureOptions(c)); else await capture.stop();
+      if (c.enabled && !controlsPaused) { await capture.restart(captureOptions(c)); monitor.start(); } else await capture.stop();
       state.programCapture = capture.enabled ? capture.status() : null;
     },
   });
-  if (config.programCapture!.enabled && !controlsPaused) capture.start();
+  if (config.programCapture!.enabled && !controlsPaused) {
+    capture.start(); monitor.start();
+    if (!resolveBroadcastFfmpeg()) logger.warn('program capture is on but no streaming FFmpeg runtime is installed: no PGM preview and no recording');
+  }
   else state.programCapture = null;
 
   // Step 1: Connect to ATEM

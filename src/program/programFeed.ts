@@ -1,5 +1,6 @@
 import { ChildProcess, spawn } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 
 /**
  * The switcher's PROGRAM output, captured on this Mac and shown in the iPad's PGM pane (docs/program-feed.md).
@@ -7,16 +8,26 @@ import fs from 'node:fs';
  * Started lazily on the first frame request, stopped after 15 s without one, restarted with backoff (1 s → 30 s)
  * while it is wanted, and killed with the app. CAMCONTROL_FAKE_PROGRAM=1 (the interactive sandbox) synthesises
  * an SVG test frame instead and never spawns anything.
+ *
+ * When program capture is on (#95/#96) none of that runs: frames come from the shared capture's monitor encoder
+ * (`captureSource`, kind 'capture'). The ffmpeg paths are legacy: on macOS 26 FFmpeg cannot open a Blackmagic card at
+ * all (no shippable DeckLink FFmpeg, DeckLink's CMIO/DAL plug-in is not loaded), so those devices are refused with a
+ * reason; other AVFoundation devices (USB capture sticks) still work.
  */
-export type ProgramKind = 'avfoundation' | 'decklink';
-export interface ProgramConfig { enabled: boolean; input: string | null; kind: ProgramKind | null; formatCode: string | null; fps: number; width: number; ffmpegPath: string }
-export interface ProgramDevice { index: number; name: string; kind: ProgramKind }
+export type ProgramKind = 'avfoundation' | 'decklink' | 'capture';
+/** The shared capture's monitor (ProgramMonitor), as the feed sees it. */
+export interface CaptureFrameSource { readonly fps: number; frame(): ProgramFrame | null; status(): { running: boolean; lastFrameAgoMs: number | null; error: string | null } }
+export interface ProgramConfig { enabled: boolean; input: string | null; kind: Exclude<ProgramKind, 'capture'> | null; formatCode: string | null; fps: number; width: number; ffmpegPath: string }
+export interface ProgramDevice { index: number; name: string; kind: Exclude<ProgramKind, 'capture'> }
 export interface ProgramFrame { body: Buffer; type: string; at: number }
 export interface ProgramStatus { enabled: boolean; device: string | null; kind: ProgramKind | null; running: boolean; fps: number; lastFrameAgoMs: number | null; error: string | null }
 export const PROGRAM_DEFAULTS: ProgramConfig = { enabled: false, input: null, kind: null, formatCode: null, fps: 10, width: 960, ffmpegPath: 'ffmpeg' };
 
 const IDLE_MS = 15000, FRAME_WAIT_MS = 4000, LIST_CACHE_MS = 10000, BACKOFF_MIN = 1000, BACKOFF_MAX = 30000;
 const BLACKMAGIC = /decklink|ultrastudio|intensity|blackmagic/i;
+/** macOS 26 = Darwin 25: no FFmpeg path to a Blackmagic card exists there. */
+export const legacyCardUnsupported = (release = os.release()): boolean => os.platform() === 'darwin' && Number(release.split('.')[0]) >= 25;
+export const LEGACY_CARD_MESSAGE = 'Not supported on this macOS: FFmpeg cannot open Blackmagic capture cards here. Turn on program capture instead (devices.yaml programCapture).';
 const SOI = Buffer.from([0xff, 0xd8]), EOI = Buffer.from([0xff, 0xd9]);
 
 /** Splits an MJPEG byte stream (concatenated JPEGs, FFD8 … FFD9) into whole frames, across chunk boundaries. */
@@ -110,6 +121,8 @@ function probe(bin: string, args: string[]): Promise<string> {
 export class ProgramFeed {
   /** True while the always-on program capture owns the capture card (set by the app; default: never). */
   cardOwned: () => boolean = () => false;
+  /** The shared capture's monitor while program capture is on (set by the app); undefined = the legacy ffmpeg paths. */
+  captureSource: () => CaptureFrameSource | undefined = () => undefined;
   private child: ChildProcess | null = null;
   private latest: ProgramFrame | null = null;
   private lastAsked = 0;
@@ -170,6 +183,8 @@ export class ProgramFeed {
   }
 
   status(): ProgramStatus {
+    const src = this.captureSource();
+    if (src) { const s = src.status(); return { enabled: true, device: 'Program capture', kind: 'capture', running: s.running, fps: src.fps, lastFrameAgoMs: s.lastFrameAgoMs, error: s.error }; }
     return {
       enabled: this.cfg.enabled,
       device: this.fake ? 'Fake program capture' : this.device?.name ?? this.cfg.input,
@@ -183,6 +198,12 @@ export class ProgramFeed {
 
   /** The latest frame no older than 4 s, waiting up to 4 s for one (and starting ffmpeg if it is down). null = none. */
   async frame(): Promise<ProgramFrame | null> {
+    const src = this.captureSource();
+    if (src) {
+      // Only a just-started monitor is worth a short wait; no signal / capture down answers at once (with its reason).
+      for (let i = 0; i < 10 && !src.frame() && /^Waiting/.test(src.status().error ?? ''); i++) await new Promise(r => setTimeout(r, 100));
+      return src.frame();
+    }
     if (!this.cfg.enabled) return null;
     if (this.fake) { const s = this.fake(); return { body: Buffer.from(fakeProgramSvg(s.cameraLabel, s.lowerThird)), type: 'image/svg+xml', at: Date.now() }; }
     this.lastAsked = Date.now();
@@ -208,6 +229,7 @@ export class ProgramFeed {
       // Matched by name at every (re)start: AVFoundation indices shift when a camera is plugged in.
       const found = matchDevice(await this.devices(), named);
       const kind: ProgramKind = this.cfg.kind ?? found?.kind ?? (BLACKMAGIC.test(named) ? 'decklink' : 'avfoundation');
+      if (kind === 'decklink' && legacyCardUnsupported() && !this.cardOwned()) { this.error = LEGACY_CARD_MESSAGE; return; }
       if (kind === 'decklink' && !(await this.hasDecklink())) {
         // No restart loop: nothing changes until ffmpegPath does.
         this.error = `ffmpeg at ${bin} has no DeckLink support — build it with --enable-decklink (see docs/program-feed.md)`;
@@ -217,6 +239,7 @@ export class ProgramFeed {
       if (!device) { this.error = `No ${kind === 'decklink' ? 'DeckLink' : 'AVFoundation'} capture device matches "${named}"`; this.scheduleRestart(); return; }
       // The card has ONE opener (#70/#95): while program capture owns it, this preview must not open it a second time.
       if ((kind === 'decklink' || BLACKMAGIC.test(device.name)) && this.cardOwned()) { this.error = 'The capture card is in use by program capture; this preview cannot open it as well'; return; }
+      if ((kind === 'decklink' || BLACKMAGIC.test(device.name)) && legacyCardUnsupported()) { this.error = LEGACY_CARD_MESSAGE; return; }
       this.device = device;
       const out = ['-vf', `fps=${this.cfg.fps},scale=${this.cfg.width}:-2`, '-q:v', '5', '-f', 'mjpeg', 'pipe:1'];
       this.spawnCapture(bin, kind === 'decklink'

@@ -4,6 +4,7 @@ import { loadConfig, type AppConfig } from '../config/configLoader';
 import { PROGRAM_DEFAULTS, ProgramFeed, type ProgramConfig } from '../program/programFeed';
 import type { AppState } from '../app/state';
 import { lockedBySession } from './streamingRoutes';
+import { programCaptureFor } from '../program/programCaptureRuntime';
 
 const putBody = z.object({
   enabled: z.boolean().optional(),
@@ -19,6 +20,8 @@ export function programFeedFor(config: AppConfig, state: AppState): ProgramFeed 
   }) : undefined;
   const feed = new ProgramFeed(config.program ?? PROGRAM_DEFAULTS, fake);
   feed.cardOwned = () => !!config.programCapture?.enabled;
+  // While program capture is on, the PGM picture comes from its monitor encoder (#96), not from a second opener.
+  feed.captureSource = () => (config.programCapture?.enabled ? programCaptureFor(state)?.monitor : undefined);
   return feed;
 }
 
@@ -31,7 +34,7 @@ export function installProgramRoutes(app: Express, config: AppConfig, feed: Prog
   app.get('/api/program/devices', (_req, res) => { void feed.devices().then(devices => res.json({ devices })).catch(() => res.json({ devices: [] })); });
   app.get('/api/program/formats', (_req, res) => { void feed.formats().then(formats => res.json({ formats })).catch(() => res.json({ formats: [] })); });
   app.get('/api/program/frame', (_req, res) => {
-    if (!(config.program ?? PROGRAM_DEFAULTS).enabled) { res.status(409).json({ error: 'The program feed is off' }); return; }
+    if (!feed.status().enabled) { res.status(409).json({ error: 'The program feed is off' }); return; }
     void feed.frame().then(frame => {
       if (!frame) { res.status(503).json({ error: feed.status().error ?? 'No program picture yet' }); return; }
       res.set({ 'Content-Type': frame.type, 'Cache-Control': 'no-store' }).send(frame.body);
